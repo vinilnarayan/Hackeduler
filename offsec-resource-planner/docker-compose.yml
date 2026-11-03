@@ -1,0 +1,62 @@
+# Local / evaluation deployment. For production: put TLS in front of `frontend`,
+# set strong secrets in .env, ORP_ENVIRONMENT=production, ORP_COOKIE_SECURE=true, ORP_SEED=none.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-orp}
+      POSTGRES_USER: ${POSTGRES_USER:-orp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orp} -d ${POSTGRES_DB:-orp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    command: ["api"]
+    env_file: .env
+    environment:
+      ORP_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-orp}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-orp}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    command: ["worker"]
+    env_file: .env
+    environment:
+      ORP_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-orp}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-orp}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${ORP_HTTP_PORT:-8080}:8080"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Development mail catcher - view sent notifications at http://localhost:8025. Remove in production.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"
+    profiles: ["dev"]
+
+volumes:
+  pgdata:
