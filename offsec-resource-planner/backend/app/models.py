@@ -55,11 +55,14 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(Text)
     full_name: Mapped[str] = mapped_column(Text)
-    password_hash: Mapped[str] = mapped_column(Text)
+    password_hash: Mapped[str | None] = mapped_column(Text)
     role_id: Mapped[int] = mapped_column(SmallInteger, ForeignKey("roles.id"))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     token_version: Mapped[int] = mapped_column(Integer, default=0)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sso_provider_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sso_providers.id", ondelete="SET NULL"))
+    sso_subject: Mapped[str | None] = mapped_column(Text)
+    last_login_method: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -72,6 +75,47 @@ class User(Base):
     @property
     def is_admin(self) -> bool:
         return self.role_id == ROLE_ADMIN_ID
+
+
+class SSOProvider(Base):
+    """An OpenID Connect identity provider configured by an admin. The client secret is stored encrypted."""
+    __tablename__ = "sso_providers"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    slug: Mapped[str] = mapped_column(Text, unique=True)
+    display_name: Mapped[str] = mapped_column(Text)
+    provider_type: Mapped[str] = mapped_column(Text, default="generic")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    issuer: Mapped[str] = mapped_column(Text)
+    discovery_url: Mapped[str | None] = mapped_column(Text)
+    authorization_endpoint: Mapped[str | None] = mapped_column(Text)
+    token_endpoint: Mapped[str | None] = mapped_column(Text)
+    jwks_uri: Mapped[str | None] = mapped_column(Text)
+    userinfo_endpoint: Mapped[str | None] = mapped_column(Text)
+    end_session_endpoint: Mapped[str | None] = mapped_column(Text)
+    client_id: Mapped[str] = mapped_column(Text)
+    client_secret_encrypted: Mapped[str | None] = mapped_column(Text)
+    token_auth_method: Mapped[str] = mapped_column(Text, default="client_secret_post")
+    scopes: Mapped[str] = mapped_column(Text, default="openid email profile")
+    extra_auth_params: Mapped[Any] = mapped_column(JSONType, default=dict)
+    use_pkce: Mapped[bool] = mapped_column(Boolean, default=True)
+    fetch_userinfo: Mapped[bool] = mapped_column(Boolean, default=False)
+    rp_initiated_logout: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_claim: Mapped[str] = mapped_column(Text, default="email")
+    name_claim: Mapped[str] = mapped_column(Text, default="name")
+    groups_claim: Mapped[str] = mapped_column(Text, default="groups")
+    admin_groups: Mapped[Any] = mapped_column(JSONType, default=list)
+    requester_groups: Mapped[Any] = mapped_column(JSONType, default=list)
+    allowed_email_domains: Mapped[Any] = mapped_column(JSONType, default=list)
+    auto_provision: Mapped[bool] = mapped_column(Boolean, default=True)
+    default_role: Mapped[str] = mapped_column(Text, default="requester")
+    sync_role_on_login: Mapped[bool] = mapped_column(Boolean, default=True)
+    link_existing_by_email: Mapped[bool] = mapped_column(Boolean, default=True)
+    clock_skew_seconds: Mapped[int] = mapped_column(Integer, default=120)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_test_ok: Mapped[bool | None] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class SecurityResource(Base):

@@ -33,7 +33,7 @@ PASSWORD = "Str0ng!Password"
 MON = date(2027, 3, 1)  # a Monday comfortably in the future
 TABLES = ("application_settings, email_notification_logs, email_templates, booking_conflicts, audit_logs, "
           "booking_change_requests, booking_resource_locks, booking_status_history, bookings, resource_leaves, "
-          "holidays, activity_types, security_resources, users")
+          "holidays, activity_types, security_resources, users, sso_providers")
 
 
 @pytest.fixture(scope="session", autouse=True)

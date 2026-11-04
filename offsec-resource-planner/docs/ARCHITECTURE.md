@@ -48,7 +48,7 @@ decides authorisation. Hiding admin UI from requesters is a usability measure on
 | **Approval revalidation** | On approval the server recomputes the working-day schedule against the *current* calendar. If it no longer matches the reserved dates (for example, a holiday was added) or overlaps another allocation, approval is blocked with an explanation. The admin can **Modify → Recalculate** and then approve, or Force Allocate. |
 | **Admin-created bookings** | These are created as Approved by default (Pending is optional), with `source='admin'`. Admins can override the duration or set an explicit end date. In that case the booking reserves every eligible day in `[start, end]`. |
 | **Inactive resources** | They are excluded from new requester bookings and from preview. Existing bookings stay as they are and are flagged `inactive_resource`. Resource identifiers are sequence-based (`RES-NN` / `Resource NN`), never reused, and resources are never deleted. |
-| **Authentication** | No enterprise SSO is available in this environment, so the app uses secure local authentication: argon2id hashes, a signed HttpOnly SameSite=Lax cookie, and server-side revocation via `token_version`. An OIDC integration point is described in `OPERATIONS.md`. |
+| **Authentication** | OpenID Connect SSO (Authorization Code + PKCE), configured by admins in the UI, plus optional local passwords (argon2id). Password sign-in can be allowed for everyone, restricted to admins (break-glass), or disabled. Both methods issue the same signed HttpOnly session cookie. See `SSO.md`. |
 | **Email** | Plain-text emails only, using whitelist-based `{{Variable}}` substitution. Nothing in a template is evaluated, so templates can't inject markup or code. |
 
 ### Scheduling edge cases handled
@@ -164,6 +164,7 @@ a booking, and a committed change never loses its notification.
 | Control | Implementation |
 |---|---|
 | Passwords | argon2id (`argon2-cffi`). Policy: ≥12 chars with 3 character classes. Timing-equalised verification for unknown users. |
+| SSO | OIDC Authorization Code + PKCE (S256); `state` and `nonce` in an encrypted 10-minute HttpOnly cookie; ID-token signature checked via JWKS (asymmetric algorithms only); `iss`/`aud`/`exp`/`iat`/`nonce`/`azp` validated; client secret encrypted at rest and write-only in the API; no open redirects; email-linking can't take over an already-linked account; last active admin can't be demoted by group sync |
 | Sessions | HS256-signed token in an `HttpOnly; SameSite=Lax; Secure` (prod) cookie, 8 h expiry, revoked server-side via `token_version` on logout, password change, role change or deactivation |
 | CSRF | Double-submit token. The header must match both the cookie and the value bound inside the signed session |
 | Rate limiting | Per-IP global limit plus per-IP and per-account login limits (in-process; use a shared store for multi-instance) |

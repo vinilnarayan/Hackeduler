@@ -32,6 +32,17 @@ schema is at `/api/openapi.json`.
 | GET | `/api/auth/me` | Current user + CSRF token |
 | POST | `/api/auth/change-password` | `{current_password, new_password}` |
 
+## Single sign-on (public)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/auth/sso/providers` | Enabled providers `{slug, display_name, provider_type}`, `local_login_mode`, `auto_redirect` |
+| GET | `/api/auth/sso/{slug}/login[?next=/path]` | 302 to the IdP (sets the encrypted `orp_sso_tx` cookie) |
+| GET | `/api/auth/sso/{slug}/callback` | Redirect URI to register at the IdP. On success: session cookies + 302 to `next`; on failure: 302 to `/login?sso_error=<code>` |
+
+`POST /api/auth/login` returns **403 `local_login_disabled`** when the password policy forbids it.
+`POST /api/auth/logout` returns `sso_logout_url` when the provider has single logout enabled.
+
 ## Requester (any authenticated user)
 
 | Method | Path | Description |
@@ -146,6 +157,19 @@ the slot was taken.
 | POST | `/api/admin/email-templates/{key}/preview` | Render with sample data |
 | GET | `/api/admin/email-logs?status&booking_id&recipient` | Delivery log |
 | POST | `/api/admin/email-logs/{id}/retry` | Requeue |
+
+### Single sign-on administration
+
+| Method | Path | Description |
+|---|---|---|
+| GET/PUT | `/api/admin/sso/settings` | `local_login_mode` (`all`/`admins_only`/`disabled`), `public_base_url`, `sso_auto_redirect` (with lockout safeguards) |
+| GET | `/api/admin/sso/presets` | Defaults and set-up help for Entra ID, Okta, Google, Keycloak, Generic |
+| GET/POST | `/api/admin/sso/providers` | List / create (created disabled). `client_secret` is write-only; responses expose `has_client_secret` and `redirect_uri` |
+| GET/PATCH/DELETE | `/api/admin/sso/providers/{id}` | Edit (`client_secret` to replace, `clear_client_secret` to remove), enable/disable, delete (unlinks users) |
+| POST | `/api/admin/sso/providers/{id}/test` | Checks discovery, issuer, JWKS, algorithms, PKCE support, secret |
+
+`POST /api/admin/users` accepts no `password` to create an SSO-only account. `PATCH /api/admin/users/{id}` also
+accepts `remove_password` and `unlink_sso`.
 
 ### Reports
 

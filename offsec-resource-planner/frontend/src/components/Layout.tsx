@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
   AlertTriangle, BarChart3, CalendarDays, CalendarPlus, ClipboardList, FileClock, GitPullRequestArrow, LogOut, Mail, Menu,
-  PartyPopper, Plane, Settings, ShieldCheck, SlidersHorizontal, Users, UserCog, X, LayoutDashboard, ListChecks,
+  PartyPopper, Plane, Settings, ShieldCheck, Fingerprint, SlidersHorizontal, Users, UserCog, X, LayoutDashboard, ListChecks,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -36,6 +36,7 @@ const ADMIN_NAV: { section: string; items: NavItem[] }[] = [
     { to: '/admin/audit', label: 'Audit Log', icon: <FileClock className="h-4 w-4" /> },
     { to: '/admin/email', label: 'Email & Templates', icon: <Mail className="h-4 w-4" /> },
     { to: '/admin/users', label: 'Users', icon: <Users className="h-4 w-4" /> },
+    { to: '/admin/sso', label: 'Single Sign-On', icon: <Fingerprint className="h-4 w-4" /> },
     { to: '/admin/settings', label: 'Settings', icon: <Settings className="h-4 w-4" /> },
   ] },
 ]

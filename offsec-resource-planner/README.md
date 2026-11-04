@@ -3,7 +3,9 @@
 Internal web application for managing an Offensive Security team's capacity: anonymous, colour-coded resource
 availability for requesters; working-day based slot calculation; pending reservations with database-level locking;
 admin approval, leave, holidays, conflict management, admin-only **Force Allocate**, an immutable audit trail and
-email notifications.
+email notifications. Users sign in with **single sign-on (OpenID Connect: Microsoft Entra ID, Okta, Google
+Workspace, Keycloak, or any OIDC provider)** and/or local passwords. Everything is configured under
+**Admin → Single Sign-On**.
 
 | Layer | Technology |
 |---|---|
@@ -18,7 +20,8 @@ Documentation:
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) – architecture, assumptions & edge cases, the availability and locking strategy, how Force Allocate is restricted to admins
 - [`docs/DATABASE.md`](docs/DATABASE.md) – schema, constraints and indexes
 - [`docs/API.md`](docs/API.md) – REST API reference (interactive OpenAPI docs are at `/api/docs`)
-- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) – deployment, configuration, email, backups, the conflict resolution workflow, SSO
+- [`docs/SSO.md`](docs/SSO.md) – single sign-on set-up (Entra ID, Okta, Google, Keycloak), role mapping, sign-in policy, break-glass
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) – deployment, configuration, email, backups, the conflict resolution workflow
 
 ---
 
@@ -90,7 +93,9 @@ npm test
 npm run typecheck
 ```
 
-The backend suite has 85 tests: working-day engine unit tests, API integration tests, concurrent booking races
+The backend suite has 130 tests, including 45 SSO tests against an in-process fake identity provider (signature,
+issuer, audience, expiry, nonce, state, PKCE, algorithm confusion, key rotation, group and domain restrictions,
+account-linking takeover protection, sign-in policy and lockout protection). It also covers: working-day engine unit tests, API integration tests, concurrent booking races
 (8 threads at the service layer and 6 parallel HTTP clients), RBAC and IDOR tests, Force Allocate restrictions,
 audit immutability, email outbox failure and retry, and a test for each acceptance criterion. The frontend tests
 cover the Force Allocate dialog gating and the status and colour helpers.
@@ -133,11 +138,13 @@ offsec-resource-planner/
 │   │   │   ├── availability.py      # backend-authoritative availability + calendar grid
 │   │   │   ├── booking_service.py   # lifecycle, locking, Force Allocate
 │   │   │   ├── conflicts.py         # flag/resolve conflicts
+│   │   │   ├── sso.py               # OpenID Connect: discovery, PKCE, token validation, provisioning
+│   │   │   ├── crypto.py            # encryption of stored secrets (SSO client secrets)
 │   │   │   ├── audit.py             # append-only audit writer
 │   │   │   ├── notifications.py     # templates + transactional outbox
 │   │   │   ├── email_sender.py      # SMTP delivery with retry
 │   │   │   └── settings_service.py
-│   │   ├── routers/           # auth, requester, admin_config, admin_bookings, admin_reports
+│   │   ├── routers/           # auth, sso, requester, admin_config, admin_bookings, admin_reports
 │   │   ├── worker.py          # background jobs
 │   │   └── seed.py
 │   └── tests/

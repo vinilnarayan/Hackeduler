@@ -8,6 +8,49 @@ export interface User {
   role: Role
   is_active: boolean
   last_login_at?: string | null
+  has_password?: boolean
+  sso_provider_id?: string | null
+  sso_provider_name?: string | null
+  last_login_method?: string | null
+}
+
+export interface SSOProvider {
+  id: string
+  slug: string
+  display_name: string
+  provider_type: 'entra' | 'okta' | 'google' | 'keycloak' | 'generic'
+  enabled: boolean
+  sort_order: number
+  issuer: string
+  discovery_url: string | null
+  authorization_endpoint: string | null
+  token_endpoint: string | null
+  jwks_uri: string | null
+  userinfo_endpoint: string | null
+  end_session_endpoint: string | null
+  client_id: string
+  has_client_secret: boolean
+  token_auth_method: 'client_secret_post' | 'client_secret_basic' | 'none'
+  scopes: string
+  extra_auth_params: Record<string, string>
+  use_pkce: boolean
+  fetch_userinfo: boolean
+  rp_initiated_logout: boolean
+  email_claim: string
+  name_claim: string
+  groups_claim: string
+  admin_groups: string[]
+  requester_groups: string[]
+  allowed_email_domains: string[]
+  auto_provision: boolean
+  default_role: 'requester' | 'admin'
+  sync_role_on_login: boolean
+  link_existing_by_email: boolean
+  clock_skew_seconds: number
+  redirect_uri: string
+  last_tested_at: string | null
+  last_test_ok: boolean | null
+  linked_users: number
 }
 
 export interface ResourcePublic {

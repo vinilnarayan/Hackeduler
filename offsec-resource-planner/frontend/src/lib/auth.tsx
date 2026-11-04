@@ -34,12 +34,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(async () => {
+    let ssoLogout: string | null = null
     try {
-      await post('/api/auth/logout')
+      const r = await post<{ sso_logout_url?: string | null }>('/api/auth/logout')
+      ssoLogout = r?.sso_logout_url ?? null
     } finally {
       setCsrfToken(null)
       setUser(null)
     }
+    // single logout at the identity provider (only https URLs supplied by our backend)
+    if (ssoLogout && /^https:\/\//.test(ssoLogout)) window.location.assign(ssoLogout)
   }, [])
 
   return <Ctx.Provider value={{ user, loading, login, logout }}>{children}</Ctx.Provider>

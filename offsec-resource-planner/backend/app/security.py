@@ -50,16 +50,15 @@ def validate_password_strength(pw: str) -> str | None:
     return None
 
 
-def create_session_token(user_id: uuid.UUID, token_version: int) -> tuple[str, str]:
+def create_session_token(user_id: uuid.UUID, token_version: int, sso: str | None = None) -> tuple[str, str]:
     s = get_settings()
     csrf = secrets.token_urlsafe(32)
     now = int(time.time())
-    token = jwt.encode(
-        {"sub": str(user_id), "tv": token_version, "csrf": csrf, "iat": now, "exp": now + s.session_hours * 3600,
-         "iss": "orp"},
-        s.secret_key, algorithm="HS256",
-    )
-    return token, csrf
+    claims = {"sub": str(user_id), "tv": token_version, "csrf": csrf, "iat": now, "exp": now + s.session_hours * 3600,
+              "iss": "orp", "amr": "sso" if sso else "pwd"}
+    if sso:
+        claims["sso"] = sso
+    return jwt.encode(claims, s.secret_key, algorithm="HS256"), csrf
 
 
 def decode_session_token(token: str) -> dict | None:

@@ -7,6 +7,7 @@
    - `ORP_SECRET_KEY` – random, ≥48 chars (`python -c "import secrets;print(secrets.token_urlsafe(48))"`).
    - `ORP_COOKIE_SECURE=true`.
    - `POSTGRES_PASSWORD`, plus the SMTP settings (`ORP_SMTP_*`; the password only in `ORP_SMTP_PASSWORD`).
+   - `ORP_ENCRYPTION_KEY` – random and stable; encrypts SSO client secrets stored in the database.
    - `ORP_SEED=minimal`. This loads activity types, templates and settings only, with no demo accounts.
    - `ORP_APP_BASE_URL=https://<your host>`.
 2. Terminate **HTTPS** in front of the `frontend` container (corporate load balancer, Traefik, or an nginx 443 block). Don't expose `backend` or `db` directly.
@@ -24,8 +25,8 @@
    db.commit()
    PY
    ```
-5. Sign in, then add the other users, resources (engineers), holidays (CSV/Excel import) and settings: admin
-   notification recipients and sender.
+5. Sign in, configure **Single Sign-On** (see `SSO.md`), then add resources (engineers), holidays (CSV/Excel import) and settings: admin notification recipients and sender.
+   With SSO auto-provisioning, users don't need to be created manually.
 6. Database role hardening: give the application a non-superuser role. See `DATABASE.md` → Immutability.
 
 ### Scaling notes
@@ -109,17 +110,19 @@ The system never moves, cancels or reassigns a booking on its own. To resolve a 
 - Monitor `email_notification_logs` for rows with `status='failed'`, open `booking_conflicts`, and worker logs.
 - Logs never contain passwords, session tokens or SMTP credentials.
 
-## 7. Enterprise SSO (optional integration)
+## 7. Single sign-on
 
-No identity provider was available in this environment, so the application ships with hardened local
-authentication. To integrate OIDC/SAML (Azure AD / Entra ID, Okta, Keycloak):
+SSO is built in and configured entirely under **Admin → Single Sign-On**. See [`SSO.md`](SSO.md) for step-by-step
+provider set-up, role mapping and the break-glass procedure. Operationally:
 
-1. Add an `/api/auth/oidc/callback` route that validates the IdP token (issuer, audience, nonce) with a library
-   such as `authlib`.
-2. Map the IdP user to `users` by email, and map an IdP group claim to the `admin` or `requester` role.
-3. Issue the same session cookie via `create_session_token()`. Everything downstream (CSRF, RBAC, audit) is
-   unchanged.
-4. Optionally disable local password login for non-break-glass accounts.
+- Set `ORP_ENCRYPTION_KEY` (a stable random value) and back it up with the database. It encrypts stored client
+  secrets; if it changes, re-enter the client secrets.
+- Set the **Public application URL** in the SSO screen (or `ORP_APP_BASE_URL`) to the HTTPS address users reach.
+  Redirect URIs are built from it.
+- The backend must be able to reach the IdP over HTTPS (discovery, JWKS, token endpoints). Allow outbound access
+  through any egress proxy.
+- **Break-glass:** if an SSO misconfiguration locks everyone out, set `ORP_FORCE_LOCAL_LOGIN=true`, restart the
+  backend, sign in with a local admin password at `/login?local=1`, fix the configuration, then remove the variable.
 
 ## 8. Upgrading
 

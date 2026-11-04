@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     smtp_ssl: bool = False
     smtp_timeout: int = 15
 
+    # Key used to encrypt secrets stored in the database (SSO client secrets).
+    # If unset it is derived from secret_key; set it explicitly so secret_key can be rotated independently.
+    encryption_key: str = ""
+    # Break-glass: forces local password login ON regardless of the admin "local login" policy
+    # (use if an SSO misconfiguration locks everyone out).
+    force_local_login: bool = False
+    sso_http_timeout: int = 10
+
     worker_interval_seconds: int = 30
     app_base_url: str = "http://localhost:8080"
 

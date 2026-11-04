@@ -54,12 +54,17 @@ class UserOut(ORM):
     role: str
     is_active: bool
     last_login_at: datetime | None = None
+    has_password: bool = True
+    sso_provider_id: uuid.UUID | None = None
+    sso_provider_name: str | None = None
+    last_login_method: str | None = None
 
 
 class UserCreate(Strict):
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=200)
-    password: str = Field(min_length=12, max_length=256)
+    password: str | None = Field(default=None, min_length=12, max_length=256,
+                                 description="Omit to create an SSO-only account (pre-provisioning)")
     role: Literal["admin", "requester"]
 
 
@@ -68,6 +73,8 @@ class UserUpdate(Strict):
     role: Literal["admin", "requester"] | None = None
     is_active: bool | None = None
     password: str | None = Field(default=None, min_length=12, max_length=256)
+    remove_password: bool | None = None
+    unlink_sso: bool | None = None
 
 
 class PasswordChange(Strict):

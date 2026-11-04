@@ -422,25 +422,34 @@ def cancel_leave(leave_id: uuid.UUID, db: Session = Depends(get_db), admin: User
 
 
 # =============================================================== users
+def _users_out(db: Session, users) -> list:
+    from ..models import SSOProvider
+
+    names = {p.id: p.display_name for p in db.scalars(select(SSOProvider)).all()}
+    return [user_out(u, names.get(u.sso_provider_id)) for u in users]
+
+
 @router.get("/users")
 def list_users(db: Session = Depends(get_db)):
-    return [user_out(u) for u in db.scalars(select(User).order_by(User.full_name)).unique().all()]
+    return _users_out(db, db.scalars(select(User).order_by(User.full_name)).unique().all())
 
 
 @router.post("/users", status_code=201)
 def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    err = validate_password_strength(body.password)
-    if err:
-        raise bad_request(err)
+    if body.password:
+        err = validate_password_strength(body.password)
+        if err:
+            raise bad_request(err)
     if db.scalar(select(User.id).where(func.lower(User.email) == body.email.lower())):
         raise conflict("A user with that email already exists.", "duplicate")
-    u = User(id=uuid.uuid4(), email=body.email.lower(), full_name=body.full_name, password_hash=hash_password(body.password),
+    u = User(id=uuid.uuid4(), email=body.email.lower(), full_name=body.full_name,
+             password_hash=hash_password(body.password) if body.password else None,
              role_id=ROLE_ADMIN_ID if body.role == "admin" else ROLE_REQUESTER_ID)
     db.add(u)
     db.flush()
     db.refresh(u)
     audit.record(db, "user.created", admin, entity_type="user", entity_id=u.id,
-                 new={"email": u.email, "full_name": u.full_name, "role": body.role})
+                 new={"email": u.email, "full_name": u.full_name, "role": body.role, "sso_only": not body.password})
     commit(db)
     return user_out(u)
 
@@ -470,15 +479,28 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
             raise bad_request(err)
         u.password_hash = hash_password(data["password"])
         revoke = True
+    elif data.get("remove_password"):
+        if u.id == admin.id:
+            raise bad_request("You cannot remove your own password here.")
+        if u.sso_provider_id is None:
+            raise bad_request("Link the account to SSO before removing its password, or it could never sign in.")
+        u.password_hash = None
+        revoke = True
+    if data.get("unlink_sso"):
+        if u.password_hash is None and not data.get("password"):
+            raise bad_request("Set a password before unlinking SSO, or the account could never sign in.")
+        u.sso_provider_id, u.sso_subject = None, None
+        revoke = True
     if revoke:
         u.token_version += 1
     db.flush()
     db.refresh(u)
     audit.record(db, "user.updated", admin, entity_type="user", entity_id=u.id, previous=prev,
                  new={"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
-                      "password_reset": bool(data.get("password"))})
+                      "password_reset": bool(data.get("password")), "password_removed": bool(data.get("remove_password")),
+                      "sso_unlinked": bool(data.get("unlink_sso"))})
     commit(db)
-    return user_out(u)
+    return _users_out(db, [u])[0]
 
 
 # =============================================================== settings / email
