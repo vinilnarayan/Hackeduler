@@ -13,6 +13,14 @@ from .conftest import booking_payload
 FROM = date(2027, 3, 8)  # Monday; resource unavailable from this date
 
 
+def _today() -> date:
+    db = SessionLocal()
+    try:
+        return settings_service.org_today(db)
+    finally:
+        db.close()
+
+
 def _schedule(admin, data, d=FROM, reason="Engineer moving to another team", idx=0):
     return admin.patch(f"/api/admin/resources/{data['resources'][idx].id}", json={"inactive_from": d.isoformat(), "reason": reason})
 
@@ -75,7 +83,7 @@ def test_existing_bookings_are_flagged_not_changed(admin, req1, data):
 
 
 def test_validation_and_today_means_immediate(admin, data):
-    today = settings_service.org_today(SessionLocal())
+    today = _today()
     assert _schedule(admin, data, d=today - timedelta(days=1)).status_code == 422
     both = admin.patch(f"/api/admin/resources/{data['resources'][0].id}", json={"inactive_from": FROM.isoformat(), "is_active": False})
     assert both.status_code == 422
@@ -124,7 +132,7 @@ def test_reactivation_clears_dates(admin, data):
 def test_immediate_deactivation_keeps_past_history_visible(admin, data):
     rid = data["resources"][0].id
     admin.patch(f"/api/admin/resources/{rid}", json={"is_active": False})
-    today = settings_service.org_today(SessionLocal())
+    today = _today()
     start = today - timedelta(days=3)
     cal = admin.get(f"/api/admin/calendar?start={start.isoformat()}&end={today.isoformat()}").json()
     states = [c["state"] for c in cal["resources"][0]["days"]]
