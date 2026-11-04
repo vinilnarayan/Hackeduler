@@ -130,14 +130,21 @@ def flag_removed_non_working(
     return ids
 
 
-def flag_inactive_resource(db: Session, resource, today: date, actor: User | None) -> list[uuid.UUID]:
+def flag_inactive_resource(db: Session, resource, from_date: date, actor: User | None) -> list[uuid.UUID]:
+    """Flag every active booking on ``resource`` that runs on or after ``from_date`` (the deactivation date).
+
+    Bookings are never moved or cancelled; admins reassign/reschedule via the conflict workflow.
+    """
     q = select(Booking).where(
-        Booking.resource_id == resource.id, Booking.status.in_(BookingStatus.ACTIVE), Booking.end_date >= today
+        Booking.resource_id == resource.id, Booking.status.in_(BookingStatus.ACTIVE), Booking.end_date >= from_date
     )
     ids = []
     for b in db.scalars(q).unique():
-        desc = f"{resource.display_name} was deactivated while this booking is scheduled. Reassign or reschedule the booking."
-        if open_conflict(db, b, "inactive_resource", desc, actor, start=b.start_date, end=b.end_date, source_ref=f"resource:{resource.id}:deactivated"):
+        desc = (f"{resource.display_name} ({resource.engineer_name}) is inactive from {from_date.strftime('%d %b %Y')}, "
+                f"but this booking runs {b.start_date.strftime('%d %b %Y')} – {b.end_date.strftime('%d %b %Y')}. "
+                "The booking has not been changed; reassign it to another resource or reschedule it.")
+        if open_conflict(db, b, "inactive_resource", desc, actor, start=max(b.start_date, from_date), end=b.end_date,
+                         source_ref=f"resource:{resource.id}:inactive:{from_date.isoformat()}"):
             ids.append(b.id)
     return ids
 

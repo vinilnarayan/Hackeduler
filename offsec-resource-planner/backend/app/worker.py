@@ -24,6 +24,8 @@ def run_once() -> dict:
     try:
         result["expired"] = len(booking_service.expire_stale_pending(db))
         db.commit()
+        result["deactivated"] = len(booking_service.apply_scheduled_deactivations(db))
+        db.commit()
         result["completed"] = len(booking_service.complete_past_bookings(db))
         db.commit()
         result["email"] = email_sender.process_outbox(db)
@@ -54,7 +56,7 @@ def main() -> None:
     log.info("worker started (interval %ss)", interval)
     while _running:
         r = run_once()
-        if any(r.get(k) for k in ("expired", "completed")) or (r.get("email") and any(r["email"].values())):
+        if any(r.get(k) for k in ("expired", "completed", "deactivated")) or (r.get("email") and any(r["email"].values())):
             log.info("pass: %s", r)
         for _ in range(interval):
             if not _running:

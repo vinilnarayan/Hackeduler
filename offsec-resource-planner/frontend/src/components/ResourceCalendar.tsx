@@ -145,6 +145,7 @@ export function ResourceCalendar({ mode, activityTypes = [], onCellClick, refres
                       <div className="font-semibold text-slate-800">{r.display_name}</div>
                       {r.engineer_name && <div className="text-[11px] text-slate-500">{r.engineer_name}</div>}
                       {!r.is_active && <div className="text-[10px] font-medium text-slate-400 uppercase">Inactive</div>}
+                      {r.is_active && r.inactive_from && <div className="text-[10px] font-medium text-amber-700">Inactive from {format(parse(r.inactive_from), 'dd MMM yyyy')}</div>}
                     </th>
                     {r.days.map((raw) => {
                       const c = visibleCell(raw)

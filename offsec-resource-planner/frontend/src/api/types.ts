@@ -66,6 +66,8 @@ export interface ResourceAdmin extends ResourcePublic {
   engineer_email: string | null
   notes: string | null
   deactivated_at: string | null
+  inactive_from: string | null
+  inactive_reason: string | null
   created_at: string
 }
 
@@ -160,6 +162,7 @@ export interface CalendarResource {
   code: string
   display_name: string
   is_active: boolean
+  inactive_from?: string | null
   engineer_name?: string
   days: CalendarCell[]
 }

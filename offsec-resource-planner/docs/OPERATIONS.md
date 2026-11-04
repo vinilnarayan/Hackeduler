@@ -68,10 +68,11 @@ Environment (`ORP_*`): see `.env.example`. Runtime settings, editable under **Ad
 `python -m app.worker` loops every `ORP_WORKER_INTERVAL_SECONDS` (default 30 s):
 
 1. expires pending bookings past `expires_at` (releases locks, notifies the POC/requester, audits the change)
-2. marks approved bookings whose end date has passed as **Completed**
-3. delivers queued emails, with retry and backoff
+2. deactivates resources whose scheduled **inactive-from** date has arrived
+3. marks approved bookings whose end date has passed as **Completed**
+4. delivers queued emails, with retry and backoff
 
-`python -m app.worker --once` runs a single pass (suitable for cron). Admins can also trigger steps 1–2 with
+`python -m app.worker --once` runs a single pass (suitable for cron). Admins can also trigger steps 1–3 with
 `POST /api/admin/jobs/run`.
 
 ## 5. Conflict resolution workflow (admins)
@@ -84,7 +85,7 @@ Conflicts are opened automatically when:
 | A holiday is removed or moved away from a booked span | `holiday` (schedule may now be shorter) |
 | Leave is added or changed on a resource's reserved days | `leave` |
 | Leave is cancelled or shortened inside a booked span | `leave` |
-| A resource with future bookings is deactivated | `inactive_resource` |
+| A resource with bookings on or after its deactivation date is deactivated, immediately or from a date | `inactive_resource` |
 | Force Allocate | `manual_override`, plus `overlapping_booking` for each overlapped booking |
 
 The system never moves, cancels or reassigns a booking on its own. To resolve a conflict:

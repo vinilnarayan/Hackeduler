@@ -188,6 +188,15 @@ def plan_schedule(
         # compute the plan as Force Allocate would, so admins can see the impact
         work_dates = dates_for(True)
 
+    if resource.is_active and resource.inactive_from and work_dates and work_dates[-1] >= resource.inactive_from:
+        blocked = [d for d in work_dates if d >= resource.inactive_from]
+        issues.append(ScheduleIssue(
+            "inactive_resource",
+            f"{resource.display_name} is unavailable from {resource.inactive_from.strftime('%d %b %Y')}. This booking would run "
+            f"until {work_dates[-1].strftime('%d %b %Y')}. Choose an earlier start date or another resource.",
+            dates=[d.isoformat() for d in blocked],
+        ))
+
     conflicting: list[uuid.UUID] = []
     conflict_dates: list[date] = []
     if work_dates:
@@ -220,11 +229,16 @@ def plan_schedule(
 
 
 def suggest_next_start(db: Session, resource: SecurityResource, duration: int, after: date, exclude_booking_id=None) -> date | None:
-    if not resource.is_active:
+    if not resource.is_active or (resource.inactive_from and resource.inactive_from <= after):
         return None
     window_end = after + timedelta(days=180 + duration * 3 + 60)
     cal = build_calendar(db, resource.id, after, window_end)
     occ = set(occupied_map(db, resource.id, after, window_end, exclude_booking_id).keys())
+    if resource.inactive_from:  # the booking must finish before the resource becomes inactive
+        d = resource.inactive_from
+        while d <= window_end:
+            occ.add(d)
+            d += timedelta(days=1)
     return find_next_available_start(cal, duration, occ, after, horizon_days=180)
 
 
@@ -324,7 +338,7 @@ def calendar_grid(
                     cell["conflict"] = len(rows) > 1
                 elif mine:
                     cell["bookings"] = [{"id": str(x.id), "status": x.status, "application_name": x.application_name} for x in mine]
-            elif not r.is_active:
+            elif r.inactive_on(d):
                 cell["state"] = "inactive"
                 cell["reason"] = "inactive"
             elif reason:
@@ -337,13 +351,14 @@ def calendar_grid(
                 if activity_duration:
                     try:
                         wd = compute_work_dates(cal, d, activity_duration)
-                        if occupied_dates.intersection(wd):
+                        if occupied_dates.intersection(wd) or (r.inactive_from and wd[-1] >= r.inactive_from):
                             cell["state"] = "limited"
                     except SchedulingError:
                         cell["state"] = "limited"
             days.append(cell)
             d += timedelta(days=1)
-        res = {"id": str(r.id), "code": r.code, "display_name": r.display_name, "is_active": r.is_active, "days": days}
+        res = {"id": str(r.id), "code": r.code, "display_name": r.display_name, "is_active": r.is_active,
+               "inactive_from": r.inactive_from.isoformat() if r.inactive_from else None, "days": days}
         if admin:
             res["engineer_name"] = r.engineer_name
         out_resources.append(res)

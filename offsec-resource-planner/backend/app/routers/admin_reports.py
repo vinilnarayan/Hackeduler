@@ -87,7 +87,7 @@ def dashboard(start: date | None = None, end: date | None = None, db: Session = 
         cal = WorkCalendar(holidays=holidays, leave_dates=leaves.get(r.id, frozenset()), working_weekdays=wk)
         d = start
         while d <= end:
-            if cal.is_eligible(d):
+            if cal.is_eligible(d) and not r.inactive_on(d):
                 cap_by_month[_month_start(d)] += 1
                 cap_by_resource[r.id] += 1
             d += timedelta(days=1)

@@ -13,6 +13,7 @@ export default function Resources() {
   const { data, error, loading, reload } = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))
   const [edit, setEdit] = useState<Partial<ResourceAdmin> | null>(null)
   const [toggle, setToggle] = useState<ResourceAdmin | null>(null)
+  const [cancelSched, setCancelSched] = useState<ResourceAdmin | null>(null)
   const [alloc, setAlloc] = useState<ResourceAdmin | null>(null)
   const save = async () => {
     try {
@@ -33,11 +34,18 @@ export default function Resources() {
               <tr key={r.id}>
                 <td className="td"><div className="font-semibold">{r.display_name}</div><div className="font-mono text-xs text-slate-500">{r.code}</div></td>
                 <td className="td">{r.engineer_name}</td><td className="td text-xs">{r.engineer_email ?? '—'}</td><td className="td max-w-xs text-xs">{r.notes ?? ''}</td>
-                <td className="td">{r.is_active ? <Pill className="bg-emerald-100 text-emerald-800">Active</Pill> : <Pill className="bg-slate-200 text-slate-700">Inactive {r.deactivated_at && `since ${fmtDateTime(r.deactivated_at)}`}</Pill>}</td>
+                <td className="td">
+                  {!r.is_active ? <Pill className="bg-slate-200 text-slate-700">Inactive since {r.inactive_from ? fmt(r.inactive_from) : fmtDateTime(r.deactivated_at)}</Pill>
+                    : r.inactive_from ? <Pill className="bg-amber-100 text-amber-800">Active · inactive from {fmt(r.inactive_from)}</Pill>
+                    : <Pill className="bg-emerald-100 text-emerald-800">Active</Pill>}
+                  {r.inactive_reason && <div className="mt-1 max-w-48 text-xs text-slate-500">{r.inactive_reason}</div>}
+                </td>
                 <td className="td whitespace-nowrap"><div className="flex gap-1">
                   <button className="btn-secondary" onClick={() => setAlloc(r)}>Allocation</button>
                   <button className="btn-secondary" onClick={() => setEdit(r)}>Edit</button>
-                  <button className={r.is_active ? 'btn-secondary' : 'btn-success'} onClick={() => setToggle(r)}>{r.is_active ? 'Deactivate' : 'Activate'}</button>
+                  {r.is_active && r.inactive_from
+                    ? <button className="btn-secondary" onClick={() => setCancelSched(r)}>Cancel deactivation</button>
+                    : <button className={r.is_active ? 'btn-secondary' : 'btn-success'} onClick={() => setToggle(r)}>{r.is_active ? 'Deactivate' : 'Activate'}</button>}
                 </div></td>
               </tr>
             ))}</tbody>
@@ -53,10 +61,13 @@ export default function Resources() {
           <Field label="Notes" htmlFor="r-no"><textarea id="r-no" className="input" value={edit.notes ?? ''} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></Field>
         </div>}
       </Modal>
-      <ConfirmDialog open={!!toggle} onClose={() => setToggle(null)} title={toggle?.is_active ? `Deactivate ${toggle?.display_name}` : `Activate ${toggle?.display_name}`}
-        tone={toggle?.is_active ? 'danger' : 'success'} confirmLabel={toggle?.is_active ? 'Deactivate' : 'Activate'} requireReason={false} reasonLabel="Reason (optional)"
-        message={toggle?.is_active ? 'Inactive resources are excluded from new bookings. Existing bookings are preserved and any future bookings are flagged for review.' : 'The resource will accept new bookings again.'}
-        onConfirm={async (reason) => { try { const r = await patch<ResourceAdmin>(`/api/admin/resources/${toggle!.id}`, { is_active: !toggle!.is_active, reason: reason || null }); toast('success', `${r.display_name} ${r.is_active ? 'activated' : 'deactivated'}`); setToggle(null); reload() } catch (e) { toast('error', validationMessage(e)) } }} />
+      {toggle?.is_active && <DeactivateDialog r={toggle} onClose={() => setToggle(null)} onDone={() => { setToggle(null); reload() }} />}
+      <ConfirmDialog open={!!toggle && !toggle.is_active} onClose={() => setToggle(null)} title={`Activate ${toggle?.display_name}`}
+        tone="success" confirmLabel="Activate" message="The resource will accept new bookings again."
+        onConfirm={async () => { try { const r = await patch<ResourceAdmin>(`/api/admin/resources/${toggle!.id}`, { is_active: true }); toast('success', `${r.display_name} activated`); setToggle(null); reload() } catch (e) { toast('error', validationMessage(e)) } }} />
+      <ConfirmDialog open={!!cancelSched} onClose={() => setCancelSched(null)} title={`Cancel scheduled deactivation`} tone="primary" confirmLabel="Keep resource active"
+        message={<>{cancelSched?.display_name} ({cancelSched?.engineer_name}) is scheduled to become inactive on <b>{fmt(cancelSched?.inactive_from)}</b>. Cancel this and keep the resource available? Conflicts already raised stay open for you to resolve.</>}
+        onConfirm={async () => { try { await patch(`/api/admin/resources/${cancelSched!.id}`, { inactive_from: null }); toast('success', 'Scheduled deactivation cancelled'); setCancelSched(null); reload() } catch (e) { toast('error', validationMessage(e)) } }} />
       {alloc && <AllocationModal r={alloc} onClose={() => setAlloc(null)} />}
     </div>
   )
@@ -74,6 +85,46 @@ function AllocationModal({ r, onClose }: { r: ResourceAdmin; onClose: () => void
             <ul className="divide-y divide-slate-100">{data.leaves.map((l: any) => <li key={l.id} className="flex gap-2 py-1.5"><span className="flex-1">{l.leave_type ?? 'Leave'}{l.reason ? ` – ${l.reason}` : ''}</span><span className="text-xs">{fmt(l.start_date)} – {fmt(l.end_date)}</span><Pill>{l.status}</Pill></li>)}</ul>)}</div>
         </div>
       )}
+    </Modal>
+  )
+}
+
+function DeactivateDialog({ r, onClose, onDone }: { r: ResourceAdmin; onClose: () => void; onDone: () => void }) {
+  const toast = useToast()
+  const settings = useAsync<any>(() => get('/api/settings/public'))
+  const today = settings.data?.today as string | undefined
+  const [mode, setMode] = useState<'now' | 'date'>('date')
+  const [from, setFrom] = useState('')
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const valid = mode === 'now' || (!!from && (!today || from >= today))
+  const submit = async () => {
+    setBusy(true)
+    try {
+      const body = mode === 'now' ? { is_active: false, reason: reason || null } : { inactive_from: from, reason: reason || null }
+      const res = await patch<ResourceAdmin>(`/api/admin/resources/${r.id}`, body)
+      toast('success', res.is_active ? `${res.display_name} will be inactive from ${fmt(res.inactive_from)}` : `${res.display_name} deactivated`)
+      onDone()
+    } catch (e) { toast('error', validationMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <Modal open onClose={onClose} size="sm" title={`Deactivate ${r.display_name} – ${r.engineer_name}`}
+      footer={<><button className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-danger" disabled={!valid || busy} onClick={submit}>{busy ? 'Saving…' : mode === 'now' ? 'Deactivate now' : 'Schedule deactivation'}</button></>}>
+      <div className="space-y-3 text-sm">
+        <fieldset className="space-y-2"><legend className="label">When</legend>
+          <label className={`flex cursor-pointer gap-2 rounded-md border p-2 ${mode === 'date' ? 'border-blue-600 bg-blue-50' : 'border-slate-200'}`}>
+            <input type="radio" name="deact" className="mt-0.5" checked={mode === 'date'} onChange={() => setMode('date')} />
+            <span><span className="font-medium">From a specific date</span><span className="block text-xs text-slate-600">Bookable until the day before. From this date it shows as inactive and can't be booked.</span></span>
+          </label>
+          <label className={`flex cursor-pointer gap-2 rounded-md border p-2 ${mode === 'now' ? 'border-blue-600 bg-blue-50' : 'border-slate-200'}`}>
+            <input type="radio" name="deact" className="mt-0.5" checked={mode === 'now'} onChange={() => setMode('now')} />
+            <span><span className="font-medium">Immediately (today)</span><span className="block text-xs text-slate-600">Excluded from all new bookings from today.</span></span>
+          </label>
+        </fieldset>
+        {mode === 'date' && <Field label="Inactive from *" htmlFor="d-from" hint="First day the engineer is unavailable."><input id="d-from" type="date" className="input w-48" min={today} value={from} onChange={(e) => setFrom(e.target.value)} /></Field>}
+        <Field label="Reason" htmlFor="d-reason" hint="Admin-only; recorded in the audit log."><textarea id="d-reason" className="input min-h-16" maxLength={2000} placeholder="e.g. Moving to another team" value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+        <p className="rounded bg-amber-50 p-2 text-xs text-amber-900">Existing pending or approved bookings that run on or after this date are <b>not changed</b>. They are flagged under Conflicts for reassignment, and POCs of approved bookings are notified. History is preserved.</p>
+      </div>
     </Modal>
   )
 }

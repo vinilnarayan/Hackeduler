@@ -24,7 +24,7 @@ holidays            audit_logs (append-only)     email_templates     application
 | `roles` | `admin`, `requester` | CHECK name |
 | `users` | Accounts. `password_hash` is NULL for SSO-only users. `sso_provider_id` + `sso_subject` link an external identity. `token_version` revokes sessions | unique `lower(email)`; partial unique `(sso_provider_id, sso_subject)` |
 | `sso_providers` | OIDC providers configured in the admin UI: issuer, endpoints, client id, **encrypted** client secret, claim mapping, group→role mapping, restrictions, provisioning options | unique `slug` (CHECK pattern) |
-| `security_resources` | Engineer ↔ anonymous identifier (`RES-NN`, `Resource NN`) | unique `sequence_no`, `code`, `display_name`. Never deleted |
+| `security_resources` | Engineer ↔ anonymous identifier (`RES-NN`, `Resource NN`); `inactive_from` (first unavailable date, scheduled or immediate) and `inactive_reason` | unique `sequence_no`, `code`, `display_name`. Never deleted |
 | `activity_types` | Name, `base_duration_days` (>0), additional-days rule, active flag | unique `(name, base_duration_days)`, CHECKs |
 | `holidays` | Organisation-wide holidays | unique `holiday_date` |
 | `resource_leaves` | Per-resource full-day leave (`active`/`cancelled`) | CHECK `end_date >= start_date`; partial index by resource and range |

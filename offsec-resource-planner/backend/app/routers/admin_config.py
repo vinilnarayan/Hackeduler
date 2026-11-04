@@ -61,7 +61,7 @@ def _snap(obj, fields) -> dict:
 
 
 # =============================================================== resources
-RES_FIELDS = ("code", "display_name", "engineer_name", "engineer_email", "notes", "is_active")
+RES_FIELDS = ("code", "display_name", "engineer_name", "engineer_email", "notes", "is_active", "inactive_from", "inactive_reason")
 
 
 @router.get("/resources", response_model=list[ResourceAdmin])
@@ -91,22 +91,48 @@ def update_resource(resource_id: uuid.UUID, body: ResourceUpdate, db: Session = 
         raise not_found("Resource")
     prev = _snap(r, RES_FIELDS)
     data = body.model_dump(exclude_unset=True)
-    reason = data.pop("reason", None)
-    status_change = "is_active" in data and data["is_active"] != r.is_active
+    reason = (data.pop("reason", None) or "").strip() or None
+    today = settings_service.org_today(db)
+    has_from = "inactive_from" in data
+    inactive_from = data.pop("inactive_from", None)
+    want_active = data.pop("is_active", None)
+    if has_from and want_active is not None:
+        raise bad_request("Send either is_active or inactive_from, not both.")
     for k, v in data.items():
         setattr(r, k, v)
-    flagged = []
-    if status_change:
-        if r.is_active:
-            r.deactivated_at = None
-            action = "resource.activated"
+
+    action, flagged = None, []
+    if want_active is True and (not r.is_active or r.inactive_from):
+        # reactivate, or cancel a scheduled deactivation
+        action = "resource.activated" if not r.is_active else "resource.deactivation_cancelled"
+        r.is_active, r.deactivated_at, r.inactive_from, r.inactive_reason = True, None, None, None
+    elif want_active is False and r.is_active:
+        # immediate deactivation (from today)
+        r.is_active, r.deactivated_at, r.inactive_from, r.inactive_reason = False, now_utc(), today, reason
+        action = "resource.deactivated"
+        flagged = conflicts.flag_inactive_resource(db, r, today, admin)
+    elif has_from:
+        if inactive_from is None:
+            if r.inactive_from and r.is_active:
+                r.inactive_from, r.inactive_reason = None, None
+                action = "resource.deactivation_cancelled"
         else:
-            r.deactivated_at = now_utc()
-            action = "resource.deactivated"
-            flagged = conflicts.flag_inactive_resource(db, r, settings_service.org_today(db), admin)
-        audit.record(db, action, admin, entity_type="resource", entity_id=r.id, previous={"is_active": prev["is_active"]},
-                     new={"is_active": r.is_active, "flagged_bookings": flagged}, reason=reason)
-    if set(data) - {"is_active"}:
+            if not r.is_active:
+                raise bad_request(f"{r.display_name} is already inactive. Reactivate it first.")
+            if inactive_from < today:
+                raise bad_request("The inactive-from date cannot be in the past. Use today to deactivate immediately.")
+            r.inactive_from, r.inactive_reason = inactive_from, reason
+            if inactive_from == today:
+                r.is_active, r.deactivated_at = False, now_utc()
+                action = "resource.deactivated"
+            else:
+                action = "resource.deactivation_scheduled"
+            flagged = conflicts.flag_inactive_resource(db, r, inactive_from, admin)
+    if action:
+        audit.record(db, action, admin, entity_type="resource", entity_id=r.id,
+                     previous={"is_active": prev["is_active"], "inactive_from": prev["inactive_from"]},
+                     new={"is_active": r.is_active, "inactive_from": r.inactive_from, "flagged_bookings": flagged}, reason=reason)
+    if data:
         audit.record(db, "resource.updated", admin, entity_type="resource", entity_id=r.id, previous=prev,
                      new=_snap(r, RES_FIELDS), reason=reason)
     commit(db)

@@ -129,6 +129,15 @@ class SecurityResource(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # First date the resource is unavailable (scheduled or immediate deactivation). NULL = no deactivation planned.
+    inactive_from: Mapped[date | None] = mapped_column(Date)
+    inactive_reason: Mapped[str | None] = mapped_column(Text)
+
+    def inactive_on(self, d: date) -> bool:
+        """True if the resource cannot work on ``d``."""
+        if self.inactive_from is not None:
+            return d >= self.inactive_from
+        return not self.is_active
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

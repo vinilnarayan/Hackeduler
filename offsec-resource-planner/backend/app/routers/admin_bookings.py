@@ -335,7 +335,9 @@ def audit_log(booking_id: uuid.UUID | None = None, actor: str | None = Query(Non
 def run_jobs(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     """Manually trigger expiry/completion sweeps (the worker also runs them periodically)."""
     expired = booking_service.expire_stale_pending(db)
+    deactivated = booking_service.apply_scheduled_deactivations(db)
     completed = booking_service.complete_past_bookings(db)
     commit(db)
-    return {"expired": [str(x) for x in expired], "completed": [str(x) for x in completed]}
+    return {"expired": [str(x) for x in expired], "deactivated_resources": [str(x) for x in deactivated],
+            "completed": [str(x) for x in completed]}
 

@@ -141,7 +141,7 @@ the slot was taken.
 | Method | Path | Description |
 |---|---|---|
 | GET/POST | `/api/admin/resources` | List / add (identifier auto-assigned) |
-| PATCH | `/api/admin/resources/{id}` | Edit, `is_active` toggle (+`reason`) |
+| PATCH | `/api/admin/resources/{id}` | Edit. Deactivate: `{"is_active": false}` (immediately) or `{"inactive_from": "YYYY-MM-DD"}` (from a date, today or later). `{"inactive_from": null}` cancels a scheduled deactivation; `{"is_active": true}` reactivates. Optional `reason`. The response lists flagged bookings |
 | GET | `/api/admin/resources/{id}/allocation` | Engineer's bookings and leave |
 | GET/POST | `/api/admin/activity-types` | List / add |
 | PATCH | `/api/admin/activity-types/{id}` | Edit / (de)activate. Durations must be positive integers |

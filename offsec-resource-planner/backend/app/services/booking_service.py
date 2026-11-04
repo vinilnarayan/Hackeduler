@@ -293,6 +293,26 @@ def expire_stale_pending(db: Session, resource_id: uuid.UUID | None = None) -> l
     return ids
 
 
+def apply_scheduled_deactivations(db: Session) -> list[uuid.UUID]:
+    """Flip resources to inactive once their scheduled inactive-from date arrives (run by the worker)."""
+    today = settings_service.org_today(db)
+    q = (select(SecurityResource)
+         .where(SecurityResource.is_active.is_(True), SecurityResource.inactive_from.is_not(None),
+                SecurityResource.inactive_from <= today)
+         .with_for_update(skip_locked=True))
+    ids = []
+    for r in db.scalars(q).all():
+        r.is_active, r.deactivated_at = False, now_utc()
+        flagged = conflicts.flag_inactive_resource(db, r, r.inactive_from, None)  # dedupes already-open conflicts
+        audit.record(db, "resource.deactivated", None, entity_type="resource", entity_id=r.id,
+                     previous={"is_active": True}, new={"is_active": False, "inactive_from": r.inactive_from,
+                                                        "flagged_bookings": flagged},
+                     reason=f"Scheduled deactivation effective {r.inactive_from.isoformat()}"
+                            + (f": {r.inactive_reason}" if r.inactive_reason else ""))
+        ids.append(r.id)
+    return ids
+
+
 def complete_past_bookings(db: Session) -> list[uuid.UUID]:
     today = settings_service.org_today(db)
     q = select(Booking).where(Booking.status == BookingStatus.APPROVED, Booking.end_date < today)
