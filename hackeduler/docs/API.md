@@ -141,6 +141,8 @@ the slot was taken.
 | Method | Path | Description |
 |---|---|---|
 | GET/POST | `/api/admin/resources` | List / add (identifier auto-assigned) |
+| DELETE | `/api/admin/resources/{id}` | Delete. 409 `resource_in_use` while it has pending/approved bookings (details list them). Never-booked resources are removed with their leave; otherwise archived (`mode: archived`) |
+| GET | `/api/admin/resources?include_deleted=true` / POST `/api/admin/resources/{id}/restore` | Show / restore archived resources (restored as inactive) |
 | PATCH | `/api/admin/resources/{id}` | Edit. Deactivate: `{"is_active": false}` (immediately) or `{"inactive_from": "YYYY-MM-DD"}` (from a date, today or later). `{"inactive_from": null}` cancels a scheduled deactivation; `{"is_active": true}` reactivates. Optional `reason`. The response lists flagged bookings |
 | GET | `/api/admin/resources/{id}/allocation` | Engineer's bookings and leave |
 | GET/POST | `/api/admin/activity-types` | List / add |
@@ -150,7 +152,9 @@ the slot was taken.
 | POST | `/api/admin/holidays/import` | multipart `file` (.csv/.xlsx, columns `name,date,description`, ≤2 MB, ≤1000 rows) |
 | GET/POST | `/api/admin/leaves` | List (`resource_id, start, end, include_cancelled`) / add |
 | PATCH/DELETE | `/api/admin/leaves/{id}` | Edit / cancel (flags affected bookings) |
-| GET/POST | `/api/admin/users`, PATCH `/api/admin/users/{id}` | User management |
+| GET/POST | `/api/admin/users[?include_deleted=true]`, PATCH `/api/admin/users/{id}` | User management |
+| DELETE | `/api/admin/users/{id}` | Delete. Users with no activity are removed; users with history are archived (can't sign in, hidden, email reusable). Can't delete yourself or the last active admin |
+| POST | `/api/admin/users/{id}/restore` | Restore an archived user (restored disabled) |
 | GET/PUT | `/api/admin/settings` | `{values: {key: value}}`. Secrets are never accepted or returned |
 | GET | `/api/admin/email-templates`, `/api/admin/email-templates/variables` | Templates and allowed variables |
 | PUT | `/api/admin/email-templates/{key}` | Edit (unknown variables are rejected) |
@@ -166,6 +170,7 @@ the slot was taken.
 | GET | `/api/admin/sso/presets` | Defaults and set-up help for Entra ID, Okta, Google, Keycloak, Generic |
 | GET/POST | `/api/admin/sso/providers` | List / create (created disabled). `client_secret` is write-only; responses expose `has_client_secret` and `redirect_uri` |
 | GET/PATCH/DELETE | `/api/admin/sso/providers/{id}` | Edit (`client_secret` to replace, `clear_client_secret` to remove), enable/disable, delete (unlinks users) |
+| GET | `/api/admin/sso/providers/{id}/recent-logins` | Last 25 SSO sign-ins/failures with groups received, matched groups, role changes and skip reasons |
 | POST | `/api/admin/sso/providers/{id}/test` | Checks discovery, issuer, JWKS, algorithms, PKCE support, secret |
 
 `POST /api/admin/users` accepts no `password` to create an SSO-only account. `PATCH /api/admin/users/{id}` also

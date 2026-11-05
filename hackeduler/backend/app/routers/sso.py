@@ -449,6 +449,35 @@ def delete_provider(provider_id: uuid.UUID, db: Session = Depends(get_db), admin
     return {"ok": True, "unlinked_sso_only_users": sso_only}
 
 
+@admin.get("/providers/{provider_id}/recent-logins")
+def recent_logins(provider_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Last SSO sign-ins / failures for this provider, including the groups the IdP actually sent.
+    Use it to check the groups claim and copy the exact values (e.g. Entra group Object IDs) into Admin groups."""
+    from ..models import AuditLog
+
+    p = db.get(SSOProvider, provider_id)
+    if p is None:
+        raise not_found("SSO provider")
+    rows = db.scalars(
+        select(AuditLog).where(
+            ((AuditLog.action == "auth.sso_login") & (AuditLog.new_value["provider"].astext == p.slug))
+            | ((AuditLog.action == "auth.sso_login_failed") & (AuditLog.entity_id == p.slug))
+        ).order_by(AuditLog.created_at.desc()).limit(25)
+    ).all()
+    out = []
+    for a in rows:
+        v = a.new_value or {}
+        out.append({
+            "at": a.created_at.isoformat(), "ok": a.action == "auth.sso_login",
+            "email": v.get("email") or a.actor_email, "role": v.get("role"),
+            "groups_claim_present": v.get("groups_claim_present"), "groups_received": v.get("groups_received"),
+            "groups_matched": v.get("groups_matched"), "role_changed": v.get("role_changed"),
+            "role_sync_skipped": v.get("role_sync_skipped"), "provisioned": v.get("provisioned"),
+            "error_code": v.get("code"), "error_detail": v.get("detail"),
+        })
+    return out
+
+
 @admin.post("/providers/{provider_id}/test")
 def test_provider(provider_id: uuid.UUID, db: Session = Depends(get_db), admin_user: User = Depends(require_admin)):
     p = db.get(SSOProvider, provider_id)

@@ -29,7 +29,7 @@ def user_out(u: User, provider_name: str | None = None) -> UserOut:
     return UserOut(id=u.id, email=u.email, full_name=u.full_name, role=u.role_name, is_active=u.is_active,
                    last_login_at=u.last_login_at, has_password=u.password_hash is not None,
                    sso_provider_id=u.sso_provider_id, sso_provider_name=provider_name,
-                   last_login_method=u.last_login_method)
+                   last_login_method=u.last_login_method, deleted_at=u.deleted_at)
 
 
 def set_session_cookies(response: Response, user: User, sso_slug: str | None = None) -> str:
@@ -59,7 +59,7 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
     mode = local_login_mode(db)
     if mode == "disabled":
         raise ServiceError(403, "local_login_disabled", "Password sign-in is disabled. Please sign in with SSO.")
-    user = db.scalars(select(User).where(func.lower(User.email) == body.email.lower())).first()
+    user = db.scalars(select(User).where(func.lower(User.email) == body.email.lower(), User.deleted_at.is_(None))).first()
     ok = verify_password(body.password, user.password_hash if user else None)
     if not user or not ok or not user.is_active:
         audit.record_detached("auth.login_failed", None, entity_type="user", entity_id=body.email.lower(),

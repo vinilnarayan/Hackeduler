@@ -63,6 +63,7 @@ class User(Base):
     sso_provider_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sso_providers.id", ondelete="SET NULL"))
     sso_subject: Mapped[str | None] = mapped_column(Text)
     last_login_method: Mapped[str | None] = mapped_column(Text)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -132,6 +133,7 @@ class SecurityResource(Base):
     # First date the resource is unavailable (scheduled or immediate deactivation). NULL = no deactivation planned.
     inactive_from: Mapped[date | None] = mapped_column(Date)
     inactive_reason: Mapped[str | None] = mapped_column(Text)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     def inactive_on(self, d: date) -> bool:
         """True if the resource cannot work on ``d``."""

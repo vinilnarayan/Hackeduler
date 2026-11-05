@@ -58,6 +58,7 @@ class UserOut(ORM):
     sso_provider_id: uuid.UUID | None = None
     sso_provider_name: str | None = None
     last_login_method: str | None = None
+    deleted_at: datetime | None = None
 
 
 class UserCreate(Strict):
@@ -103,6 +104,7 @@ class ResourceAdmin(ORM):
     deactivated_at: datetime | None
     inactive_from: date | None = None
     inactive_reason: str | None = None
+    deleted_at: datetime | None = None
     created_at: datetime
 
 

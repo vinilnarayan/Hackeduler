@@ -48,7 +48,7 @@ def dashboard(start: date | None = None, end: date | None = None, db: Session = 
     if end < start or (end - start).days > 800:
         raise bad_request("Invalid date range (max ~2 years).")
 
-    resources = list(db.scalars(select(SecurityResource).order_by(SecurityResource.sequence_no)))
+    resources = list(db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)))
     active = [r for r in resources if r.is_active]
     rids = [r.id for r in resources]
     holidays = availability.load_holidays(db, min(start, today), max(end, today))

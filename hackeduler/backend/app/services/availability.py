@@ -244,7 +244,7 @@ def suggest_next_start(db: Session, resource: SecurityResource, duration: int, a
 
 def alternative_resources(db: Session, exclude_resource_id: uuid.UUID, start: date, duration: int) -> list[SecurityResource]:
     out = []
-    for r in db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True)).order_by(SecurityResource.sequence_no)):
+    for r in db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True), SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)):
         if r.id == exclude_resource_id:
             continue
         try:
@@ -288,7 +288,7 @@ def calendar_grid(
     """
     if (end - start).days > 186:
         raise SchedulingError("range_too_large", "Calendar range is limited to ~6 months.")
-    resources = list(db.scalars(select(SecurityResource).order_by(SecurityResource.sequence_no)))
+    resources = list(db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)))
     rids = [r.id for r in resources]
     look_ahead = end + timedelta(days=(activity_duration or 0) * 3 + 30)
     holidays = load_holidays(db, start, look_ahead)

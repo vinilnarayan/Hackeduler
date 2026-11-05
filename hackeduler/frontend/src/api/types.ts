@@ -12,6 +12,7 @@ export interface User {
   sso_provider_id?: string | null
   sso_provider_name?: string | null
   last_login_method?: string | null
+  deleted_at?: string | null
 }
 
 export interface SSOProvider {
@@ -68,6 +69,7 @@ export interface ResourceAdmin extends ResourcePublic {
   deactivated_at: string | null
   inactive_from: string | null
   inactive_reason: string | null
+  deleted_at?: string | null
   created_at: string
 }
 

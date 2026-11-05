@@ -86,7 +86,7 @@ def lock_resources(db: Session, resource_ids: list[uuid.UUID]) -> dict[uuid.UUID
         r = db.scalars(
             select(SecurityResource).where(SecurityResource.id == rid).with_for_update().execution_options(populate_existing=True)
         ).first()
-        if r is None:
+        if r is None or r.deleted_at is not None:
             raise not_found("Resource")
         out[rid] = r
     return out
@@ -337,7 +337,7 @@ def preview(db: Session, actor: User, resource_id: uuid.UUID, activity_type_id: 
     except SchedulingError as e:
         raise bad_request(e.message, e.code)
     resource = db.get(SecurityResource, resource_id)
-    if resource is None:
+    if resource is None or resource.deleted_at is not None:
         raise not_found("Resource")
     if not actor.is_admin and not resource.is_active:
         raise not_found("Resource")
@@ -732,7 +732,7 @@ def request_change(db: Session, actor: User, booking_id: uuid.UUID, request_type
             raise bad_request("The proposed start date cannot be in the past.")
         target = proposed_resource_id or b.resource_id
         r = db.get(SecurityResource, target)
-        if r is None or not r.is_active:
+        if r is None or not r.is_active or r.deleted_at is not None:
             raise bad_request("The proposed resource is not available.")
         plan = plan_schedule(db, r, proposed_start, b.duration_days, exclude_booking_id=b.id)
         preview_result = {"available": plan.ok, "end_date": plan.end_date.isoformat() if plan.end_date else None,

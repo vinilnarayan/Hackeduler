@@ -63,7 +63,7 @@ def _pending_cr(db: Session, booking_id: uuid.UUID) -> dict | None:
 
 @router.get("/resources", response_model=list[ResourcePublic])
 def list_resources(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return db.scalars(select(SecurityResource).order_by(SecurityResource.sequence_no)).all()
+    return db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)).all()
 
 
 @router.get("/activity-types", response_model=list[ActivityOut])
