@@ -36,6 +36,7 @@ from ..schemas import (
     BookingModify,
     CancelIn,
     ChangeDecisionIn,
+    CompleteIn,
     ConflictResolveIn,
     ForceIn,
     RejectIn,
@@ -73,9 +74,10 @@ def _cr_out(cr: BookingChangeRequest) -> dict:
             "decided_at": cr.decided_at.isoformat() if cr.decided_at else None, "decision_note": cr.decision_note,
             "created_at": cr.created_at.isoformat(),
             "booking": {"application_name": cr.booking.application_name, "status": cr.booking.status,
-                        "start_date": cr.booking.start_date.isoformat(), "end_date": cr.booking.end_date.isoformat(),
-                        "resource_display_name": cr.booking.resource.display_name,
-                        "engineer_name": cr.booking.resource.engineer_name,
+                        "start_date": cr.booking.start_date.isoformat() if cr.booking.start_date else None,
+                        "end_date": cr.booking.end_date.isoformat() if cr.booking.end_date else None,
+                        "resource_display_name": cr.booking.resource.display_name if cr.booking.resource else None,
+                        "engineer_name": cr.booking.resource.engineer_name if cr.booking.resource else None,
                         "requester_name": cr.booking.requester.full_name}}
 
 
@@ -115,9 +117,16 @@ def list_bookings(
     status: str | None = None, resource_id: uuid.UUID | None = None, activity_type_id: uuid.UUID | None = None,
     q: str | None = Query(None, max_length=100), start: date | None = None, end: date | None = None,
     needs_review: bool | None = None, pci: bool | None = None, limit: int = Query(200, le=1000), offset: int = 0,
+    product_id: uuid.UUID | None = None, implementation_id: uuid.UUID | None = None, requires_resource: bool | None = None,
     db: Session = Depends(get_db),
 ):
     stmt = select(Booking)
+    if product_id:
+        stmt = stmt.where(Booking.product_id == product_id)
+    if implementation_id:
+        stmt = stmt.where(Booking.implementation_id == implementation_id)
+    if requires_resource is not None:
+        stmt = stmt.where(Booking.requires_resource.is_(requires_resource))
     if status:
         if status not in BookingStatus.ALL:
             raise bad_request("Invalid status filter.")
@@ -219,6 +228,15 @@ def reject(booking_id: uuid.UUID, body: RejectIn, db: Session = Depends(get_db),
 @router.post("/bookings/{booking_id}/cancel")
 def cancel(booking_id: uuid.UUID, body: CancelIn, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     b = booking_service.cancel(db, admin, booking_id, body.reason)
+    commit(db)
+    return _out(db, b)
+
+
+@router.post("/bookings/{booking_id}/complete")
+def complete(booking_id: uuid.UUID, body: CompleteIn | None = None, db: Session = Depends(get_db),
+             admin: User = Depends(require_admin)):
+    """Mark an approved booking that needs no security resource (e.g. a scan) as completed."""
+    b = booking_service.mark_completed(db, admin, booking_id, body.note if body else None)
     commit(db)
     return _out(db, b)
 

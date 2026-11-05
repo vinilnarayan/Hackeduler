@@ -9,12 +9,12 @@ import uuid
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import get_current_user
-from ..errors import bad_request, not_found
+from ..errors import bad_request, forbidden, not_found
 from ..models import (
     ActivityType,
     Booking,
@@ -23,11 +23,13 @@ from ..models import (
     BookingStatus,
     BookingStatusHistory,
     Holiday,
+    Implementation,
     SecurityResource,
     User,
 )
 from ..schemas import (
     ActivityOut,
+    AutoAvailabilityQuery,
     AvailabilityQuery,
     BookingCreate,
     CancelIn,
@@ -43,11 +45,26 @@ from .common import commit, parse_range
 router = APIRouter(prefix="/api", tags=["requester"])
 
 
-def _own_booking(db: Session, user: User, booking_id: uuid.UUID) -> Booking:
+def _visible(user: User):
+    """Bookings a requester may SEE: their own, plus bookings of their product."""
+    if user.product_id:
+        return or_(Booking.requester_id == user.id, Booking.product_id == user.product_id)
+    return Booking.requester_id == user.id
+
+
+def _visible_booking(db: Session, user: User, booking_id: uuid.UUID) -> Booking:
     b = db.get(Booking, booking_id)
-    # 404 (not 403) so the existence of other requesters' bookings is not disclosed (IDOR protection)
-    if b is None or b.requester_id != user.id:
+    # 404 (not 403) so the existence of other bookings is not disclosed (IDOR protection)
+    if b is None or not (b.requester_id == user.id or (user.product_id and b.product_id == user.product_id)):
         raise not_found("Booking")
+    return b
+
+
+def _own_booking(db: Session, user: User, booking_id: uuid.UUID) -> Booking:
+    """Bookings a requester may CHANGE: only their own. Product colleagues get 403, others 404."""
+    b = _visible_booking(db, user, booking_id)
+    if b.requester_id != user.id:
+        raise forbidden("Only the person who made this booking can cancel it or request changes.")
     return b
 
 
@@ -102,7 +119,8 @@ def calendar(start: date, end: date, activity_type_id: uuid.UUID | None = None, 
             raise bad_request("Unknown activity type.")
         duration = a.base_duration_days
     try:
-        return availability.calendar_grid(db, start, end, viewer_id=user.id, admin=False, activity_duration=duration)
+        return availability.calendar_grid(db, start, end, viewer_id=user.id, admin=False, activity_duration=duration,
+                                          viewer_product_id=user.product_id)
     except SchedulingError as e:
         raise bad_request(e.message, e.code)
 
@@ -116,6 +134,27 @@ def check_availability(body: AvailabilityQuery, db: Session = Depends(get_db), u
         raise bad_request(e.message, e.code)
 
 
+@router.post("/availability/auto")
+def check_auto_availability(body: AutoAvailabilityQuery, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Preview for the booking page: the requester picks activity + date, the system picks the resource."""
+    try:
+        return booking_service.preview_auto(db, user, body.activity_type_id, body.start_date, body.additional_days)
+    except SchedulingError as e:
+        raise bad_request(e.message, e.code)
+
+
+@router.get("/me/implementations")
+def my_implementations(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The caller's product and its active implementations (for the booking form)."""
+    if not user.product_id:
+        return {"product": None, "implementations": [], "default_implementation_id": None}
+    rows = db.scalars(select(Implementation).where(Implementation.product_id == user.product_id,
+                                                   Implementation.is_active.is_(True)).order_by(Implementation.name)).unique().all()
+    return {"product": {"id": str(user.product_id), "name": user.product.name if user.product else None},
+            "implementations": [{"id": str(i.id), "name": i.name} for i in rows],
+            "default_implementation_id": str(user.implementation_id) if user.implementation_id else None}
+
+
 @router.post("/bookings", status_code=201)
 def submit_booking(body: BookingCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     b = booking_service.submit_booking(db, user, booking_service.BookingInput(**body.model_dump()))
@@ -125,8 +164,13 @@ def submit_booking(body: BookingCreate, db: Session = Depends(get_db), user: Use
 
 @router.get("/bookings/mine")
 def my_bookings(status: str | None = None, q: str | None = Query(default=None, max_length=100),
+                scope: str = Query(default="mine", pattern="^(mine|product)$"),
+                implementation_id: uuid.UUID | None = None,
                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    stmt = select(Booking).where(Booking.requester_id == user.id)
+    """scope=mine: my own bookings. scope=product: every booking of my product (read-only for others' bookings)."""
+    stmt = select(Booking).where(_visible(user) if scope == "product" else Booking.requester_id == user.id)
+    if implementation_id:
+        stmt = stmt.where(Booking.implementation_id == implementation_id)
     if status:
         if status not in BookingStatus.ALL:
             raise bad_request("Invalid status filter.")
@@ -134,19 +178,19 @@ def my_bookings(status: str | None = None, q: str | None = Query(default=None, m
     if q:
         stmt = stmt.where(Booking.application_name.ilike(f"%{q}%"))
     rows = db.scalars(stmt.order_by(Booking.submitted_at.desc()).limit(500)).unique().all()
-    return [booking_requester_out(b, _pending_cr(db, b.id)) for b in rows]
+    return [booking_requester_out(b, _pending_cr(db, b.id), viewer_id=user.id) for b in rows]
 
 
 @router.get("/bookings/{booking_id}")
 def get_my_booking(booking_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    b = _own_booking(db, user, booking_id)
-    return booking_requester_out(b, _pending_cr(db, b.id))
+    b = _visible_booking(db, user, booking_id)
+    return booking_requester_out(b, _pending_cr(db, b.id), viewer_id=user.id)
 
 
 @router.get("/bookings/{booking_id}/history")
 def my_booking_history(booking_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Filtered history for the requester: status transitions and change requests, without admin identities/internal notes."""
-    b = _own_booking(db, user, booking_id)
+    b = _visible_booking(db, user, booking_id)
     hist = db.scalars(select(BookingStatusHistory).where(BookingStatusHistory.booking_id == b.id)
                       .order_by(BookingStatusHistory.changed_at)).all()
     public_reason_states = {BookingStatus.REJECTED, BookingStatus.CANCELLED, BookingStatus.EXPIRED}

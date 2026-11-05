@@ -52,10 +52,12 @@ schema is at `/api/openapi.json`.
 | GET | `/api/holidays?start&end` | Holidays |
 | GET | `/api/settings/public` | Timezone, today, working weekdays, expiry and cancellation policy |
 | GET | `/api/calendar?start&end[&activity_type_id]` | Anonymous availability grid (≤ ~6 months) |
-| POST | `/api/availability/check` | Server-side slot calculation |
-| POST | `/api/bookings` | Submit booking |
-| GET | `/api/bookings/mine?status&q` | Own bookings |
-| GET | `/api/bookings/{id}` | Own booking (404 otherwise) |
+| POST | `/api/availability/auto` | `{activity_type_id, start_date?, additional_days?}` → the resource that would be assigned, end date, or `suggested_start_date` |
+| POST | `/api/availability/check` | Slot calculation for a specific resource |
+| POST | `/api/bookings` | Submit booking. `resource_id` optional (omit = auto-assign); `start_date` optional for activities without a resource; `implementation_id` optional (must belong to the requester's product). 409 `no_resource_available` includes `suggested_start_date` |
+| GET | `/api/bookings/mine?status&q&scope=mine\|product&implementation_id` | Own bookings, or all bookings of the caller's product |
+| GET | `/api/bookings/{id}` | Own or same-product booking (404 otherwise); `is_mine` tells whether the caller may change it |
+| GET | `/api/me/implementations` | The caller's product and its active implementations |
 | GET | `/api/bookings/{id}/history` | Filtered status / change-request history |
 | POST | `/api/bookings/{id}/cancel` | `{reason}`. Direct cancel of own **pending** booking (if policy allows) |
 | POST | `/api/bookings/{id}/change-requests` | `{request_type: cancel\|reschedule, reason, proposed_start_date?, proposed_resource_id?}` |
@@ -127,6 +129,20 @@ the slot was taken.
 2. After showing the warning, resend the same request with `"force": {"confirm": true, "reason": "<mandatory>"}`.
    - A non-admin caller gets **403** (audited). A missing confirmation gets 422 `confirmation_required`; a blank
      reason gets 422 `override_reason_required`.
+
+### Products
+
+| Method | Path | Description |
+|---|---|---|
+| GET/POST | `/api/admin/products` | List (with implementations and usage counts) / create `{name, description}` |
+| PATCH/DELETE | `/api/admin/products/{id}` | Edit / (de)activate / delete (only when unused) |
+| POST | `/api/admin/products/{id}/implementations` | Add an implementation |
+| PATCH/DELETE | `/api/admin/implementations/{id}` | Edit / (de)activate / delete (only when unused) |
+
+Users accept `product_id` / `implementation_id` on create and update. Bookings (admin create/modify) accept them too.
+`GET /api/admin/bookings` filters by `product_id`, `implementation_id` and `requires_resource`. `POST /api/admin/bookings/{id}/complete`
+completes an approved booking that has no resource. The dashboard accepts `product_id` and returns `product_distribution`,
+`implementation_distribution` and `product_month_matrix`.
 
 ### Conflicts and audit
 

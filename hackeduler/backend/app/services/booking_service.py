@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -32,13 +32,18 @@ from ..models import (
     BookingResourceLock,
     BookingStatus,
     BookingStatusHistory,
+    Implementation,
     LockStatus,
+    Product,
     SecurityResource,
     User,
 )
 from . import audit, conflicts, notifications, settings_service
 from .availability import (
     UNAVAILABLE_MESSAGE,
+    horizon_end,
+    load_holidays,
+    working_weekdays,
     SchedulePlan,
     ScheduleIssue,
     alternative_resources,
@@ -47,7 +52,7 @@ from .availability import (
     suggest_next_start,
     total_duration,
 )
-from .calendar_engine import SchedulingError
+from .calendar_engine import SchedulingError, WorkCalendar, compute_work_dates
 
 FORCE_WARNING = (
     "Warning: This allocation conflicts with an existing booking or resource restriction. "
@@ -68,12 +73,14 @@ class BookingInput:
     application_version: str
     activity_type_id: uuid.UUID
     pci_dss_scope: bool
-    resource_id: uuid.UUID
-    start_date: date
     poc_name: str
     poc_email: str
+    resource_id: uuid.UUID | None = None   # None = assign automatically (or no resource needed)
+    start_date: date | None = None         # optional only for activities that need no resource
     additional_comments: str | None = None
     additional_days: int = 0
+    product_id: uuid.UUID | None = None
+    implementation_id: uuid.UUID | None = None
 
 
 # --------------------------------------------------------------------------------------
@@ -145,6 +152,77 @@ def _pending_expiry(db: Session):
 def _is_expired(db: Session, b: Booking) -> bool:
     return bool(b.status == BookingStatus.PENDING and b.expires_at and b.expires_at <= now_utc()
                 and settings_service.get_setting(db, "pending_expiry_enabled"))
+
+
+def _resourceless_dates(db: Session, start: date | None, duration: int | None) -> tuple[date | None, date | None, int | None]:
+    """Dates for an activity that needs no security resource: organisation calendar only (no leave)."""
+    if start is None:
+        return None, None, duration
+    if duration is None:
+        return start, start, None
+    cal = WorkCalendar(holidays=load_holidays(db, start, horizon_end(start, duration)), working_weekdays=working_weekdays(db))
+    try:
+        dates = compute_work_dates(cal, start, duration)
+    except SchedulingError as e:
+        raise bad_request(e.message.replace("The selected resource is unavailable", "The organisation is closed"), e.code)
+    return start, dates[-1], duration
+
+
+def auto_candidates(db: Session, start: date, duration: int, exclude_booking_id: uuid.UUID | None = None) -> list[SchedulePlan]:
+    """Every active resource that can take the booking, best first:
+    earliest finish, then lightest current workload, then resource number."""
+    resources = list(db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True),
+                                                               SecurityResource.deleted_at.is_(None))))
+    if not resources:
+        return []
+    load = dict(db.execute(
+        select(BookingResourceLock.resource_id, func.count())
+        .where(BookingResourceLock.lock_status.in_(LockStatus.ACTIVE),
+               BookingResourceLock.work_date.between(start - timedelta(days=30), start + timedelta(days=90)))
+        .group_by(BookingResourceLock.resource_id)).all())
+    plans = []
+    for r in resources:
+        try:
+            p = plan_schedule(db, r, start, duration, exclude_booking_id=exclude_booking_id)
+        except SchedulingError:
+            continue
+        if p.ok:
+            plans.append(p)
+    plans.sort(key=lambda p: (p.end_date, load.get(p.resource.id, 0), p.resource.sequence_no))
+    return plans
+
+
+def earliest_any_resource(db: Session, duration: int, after: date) -> date | None:
+    best = None
+    for r in db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True), SecurityResource.deleted_at.is_(None))):
+        d = suggest_next_start(db, r, duration, after)
+        if d and (best is None or d < best):
+            best = d
+    return best
+
+
+def resolve_product(db: Session, actor: User, product_id: uuid.UUID | None, implementation_id: uuid.UUID | None,
+                    *, for_admin: bool) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+    """Requesters always book under their own product; the implementation must belong to it."""
+    if not for_admin:
+        if product_id and product_id != actor.product_id:
+            raise forbidden("You can only book for your own product.")
+        product_id = actor.product_id
+        implementation_id = implementation_id or actor.implementation_id
+    if implementation_id and not product_id:
+        impl = db.get(Implementation, implementation_id)
+        product_id = impl.product_id if impl else None
+    if product_id:
+        prod = db.get(Product, product_id)
+        if prod is None or (not prod.is_active and not for_admin):
+            raise bad_request("Unknown or inactive product.")
+    if implementation_id:
+        impl = db.get(Implementation, implementation_id)
+        if impl is None or impl.product_id != product_id:
+            raise bad_request("The implementation does not belong to the selected product.")
+        if not impl.is_active and not for_admin:
+            raise bad_request("The selected implementation is inactive.")
+    return product_id, implementation_id
 
 
 def _clean_text(value: str | None, field: str, *, required: bool = True, max_len: int = 255) -> str | None:
@@ -332,6 +410,8 @@ def complete_past_bookings(db: Session) -> list[uuid.UUID]:
 def preview(db: Session, actor: User, resource_id: uuid.UUID, activity_type_id: uuid.UUID, start: date,
             additional_days: int = 0, exclude_booking_id: uuid.UUID | None = None) -> dict[str, Any]:
     activity = _get_activity(db, activity_type_id)
+    if not activity.requires_resource:
+        raise bad_request("This activity type does not use a security resource.", "no_resource_required")
     try:
         duration = total_duration(activity, additional_days)
     except SchedulingError as e:
@@ -388,6 +468,108 @@ def _validate_input(inp: BookingInput) -> None:
     inp.additional_comments = _clean_text(inp.additional_comments, "Additional Comments", required=False, max_len=4000)
 
 
+def preview_auto(db: Session, actor: User, activity_type_id: uuid.UUID, start: date | None,
+                 additional_days: int = 0) -> dict[str, Any]:
+    """Requester preview: the system picks the resource. Nothing is reserved until submission."""
+    activity = _get_activity(db, activity_type_id)
+    try:
+        duration = total_duration(activity, additional_days)
+    except SchedulingError as e:
+        raise bad_request(e.message, e.code)
+    today = settings_service.org_today(db)
+    base = {"activity_type_id": str(activity.id), "activity_name": activity.name, "requires_resource": activity.requires_resource,
+            "duration_days": duration, "start_date": start.isoformat() if start else None, "end_date": None,
+            "work_dates": [], "resource_id": None, "resource_display_name": None, "available": False, "reason": None,
+            "message": "", "suggested_start_date": None, "available_resources": 0}
+    if start is not None and start < today:
+        return {**base, "reason": "past_date", "message": "The start date cannot be in the past."}
+    if not activity.requires_resource:
+        s_, e_, d_ = _resourceless_dates(db, start, duration)
+        return {**base, "available": True, "start_date": s_.isoformat() if s_ else None, "end_date": e_.isoformat() if e_ else None,
+                "duration_days": d_, "message": "No security resource is needed for this activity. The OffSec team will review your request."}
+    if start is None:
+        return {**base, "reason": "start_required", "message": "Choose a start date."}
+    org = WorkCalendar(holidays=load_holidays(db, start, start), working_weekdays=working_weekdays(db))
+    why = org.non_working_reason(start)
+    cands = auto_candidates(db, start, duration)
+    if cands:
+        p = cands[0]
+        return {**base, "available": True, "resource_id": str(p.resource.id), "resource_display_name": p.resource.display_name,
+                "end_date": p.end_date.isoformat(), "work_dates": [d.isoformat() for d in p.work_dates],
+                "available_resources": len(cands),
+                "message": f"{p.resource.display_name} is available and will be assigned."}
+    nxt = earliest_any_resource(db, duration, max(start, today) + timedelta(days=1))
+    msg = ("Bookings must start on a working day." if why in ("weekend", "holiday")
+           else "No security resource is available for these dates.")
+    return {**base, "reason": "non_working_start" if why in ("weekend", "holiday") else "no_resource_available",
+            "message": msg, "suggested_start_date": nxt.isoformat() if nxt else None}
+
+
+def _new_booking(db: Session, actor: User, activity, inp: BookingInput, *, resource_id, start, end, duration, status,
+                 source, expires_at, product_id, implementation_id, overridden: bool = False, reason: str = "Submitted") -> Booking:
+    approved = status == BookingStatus.APPROVED
+    b = Booking(
+        id=uuid.uuid4(), requester_id=actor.id, resource_id=resource_id, activity_type_id=activity.id,
+        activity_name_snapshot=activity.name, base_duration_snapshot=activity.base_duration_days,
+        additional_days=inp.additional_days, duration_days=duration, duration_overridden=overridden,
+        requires_resource=activity.requires_resource, product_id=product_id, implementation_id=implementation_id,
+        application_name=inp.application_name, application_version=inp.application_version,
+        pci_dss_scope=inp.pci_dss_scope, poc_name=inp.poc_name, poc_email=inp.poc_email,
+        additional_comments=inp.additional_comments, start_date=start, end_date=end, status=status, source=source,
+        expires_at=expires_at, submitted_at=now_utc(),
+        approved_by=actor.id if approved else None, approved_at=now_utc() if approved else None,
+    )
+    db.add(b)
+    db.flush()
+    db.add(BookingStatusHistory(id=uuid.uuid4(), booking_id=b.id, from_status=None, to_status=status,
+                                changed_by=actor.id, reason=reason))
+    return b
+
+
+def _place(db: Session, actor: User, activity, inp: BookingInput, *, duration: int, status: str, source: str,
+           product_id, implementation_id, force: ForceOptions | None = None, end_date_override: date | None = None,
+           overridden: bool = False, reason: str = "Submitted") -> tuple[Booking, SchedulePlan, bool]:
+    """Create a resource-based booking: on the given resource, or on the best available one."""
+    approved = status == BookingStatus.APPROVED
+    lock_status = LockStatus.CONFIRMED if approved else LockStatus.PENDING
+    expires_at = None if approved else _pending_expiry(db)
+    if inp.resource_id:
+        resource = lock_resources(db, [inp.resource_id])[inp.resource_id]  # serialises reservations on this resource
+        if not resource.is_active and not actor.is_admin:
+            raise conflict(f"{resource.display_name} is not accepting bookings.", "resource_unavailable")
+        expire_stale_pending(db, resource.id)
+        try:
+            plan = plan_schedule(db, resource, inp.start_date, duration, explicit_end_date=end_date_override)
+        except SchedulingError as e:
+            raise bad_request(e.message, e.code)
+        forced = _evaluate(db, plan, actor, force)
+        b = _new_booking(db, actor, activity, inp, resource_id=resource.id, start=plan.start_date, end=plan.end_date,
+                         duration=plan.duration_days, status=status, source=source, expires_at=expires_at,
+                         product_id=product_id, implementation_id=implementation_id, overridden=overridden, reason=reason)
+        _write_locks(db, b, plan, lock_status, forced, expires_at)
+        return b, plan, forced
+
+    # automatic assignment: try candidates best-first; the partial unique index arbitrates races,
+    # a lost race just rolls back the savepoint and moves to the next resource.
+    expire_stale_pending(db)
+    for plan in auto_candidates(db, inp.start_date, duration):
+        try:
+            with db.begin_nested():
+                b = _new_booking(db, actor, activity, inp, resource_id=plan.resource.id, start=plan.start_date,
+                                 end=plan.end_date, duration=plan.duration_days, status=status, source=source,
+                                 expires_at=expires_at, product_id=product_id, implementation_id=implementation_id,
+                                 overridden=overridden, reason=reason)
+                _write_locks(db, b, plan, lock_status, False, expires_at)
+            return b, plan, False
+        except ServiceError as e:
+            if e.code != "resource_unavailable":
+                raise
+    today = settings_service.org_today(db)
+    nxt = earliest_any_resource(db, duration, max(inp.start_date, today) + timedelta(days=1))
+    raise conflict("No security resource is available for the requested dates. Please choose another start date.",
+                   "no_resource_available", {"suggested_start_date": nxt.isoformat() if nxt else None})
+
+
 def submit_booking(db: Session, actor: User, inp: BookingInput) -> Booking:
     _validate_input(inp)
     activity = _get_activity(db, inp.activity_type_id)
@@ -395,31 +577,22 @@ def submit_booking(db: Session, actor: User, inp: BookingInput) -> Booking:
         duration = total_duration(activity, inp.additional_days)
     except SchedulingError as e:
         raise bad_request(e.message, e.code)
-    if inp.start_date < settings_service.org_today(db):
+    if inp.start_date is not None and inp.start_date < settings_service.org_today(db):
         raise bad_request("The start date cannot be in the past.", "past_date")
+    product_id, implementation_id = resolve_product(db, actor, inp.product_id, inp.implementation_id, for_admin=False)
 
-    resource = lock_resources(db, [inp.resource_id])[inp.resource_id]  # serialises reservations on this resource
-    if not resource.is_active and not actor.is_admin:
-        raise conflict(f"{resource.display_name} is not accepting bookings.", "resource_unavailable")
-    expire_stale_pending(db, resource.id)
-    plan = plan_schedule(db, resource, inp.start_date, duration)   # re-validated server-side, never trusted from client
-    _evaluate(db, plan, actor, None)
-
-    expires_at = _pending_expiry(db)
-    b = Booking(
-        id=uuid.uuid4(), requester_id=actor.id, resource_id=resource.id, activity_type_id=activity.id,
-        activity_name_snapshot=activity.name, base_duration_snapshot=activity.base_duration_days,
-        additional_days=inp.additional_days, duration_days=duration, application_name=inp.application_name,
-        application_version=inp.application_version, pci_dss_scope=inp.pci_dss_scope, poc_name=inp.poc_name,
-        poc_email=inp.poc_email, additional_comments=inp.additional_comments, start_date=plan.start_date,
-        end_date=plan.end_date, status=BookingStatus.PENDING, source="requester", expires_at=expires_at,
-        submitted_at=now_utc(),
-    )
-    db.add(b)
-    db.flush()
-    db.add(BookingStatusHistory(id=uuid.uuid4(), booking_id=b.id, from_status=None, to_status=BookingStatus.PENDING,
-                                changed_by=actor.id, reason="Submitted"))
-    _write_locks(db, b, plan, LockStatus.PENDING, False, expires_at)
+    if not activity.requires_resource:
+        if inp.resource_id:
+            raise bad_request("This activity type does not use a security resource.", "no_resource_required")
+        start, end, duration = _resourceless_dates(db, inp.start_date, duration)
+        b = _new_booking(db, actor, activity, inp, resource_id=None, start=start, end=end, duration=duration,
+                         status=BookingStatus.PENDING, source="requester", expires_at=None,
+                         product_id=product_id, implementation_id=implementation_id)
+    else:
+        if inp.start_date is None:
+            raise bad_request("A start date is required for this activity.", "start_required")
+        b, _plan, _ = _place(db, actor, activity, inp, duration=duration, status=BookingStatus.PENDING, source="requester",
+                             product_id=product_id, implementation_id=implementation_id)
     db.refresh(b)
     audit.record(db, "booking.submitted", actor, entity_type="booking", entity_id=b.id, booking_id=b.id,
                  new=audit.booking_snapshot(b))
@@ -450,38 +623,36 @@ def admin_create_booking(db: Session, admin: User, inp: BookingInput, *, initial
             duration = total_duration(activity, inp.additional_days)
         except SchedulingError as e:
             raise bad_request(e.message, e.code)
-    resource = lock_resources(db, [inp.resource_id])[inp.resource_id]
-    expire_stale_pending(db, resource.id)
-    try:
-        plan = plan_schedule(db, resource, inp.start_date, duration, explicit_end_date=end_date_override)
-    except SchedulingError as e:
-        raise bad_request(e.message, e.code)
-    forced = _evaluate(db, plan, admin, force)
-
-    approved = initial_status == BookingStatus.APPROVED
-    expires_at = None if approved else _pending_expiry(db)
-    b = Booking(
-        id=uuid.uuid4(), requester_id=admin.id, resource_id=resource.id, activity_type_id=activity.id,
-        activity_name_snapshot=activity.name, base_duration_snapshot=activity.base_duration_days,
-        additional_days=inp.additional_days, duration_days=plan.duration_days,
-        duration_overridden=duration_override is not None or end_date_override is not None,
-        application_name=inp.application_name, application_version=inp.application_version,
-        pci_dss_scope=inp.pci_dss_scope, poc_name=inp.poc_name, poc_email=inp.poc_email,
-        additional_comments=inp.additional_comments, start_date=plan.start_date, end_date=plan.end_date,
-        status=initial_status, source="admin", expires_at=expires_at, submitted_at=now_utc(),
-        approved_by=admin.id if approved else None, approved_at=now_utc() if approved else None,
-    )
-    db.add(b)
-    db.flush()
-    db.add(BookingStatusHistory(id=uuid.uuid4(), booking_id=b.id, from_status=None, to_status=initial_status,
-                                changed_by=admin.id, reason=reason or "Created by administrator"))
-    _write_locks(db, b, plan, LockStatus.CONFIRMED if approved else LockStatus.PENDING, forced, expires_at)
+    product_id, implementation_id = resolve_product(db, admin, inp.product_id, inp.implementation_id, for_admin=True)
+    note = reason or "Created by administrator"
+    forced, plan = False, None
+    if not activity.requires_resource:
+        if inp.resource_id:
+            raise bad_request("This activity type does not use a security resource.", "no_resource_required")
+        if end_date_override and inp.start_date:
+            if end_date_override < inp.start_date:
+                raise bad_request("End date must be on or after the start date.")
+            start, end = inp.start_date, end_date_override
+        else:
+            start, end, duration = _resourceless_dates(db, inp.start_date, duration)
+        b = _new_booking(db, admin, activity, inp, resource_id=None, start=start, end=end, duration=duration,
+                         status=initial_status, source="admin", expires_at=None, product_id=product_id,
+                         implementation_id=implementation_id, overridden=duration_override is not None, reason=note)
+    else:
+        if inp.start_date is None:
+            raise bad_request("A start date is required for this activity.", "start_required")
+        if force is not None and not inp.resource_id:
+            raise bad_request("Select a resource to force allocate.")
+        b, plan, forced = _place(db, admin, activity, inp, duration=duration, status=initial_status, source="admin",
+                                 product_id=product_id, implementation_id=implementation_id, force=force,
+                                 end_date_override=end_date_override,
+                                 overridden=duration_override is not None or end_date_override is not None, reason=note)
     db.refresh(b)
     if forced:
         _record_force(db, admin, b, plan, force, plan.issues, previous_allocation=None)
     audit.record(db, "booking.admin_created", admin, entity_type="booking", entity_id=b.id, booking_id=b.id,
                  new=audit.booking_snapshot(b), reason=reason or (force.reason if force else None))
-    if approved:
+    if initial_status == BookingStatus.APPROVED:
         notifications.notify_approved(db, b)
     return b
 
@@ -499,6 +670,15 @@ def approve(db: Session, admin: User, booking_id: uuid.UUID, force: ForceOptions
         raise conflict(f"Only pending bookings can be approved (current status: {BookingStatus.LABELS[b.status]}).", "invalid_state")
     if _is_expired(db, b):
         raise conflict("This request has expired and its reservation has been released.", "booking_expired")
+    if not b.requires_resource:
+        prev = audit.booking_snapshot(b)
+        _set_status(db, b, BookingStatus.APPROVED, admin, "Approved")
+        b.approved_by, b.approved_at, b.expires_at = admin.id, now_utc(), None
+        db.flush()
+        audit.record(db, "booking.approved", admin, entity_type="booking", entity_id=b.id, booking_id=b.id,
+                     previous=prev, new=audit.booking_snapshot(b))
+        notifications.notify_approved(db, b)
+        return b
     resource = lock_resources(db, [b.resource_id])[b.resource_id]
     locked = _active_lock_dates(db, b.id)
 
@@ -573,12 +753,31 @@ def cancel(db: Session, actor: User, booking_id: uuid.UUID, reason: str) -> Book
     return b
 
 
+def mark_completed(db: Session, admin: User, booking_id: uuid.UUID, note: str | None = None) -> Booking:
+    """Manually complete an approved booking that does not use a resource (e.g. an automated scan).
+    Resource bookings are completed automatically once their end date passes."""
+    if not admin.is_admin:
+        raise forbidden()
+    b = lock_booking(db, booking_id)
+    if b.status != BookingStatus.APPROVED:
+        raise conflict("Only approved bookings can be marked completed.", "invalid_state")
+    if b.requires_resource:
+        raise conflict("Bookings with a security resource are completed automatically after their end date.", "invalid_state")
+    prev = audit.booking_snapshot(b)
+    _set_status(db, b, BookingStatus.COMPLETED, admin, note or "Marked completed")
+    db.flush()
+    audit.record(db, "booking.completed", admin, entity_type="booking", entity_id=b.id, booking_id=b.id,
+                 previous=prev, new=audit.booking_snapshot(b), reason=note)
+    return b
+
+
 # --------------------------------------------------------------------------------------
 # admin modification / reassignment / reschedule
 # --------------------------------------------------------------------------------------
 
 SCHEDULE_FIELDS = {"resource_id", "start_date", "activity_type_id", "additional_days", "duration_days", "end_date", "recalculate"}
 DETAIL_FIELDS = {"application_name", "application_version", "pci_dss_scope", "poc_name", "poc_email", "additional_comments"}
+PRODUCT_FIELDS = {"product_id", "implementation_id"}
 
 
 def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, Any], reason: str,
@@ -587,30 +786,78 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
         raise forbidden()
     reason = _clean_text(reason, "Reason for change", max_len=2000)
     ensure_force_allowed(admin, force, booking_id=booking_id)
-    unknown = set(changes) - SCHEDULE_FIELDS - DETAIL_FIELDS
+    unknown = set(changes) - SCHEDULE_FIELDS - DETAIL_FIELDS - PRODUCT_FIELDS
     if unknown:
         raise bad_request(f"Unsupported field(s): {', '.join(sorted(unknown))}")
     b = lock_booking(db, booking_id)
     if b.status not in BookingStatus.ACTIVE:
         raise conflict("Only pending or approved bookings can be modified.", "invalid_state")
     before = audit.booking_snapshot(b)
-    old_alloc = {"resource_id": str(b.resource_id), "resource_code": b.resource.code,
-                 "start_date": b.start_date.isoformat(), "end_date": b.end_date.isoformat(),
+    old_alloc = {"resource_id": str(b.resource_id) if b.resource_id else None,
+                 "resource_code": b.resource.code if b.resource else None,
+                 "start_date": b.start_date.isoformat() if b.start_date else None,
+                 "end_date": b.end_date.isoformat() if b.end_date else None,
                  "work_dates": [d.isoformat() for d in _active_lock_dates(db, b.id)]}
     forced = False
     plan = None
+    activity = b.activity_type
+    activity_changed = "activity_type_id" in changes and changes["activity_type_id"] != b.activity_type_id
+    if activity_changed:
+        activity = _get_activity(db, changes["activity_type_id"])
 
-    if SCHEDULE_FIELDS & set(changes):
+    if PRODUCT_FIELDS & set(changes):
+        pid, iid = resolve_product(db, admin, changes.get("product_id", b.product_id),
+                                   changes.get("implementation_id", b.implementation_id if "product_id" not in changes else None),
+                                   for_admin=True)
+        b.product_id, b.implementation_id = pid, iid
+
+    if not activity.requires_resource and (SCHEDULE_FIELDS & set(changes) or b.requires_resource):
+        # no security resource: release any reservation, dates/duration optional
+        if changes.get("resource_id"):
+            raise bad_request("This activity type does not use a security resource.", "no_resource_required")
+        additional = changes.get("additional_days", 0 if activity_changed else b.additional_days)
+        if changes.get("duration_days") is not None:
+            duration, overridden = changes["duration_days"], True
+        elif activity_changed or "additional_days" in changes or changes.get("recalculate") or b.requires_resource:
+            try:
+                duration, overridden = total_duration(activity, additional), False
+            except SchedulingError as e:
+                raise bad_request(e.message, e.code)
+        else:
+            duration, overridden = b.duration_days, b.duration_overridden
+        start = changes.get("start_date") or b.start_date
+        if changes.get("end_date"):
+            if start is None or changes["end_date"] < start:
+                raise bad_request("End date must be on or after the start date.")
+            end, overridden = changes["end_date"], True
+        else:
+            start, end, duration = _resourceless_dates(db, start, duration)
+        _release_locks(db, b.id)
+        b.resource_id, b.requires_resource = None, False
+        b.activity_type_id, b.activity_name_snapshot = activity.id, activity.name
+        b.base_duration_snapshot, b.additional_days = activity.base_duration_days, additional
+        b.duration_days, b.duration_overridden, b.start_date, b.end_date = duration, overridden, start, end
+
+    elif activity.requires_resource and (SCHEDULE_FIELDS & set(changes) or not b.requires_resource):
+        start = changes.get("start_date") or b.start_date
+        if start is None:
+            raise bad_request("A start date is required for an activity that uses a security resource.", "start_required")
+        additional = changes.get("additional_days", 0 if activity_changed else b.additional_days)
         new_rid = changes.get("resource_id") or b.resource_id
-        resources = lock_resources(db, [b.resource_id, new_rid])
+        if new_rid is None:  # moving from a resource-less activity: pick the best available resource
+            try:
+                d_ = changes.get("duration_days") or total_duration(activity, additional)
+            except SchedulingError as e:
+                raise bad_request(e.message, e.code)
+            cands = auto_candidates(db, start, d_, exclude_booking_id=b.id)
+            if not cands:
+                raise conflict("No security resource is available for these dates. Choose a resource to force allocate.",
+                               "no_resource_available")
+            new_rid = cands[0].resource.id
+        resources = lock_resources(db, [x for x in (b.resource_id, new_rid) if x])
         for rid in resources:
             expire_stale_pending(db, rid)
         resource = resources[new_rid]
-        activity = b.activity_type
-        activity_changed = "activity_type_id" in changes and changes["activity_type_id"] != b.activity_type_id
-        if activity_changed:
-            activity = _get_activity(db, changes["activity_type_id"])
-        additional = changes.get("additional_days", 0 if activity_changed else b.additional_days)
         end_override = changes.get("end_date")
         if changes.get("duration_days") is not None:
             if changes["duration_days"] <= 0:
@@ -625,7 +872,11 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                 raise bad_request(e.message, e.code)
         else:
             duration, overridden = b.duration_days, b.duration_overridden
-        start = changes.get("start_date") or b.start_date
+        if duration is None:
+            try:
+                duration, overridden = total_duration(activity, additional), False
+            except SchedulingError as e:
+                raise bad_request(e.message, e.code)
         try:
             plan = plan_schedule(db, resource, start, duration, exclude_booking_id=b.id, explicit_end_date=end_override)
         except SchedulingError as e:
@@ -638,6 +889,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
         lock_status = LockStatus.CONFIRMED if b.status == BookingStatus.APPROVED else LockStatus.PENDING
         _write_locks(db, b, plan, lock_status, forced, b.expires_at if lock_status == LockStatus.PENDING else None)
         b.resource_id = resource.id
+        b.requires_resource = True
         b.activity_type_id = activity.id
         b.activity_name_snapshot = activity.name
         b.base_duration_snapshot = activity.base_duration_days
@@ -671,7 +923,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
         "booking.rescheduled": {"start_date", "end_date"},
         "booking.activity_changed": {"activity_type_id", "activity_name_snapshot", "base_duration_snapshot",
                                      "additional_days", "duration_days", "duration_overridden"},
-        "booking.details_changed": DETAIL_FIELDS,
+        "booking.details_changed": DETAIL_FIELDS | PRODUCT_FIELDS,
     }
     for action, fields in categories.items():
         touched = changed & fields
@@ -691,13 +943,15 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                   "activity_name_snapshot": "Activity type", "duration_days": "Duration (working days)",
                   "application_name": "Application name", "application_version": "Application version",
                   "pci_dss_scope": "PCI DSS scope", "poc_name": "POC name", "poc_email": "POC email",
-                  "additional_comments": "Comments"}
+                  "additional_comments": "Comments", "requires_resource": "Security resource required"}
         lines = []
         for k in sorted(changed):
             if k not in labels:
                 continue
             if k == "resource_id":
-                lines.append(f"- Resource: {db.get(SecurityResource, uuid.UUID(before['resource_id'])).display_name} -> {b.resource.display_name}")
+                old_r = db.get(SecurityResource, uuid.UUID(before["resource_id"])) if before.get("resource_id") else None
+                lines.append(f"- Resource: {old_r.display_name if old_r else 'Not required'} -> "
+                             f"{b.resource.display_name if b.resource else 'Not required'}")
             else:
                 lines.append(f"- {labels[k]}: {before.get(k)} -> {after.get(k)}")
         notifications.notify_modified(db, b, "\n".join(lines) or "Booking details updated.", reason)
@@ -730,6 +984,7 @@ def request_change(db: Session, actor: User, booking_id: uuid.UUID, request_type
             raise bad_request("A proposed start date is required.")
         if proposed_start < settings_service.org_today(db):
             raise bad_request("The proposed start date cannot be in the past.")
+    if request_type == "reschedule" and b.requires_resource:
         target = proposed_resource_id or b.resource_id
         r = db.get(SecurityResource, target)
         if r is None or not r.is_active or r.deleted_at is not None:

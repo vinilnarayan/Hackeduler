@@ -59,6 +59,10 @@ class UserOut(ORM):
     sso_provider_name: str | None = None
     last_login_method: str | None = None
     deleted_at: datetime | None = None
+    product_id: uuid.UUID | None = None
+    product_name: str | None = None
+    implementation_id: uuid.UUID | None = None
+    implementation_name: str | None = None
 
 
 class UserCreate(Strict):
@@ -67,6 +71,8 @@ class UserCreate(Strict):
     password: str | None = Field(default=None, min_length=12, max_length=256,
                                  description="Omit to create an SSO-only account (pre-provisioning)")
     role: Literal["admin", "requester"]
+    product_id: uuid.UUID | None = None
+    implementation_id: uuid.UUID | None = None
 
 
 class UserUpdate(Strict):
@@ -76,6 +82,8 @@ class UserUpdate(Strict):
     password: str | None = Field(default=None, min_length=12, max_length=256)
     remove_password: bool | None = None
     unlink_sso: bool | None = None
+    product_id: uuid.UUID | None = Field(default=None, description="null clears the product (and implementation)")
+    implementation_id: uuid.UUID | None = None
 
 
 class PasswordChange(Strict):
@@ -128,7 +136,8 @@ class ActivityOut(ORM):
     id: uuid.UUID
     name: str
     description: str | None
-    base_duration_days: int
+    base_duration_days: int | None
+    requires_resource: bool = True
     allow_additional_days: bool
     max_additional_days: int
     is_active: bool
@@ -138,7 +147,9 @@ class ActivityOut(ORM):
 class ActivityCreate(Strict):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
-    base_duration_days: int = Field(gt=0, le=250, strict=True)
+    base_duration_days: int | None = Field(default=None, gt=0, le=250, strict=True,
+                                           description="Required when the activity needs a security resource")
+    requires_resource: bool = True
     allow_additional_days: bool = False
     max_additional_days: int = Field(default=0, ge=0, le=250, strict=True)
     sort_order: int = 0
@@ -148,6 +159,7 @@ class ActivityUpdate(Strict):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     base_duration_days: int | None = Field(default=None, gt=0, le=250, strict=True)
+    requires_resource: bool | None = None
     allow_additional_days: bool | None = None
     max_additional_days: int | None = Field(default=None, ge=0, le=250, strict=True)
     is_active: bool | None = None
@@ -214,18 +226,26 @@ class AdminAvailabilityQuery(AvailabilityQuery):
     exclude_booking_id: uuid.UUID | None = None
 
 
+class AutoAvailabilityQuery(Strict):
+    """Requester preview without choosing a resource; the system assigns one."""
+    activity_type_id: uuid.UUID
+    start_date: date | None = None
+    additional_days: int = Field(default=0, ge=0, le=250)
+
+
 class BookingCreate(Strict):
     """Requester submission. NO end_date / duration / status / force fields - those are backend-controlled."""
     application_name: str = Field(min_length=1, max_length=255)
     application_version: str = Field(min_length=1, max_length=100)
     activity_type_id: uuid.UUID
     pci_dss_scope: bool
-    resource_id: uuid.UUID
-    start_date: date
+    resource_id: uuid.UUID | None = Field(default=None, description="Optional preferred resource; omit to assign automatically")
+    start_date: date | None = Field(default=None, description="Required unless the activity needs no security resource")
     poc_name: str = Field(min_length=1, max_length=255)
     poc_email: EmailStr
     additional_comments: str | None = Field(default=None, max_length=4000)
     additional_days: int = Field(default=0, ge=0, le=250)
+    implementation_id: uuid.UUID | None = None
 
 
 class ForceIn(Strict):
@@ -239,6 +259,7 @@ class AdminBookingCreate(BookingCreate):
     end_date: date | None = None
     reason: str | None = Field(default=None, max_length=2000)
     force: ForceIn | None = None
+    product_id: uuid.UUID | None = None
 
 
 class BookingModify(Strict):
@@ -255,8 +276,14 @@ class BookingModify(Strict):
     poc_name: str | None = Field(default=None, min_length=1, max_length=255)
     poc_email: EmailStr | None = None
     additional_comments: str | None = Field(default=None, max_length=4000)
+    product_id: uuid.UUID | None = None
+    implementation_id: uuid.UUID | None = None
     reason: str = Field(min_length=1, max_length=2000)
     force: ForceIn | None = None
+
+
+class CompleteIn(Strict):
+    note: str | None = Field(default=None, max_length=2000)
 
 
 class ApproveIn(Strict):
@@ -298,13 +325,20 @@ class BookingRequesterOut(BaseModel):
     application_version: str
     activity_type_id: uuid.UUID
     activity_name: str
-    duration_days: int
+    duration_days: int | None
     additional_days: int
     pci_dss_scope: bool
-    resource_id: uuid.UUID
-    resource_display_name: str
-    start_date: date
-    end_date: date
+    requires_resource: bool = True
+    resource_id: uuid.UUID | None
+    resource_display_name: str | None
+    start_date: date | None
+    end_date: date | None
+    product_id: uuid.UUID | None = None
+    product_name: str | None = None
+    implementation_id: uuid.UUID | None = None
+    implementation_name: str | None = None
+    is_mine: bool = True
+    requester_name: str | None = None
     poc_name: str
     poc_email: str
     additional_comments: str | None
@@ -318,16 +352,15 @@ class BookingRequesterOut(BaseModel):
 
 
 class BookingAdminOut(BookingRequesterOut):
-    resource_code: str
-    engineer_name: str
+    resource_code: str | None
+    engineer_name: str | None
     requester_id: uuid.UUID
-    requester_name: str
     requester_email: str
     source: str
     is_force_allocated: bool
     needs_review: bool
     duration_overridden: bool
-    base_duration_snapshot: int
+    base_duration_snapshot: int | None
     approved_by: uuid.UUID | None
     approved_at: datetime | None
     rejected_by: uuid.UUID | None
@@ -338,12 +371,18 @@ class BookingAdminOut(BookingRequesterOut):
     open_conflicts: int = 0
 
 
-def booking_requester_out(b, pending_cr=None) -> BookingRequesterOut:
+def booking_requester_out(b, pending_cr=None, viewer_id=None) -> BookingRequesterOut:
+    """``viewer_id`` set => a product colleague may be viewing: flag ownership, show the requester's name only."""
+    mine = viewer_id is None or b.requester_id == viewer_id
     return BookingRequesterOut(
         id=b.id, application_name=b.application_name, application_version=b.application_version,
         activity_type_id=b.activity_type_id, activity_name=b.activity_name_snapshot, duration_days=b.duration_days,
-        additional_days=b.additional_days, pci_dss_scope=b.pci_dss_scope, resource_id=b.resource_id,
-        resource_display_name=b.resource.display_name, start_date=b.start_date, end_date=b.end_date,
+        additional_days=b.additional_days, pci_dss_scope=b.pci_dss_scope, requires_resource=b.requires_resource,
+        resource_id=b.resource_id, resource_display_name=b.resource.display_name if b.resource else None,
+        start_date=b.start_date, end_date=b.end_date,
+        product_id=b.product_id, product_name=b.product.name if b.product else None,
+        implementation_id=b.implementation_id, implementation_name=b.implementation.name if b.implementation else None,
+        is_mine=mine, requester_name=b.requester.full_name if b.requester else None,
         poc_name=b.poc_name, poc_email=b.poc_email, additional_comments=b.additional_comments, status=b.status,
         status_label=BookingStatus.LABELS[b.status], submitted_at=b.submitted_at, expires_at=b.expires_at,
         rejection_reason=b.rejection_reason, cancellation_reason=b.cancellation_reason,
@@ -354,8 +393,9 @@ def booking_requester_out(b, pending_cr=None) -> BookingRequesterOut:
 def booking_admin_out(b, pending_cr=None, open_conflicts: int = 0) -> BookingAdminOut:
     base = booking_requester_out(b, pending_cr).model_dump()
     return BookingAdminOut(
-        **base, resource_code=b.resource.code, engineer_name=b.resource.engineer_name, requester_id=b.requester_id,
-        requester_name=b.requester.full_name, requester_email=b.requester.email, source=b.source,
+        **base, resource_code=b.resource.code if b.resource else None,
+        engineer_name=b.resource.engineer_name if b.resource else None, requester_id=b.requester_id,
+        requester_email=b.requester.email, source=b.source,
         is_force_allocated=b.is_force_allocated, needs_review=b.needs_review, duration_overridden=b.duration_overridden,
         base_duration_snapshot=b.base_duration_snapshot, approved_by=b.approved_by, approved_at=b.approved_at,
         rejected_by=b.rejected_by, rejected_at=b.rejected_at, cancelled_by=b.cancelled_by, cancelled_at=b.cancelled_at,

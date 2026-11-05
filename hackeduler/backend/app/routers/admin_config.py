@@ -214,10 +214,15 @@ def resource_allocation(resource_id: uuid.UUID, start: date | None = None, end: 
 
 
 # =============================================================== activity types
-ACT_FIELDS = ("name", "description", "base_duration_days", "allow_additional_days", "max_additional_days", "is_active", "sort_order")
+ACT_FIELDS = ("name", "description", "base_duration_days", "requires_resource", "allow_additional_days", "max_additional_days", "is_active", "sort_order")
 
 
 def _check_activity(a: ActivityType) -> None:
+    if a.requires_resource and not a.base_duration_days:
+        raise bad_request("Activities that need a security resource must have a duration in working days. "
+                          "Turn off 'Requires a security resource' for activities such as automated scans.")
+    if a.base_duration_days is None and a.allow_additional_days:
+        raise bad_request("Additional days need a base duration.")
     if not a.allow_additional_days and a.max_additional_days:
         raise bad_request("max_additional_days must be 0 unless additional days are allowed.")
     if a.allow_additional_days and a.max_additional_days <= 0:
@@ -503,6 +508,24 @@ def cancel_leave(leave_id: uuid.UUID, db: Session = Depends(get_db), admin: User
 
 
 # =============================================================== users
+def _product_pair(db: Session, product_id, implementation_id):
+    """Validate a product / implementation assignment (implementation must belong to the product)."""
+    from ..models import Implementation, Product
+
+    if implementation_id and not product_id:
+        impl = db.get(Implementation, implementation_id)
+        if impl is None:
+            raise bad_request("Unknown implementation.")
+        product_id = impl.product_id
+    if product_id and db.get(Product, product_id) is None:
+        raise bad_request("Unknown product.")
+    if implementation_id:
+        impl = db.get(Implementation, implementation_id)
+        if impl is None or impl.product_id != product_id:
+            raise bad_request("The implementation does not belong to the selected product.")
+    return product_id, implementation_id
+
+
 def _users_out(db: Session, users) -> list:
     from ..models import SSOProvider
 
@@ -578,13 +601,15 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = D
     u = User(id=uuid.uuid4(), email=body.email.lower(), full_name=body.full_name,
              password_hash=hash_password(body.password) if body.password else None,
              role_id=ROLE_ADMIN_ID if body.role == "admin" else ROLE_REQUESTER_ID)
+    u.product_id, u.implementation_id = _product_pair(db, body.product_id, body.implementation_id)
     db.add(u)
     db.flush()
     db.refresh(u)
     audit.record(db, "user.created", admin, entity_type="user", entity_id=u.id,
-                 new={"email": u.email, "full_name": u.full_name, "role": body.role, "sso_only": not body.password})
+                 new={"email": u.email, "full_name": u.full_name, "role": body.role, "sso_only": not body.password,
+                      "product_id": u.product_id, "implementation_id": u.implementation_id})
     commit(db)
-    return user_out(u)
+    return _users_out(db, [u])[0]
 
 
 @router.patch("/users/{user_id}")
@@ -595,9 +620,14 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
     data = body.model_dump(exclude_unset=True)
     if u.id == admin.id and (data.get("is_active") is False or data.get("role") == "requester"):
         raise bad_request("You cannot deactivate or demote your own account.")
-    prev = {"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active}
+    prev = {"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
+            "product_id": audit.jsonable(u.product_id), "implementation_id": audit.jsonable(u.implementation_id)}
     if "full_name" in data:
         u.full_name = data["full_name"]
+    if "product_id" in data or "implementation_id" in data:
+        pid = data.get("product_id", u.product_id)
+        iid = data.get("implementation_id", None if "product_id" in data and pid != u.product_id else u.implementation_id)
+        u.product_id, u.implementation_id = _product_pair(db, pid, iid)
     revoke = False
     if "role" in data:
         new_role = ROLE_ADMIN_ID if data["role"] == "admin" else ROLE_REQUESTER_ID
@@ -630,6 +660,7 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
     db.refresh(u)
     audit.record(db, "user.updated", admin, entity_type="user", entity_id=u.id, previous=prev,
                  new={"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
+                      "product_id": u.product_id, "implementation_id": u.implementation_id,
                       "password_reset": bool(data.get("password")), "password_removed": bool(data.get("remove_password")),
                       "sso_unlinked": bool(data.get("unlink_sso"))})
     commit(db)

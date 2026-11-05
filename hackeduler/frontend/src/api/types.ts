@@ -13,7 +13,14 @@ export interface User {
   sso_provider_name?: string | null
   last_login_method?: string | null
   deleted_at?: string | null
+  product_id?: string | null
+  product_name?: string | null
+  implementation_id?: string | null
+  implementation_name?: string | null
 }
+
+export interface Implementation { id: string; product_id: string; name: string; description: string | null; is_active: boolean; users: number; bookings: number }
+export interface Product { id: string; name: string; description: string | null; is_active: boolean; users: number; bookings: number; implementations: Implementation[] }
 
 export interface SSOProvider {
   id: string
@@ -77,7 +84,8 @@ export interface ActivityType {
   id: string
   name: string
   description: string | null
-  base_duration_days: number
+  base_duration_days: number | null
+  requires_resource: boolean
   allow_additional_days: boolean
   max_additional_days: number
   is_active: boolean
@@ -110,13 +118,20 @@ export interface Booking {
   application_version: string
   activity_type_id: string
   activity_name: string
-  duration_days: number
+  duration_days: number | null
   additional_days: number
   pci_dss_scope: boolean
-  resource_id: string
-  resource_display_name: string
-  start_date: string
-  end_date: string
+  requires_resource: boolean
+  resource_id: string | null
+  resource_display_name: string | null
+  start_date: string | null
+  end_date: string | null
+  product_id: string | null
+  product_name: string | null
+  implementation_id: string | null
+  implementation_name: string | null
+  is_mine: boolean
+  requester_name: string | null
   poc_name: string
   poc_email: string
   additional_comments: string | null
@@ -130,16 +145,15 @@ export interface Booking {
 }
 
 export interface AdminBooking extends Booking {
-  resource_code: string
-  engineer_name: string
+  resource_code: string | null
+  engineer_name: string | null
   requester_id: string
-  requester_name: string
   requester_email: string
   source: string
   is_force_allocated: boolean
   needs_review: boolean
   duration_overridden: boolean
-  base_duration_snapshot: number
+  base_duration_snapshot: number | null
   approved_at: string | null
   rejected_at: string | null
   cancelled_at: string | null
@@ -155,6 +169,7 @@ export interface CalendarCell {
   reason?: 'weekend' | 'holiday' | 'leave' | 'inactive'
   label?: string
   mine?: boolean
+  team?: boolean
   conflict?: boolean
   bookings?: { id: string; status: BookingStatus; application_name: string; activity?: string; forced?: boolean }[]
 }

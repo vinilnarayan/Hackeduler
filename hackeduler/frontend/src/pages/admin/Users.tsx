@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
 import { del, get, patch, post, validationMessage } from '../../api/client'
-import type { User } from '../../api/types'
+import type { Product, User } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner } from '../../components/ui'
 import { useAuth } from '../../lib/auth'
@@ -15,6 +15,8 @@ export default function UsersPage() {
   const [showDeleted, setShowDeleted] = useState(false)
   const { data, error, loading, reload } = useAsync<User[]>(() => get(`/api/admin/users${showDeleted ? '?include_deleted=true' : ''}`), [showDeleted])
   const [remove, setRemove] = useState<User | null>(null)
+  const products = useAsync<Product[]>(() => get('/api/admin/products'))
+  const prodOf = (id?: string | null) => products.data?.find((p) => p.id === id)
   const restore = async (u: User) => { try { await post(`/api/admin/users/${u.id}/restore`); toast('success', `${u.full_name} restored (disabled). Enable the account when ready.`); reload() } catch (e) { toast('error', validationMessage(e)) } }
   const [edit, setEdit] = useState<any>(null)
   const save = async () => {
@@ -22,10 +24,12 @@ export default function UsersPage() {
       if (edit.id) {
         await patch(`/api/admin/users/${edit.id}`, {
           full_name: edit.full_name, role: edit.role, ...(edit.password ? { password: edit.password } : {}),
+          product_id: edit.product_id || null, implementation_id: edit.implementation_id || null,
           ...(edit.remove_password ? { remove_password: true } : {}), ...(edit.unlink_sso ? { unlink_sso: true } : {}),
         })
       } else {
-        await post('/api/admin/users', { email: edit.email, full_name: edit.full_name, role: edit.role, ...(edit.sso_only ? {} : { password: edit.password }) })
+        await post('/api/admin/users', { email: edit.email, full_name: edit.full_name, role: edit.role, ...(edit.sso_only ? {} : { password: edit.password }),
+          product_id: edit.product_id || null, implementation_id: edit.implementation_id || null })
       }
       toast('success', 'User saved'); setEdit(null); reload()
     } catch (e) { toast('error', validationMessage(e)) }
@@ -41,10 +45,11 @@ export default function UsersPage() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No users" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Name</th><th className="th">Email</th><th className="th">Role</th><th className="th">Sign-in</th><th className="th">Status</th><th className="th">Last login</th><th className="th" /></tr></thead>
+            <thead className="bg-slate-50"><tr><th className="th">Name</th><th className="th">Email</th><th className="th">Role</th><th className="th">Product / implementation</th><th className="th">Sign-in</th><th className="th">Status</th><th className="th">Last login</th><th className="th" /></tr></thead>
             <tbody className="divide-y divide-slate-100">{data.map((u) => (
               <tr key={u.id} className={u.deleted_at ? 'bg-slate-50 opacity-70' : ''}><td className="td font-medium">{u.full_name}</td><td className="td text-xs">{u.email}</td>
                 <td className="td"><Pill className={u.role === 'admin' ? 'bg-blue-100 text-blue-800' : ''}>{u.role}</Pill></td>
+                <td className="td text-xs">{u.product_name ? <><div className="font-medium">{u.product_name}</div><div className="text-slate-500">{u.implementation_name ?? '—'}</div></> : <span className="text-slate-400">—</span>}</td>
                 <td className="td"><div className="flex flex-wrap gap-1">
                   {u.sso_provider_id && <Pill className="bg-violet-100 text-violet-800">SSO · {u.sso_provider_name}</Pill>}
                   {u.has_password && <Pill>Password</Pill>}
@@ -67,6 +72,18 @@ export default function UsersPage() {
           {!edit.id && <Field label="Email *" htmlFor="u-e" hint="For SSO users this must match the email asserted by the identity provider."><input id="u-e" type="email" className="input" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>}
           <Field label="Full name *" htmlFor="u-n"><input id="u-n" className="input" value={edit.full_name} onChange={(e) => setEdit({ ...edit, full_name: e.target.value })} /></Field>
           <Field label="Role" htmlFor="u-r" hint={edit.sso_provider_id ? 'If the provider syncs roles from groups, this is overwritten at the next SSO sign-in.' : undefined}><select id="u-r" className="input" disabled={edit.id === me?.id} value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })}><option value="requester">Requester</option><option value="admin">Admin</option></select></Field>
+          <Field label="Product" htmlFor="u-prod" hint="Requesters in the same product can see each other's bookings.">
+            <select id="u-prod" className="input" value={edit.product_id ?? ''} onChange={(e) => setEdit({ ...edit, product_id: e.target.value, implementation_id: '' })}>
+              <option value="">— None —</option>
+              {products.data?.filter((p) => p.is_active || p.id === edit.product_id).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Implementation" htmlFor="u-impl">
+            <select id="u-impl" className="input" value={edit.implementation_id ?? ''} disabled={!edit.product_id} onChange={(e) => setEdit({ ...edit, implementation_id: e.target.value })}>
+              <option value="">— None —</option>
+              {prodOf(edit.product_id)?.implementations.filter((i) => i.is_active || i.id === edit.implementation_id).map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+            </select>
+          </Field>
           {!edit.id && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={edit.sso_only} onChange={(e) => setEdit({ ...edit, sso_only: e.target.checked })} />SSO only (no local password)</label>}
           {(edit.id || !edit.sso_only) && (
             <Field label={edit.id ? (edit.has_password ? 'Reset password' : 'Set a local password') : 'Password *'} htmlFor="u-p" hint="Min. 12 characters with 3 of: lowercase, uppercase, digit, symbol.">

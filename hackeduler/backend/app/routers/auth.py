@@ -29,7 +29,10 @@ def user_out(u: User, provider_name: str | None = None) -> UserOut:
     return UserOut(id=u.id, email=u.email, full_name=u.full_name, role=u.role_name, is_active=u.is_active,
                    last_login_at=u.last_login_at, has_password=u.password_hash is not None,
                    sso_provider_id=u.sso_provider_id, sso_provider_name=provider_name,
-                   last_login_method=u.last_login_method, deleted_at=u.deleted_at)
+                   last_login_method=u.last_login_method, deleted_at=u.deleted_at,
+                   product_id=u.product_id, product_name=u.product.name if u.product else None,
+                   implementation_id=u.implementation_id,
+                   implementation_name=u.implementation.name if u.implementation else None)
 
 
 def set_session_cookies(response: Response, user: User, sso_slug: str | None = None) -> str:

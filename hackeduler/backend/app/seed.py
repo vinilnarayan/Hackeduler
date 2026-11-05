@@ -51,6 +51,16 @@ ACTIVITY_TYPES = [
     ("Standalone LLM PT", 4, 4),  # example of an additional-duration rule: up to +4 working days
 ]
 
+# Activities that need no security engineer (no resource reserved, duration optional)
+RESOURCELESS_ACTIVITIES = [
+    ("XBOW Automated Scan", None, "Automated scan - no security resource is allocated"),
+]
+
+SAMPLE_PRODUCTS = {
+    "Payments Platform": ["Retail Bank Rollout", "Card Issuing"],
+    "Customer Engagement": ["Mobile App", "Web Portal"],
+}
+
 HYBRID_SCOPE = {
     ("Hybrid Application PT – Single Codebase", 12): "Standard scope",
     ("Hybrid Application PT – Single Codebase", 16): "Extended scope",
@@ -81,6 +91,10 @@ def seed_reference(db: Session) -> None:
             desc = HYBRID_SCOPE.get((name, days))
             db.add(ActivityType(id=uuid.uuid4(), name=name, base_duration_days=days, allow_additional_days=extra > 0,
                                 max_additional_days=extra, sort_order=i, description=desc))
+    for i, (name, days, desc) in enumerate(RESOURCELESS_ACTIVITIES, start=len(ACTIVITY_TYPES)):
+        if not db.scalar(select(ActivityType.id).where(ActivityType.name == name)):
+            db.add(ActivityType(id=uuid.uuid4(), name=name, base_duration_days=days, requires_resource=False,
+                                allow_additional_days=False, max_additional_days=0, sort_order=i, description=desc))
     for key, t in notifications.DEFAULT_TEMPLATES.items():
         if not db.scalar(select(EmailTemplate.id).where(EmailTemplate.key == key)):
             db.add(EmailTemplate(id=uuid.uuid4(), key=key, name=t["name"], subject_template=t["subject"], body_template=t["body"]))
@@ -99,6 +113,31 @@ def seed_users(db: Session) -> dict[str, User]:
         out[email] = u
     db.commit()
     return out
+
+
+def seed_products(db: Session, users: dict[str, User]) -> None:
+    from .models import Implementation, Product
+
+    first = {}
+    for pname, impls in SAMPLE_PRODUCTS.items():
+        p = db.scalars(select(Product).where(func.lower(Product.name) == pname.lower())).first()
+        if not p:
+            p = Product(id=uuid.uuid4(), name=pname, description="Sample product")
+            db.add(p)
+            db.flush()
+        for iname in impls:
+            i = db.scalars(select(Implementation).where(Implementation.product_id == p.id, Implementation.name == iname)).first()
+            if not i:
+                i = Implementation(id=uuid.uuid4(), product_id=p.id, name=iname)
+                db.add(i)
+                db.flush()
+            first.setdefault(pname, (p.id, i.id))
+    # both demo requesters work on the same product so product sharing can be tried out
+    for email in ("requester@offsec.local", "requester2@offsec.local"):
+        u = users.get(email)
+        if u and not u.product_id:
+            u.product_id, u.implementation_id = first["Payments Platform"]
+    db.commit()
 
 
 def seed_resources(db: Session) -> list[SecurityResource]:
@@ -175,6 +214,7 @@ def main() -> None:
         seed_reference(db)
         if not args.minimal:
             users = seed_users(db)
+            seed_products(db, users)
             resources = seed_resources(db)
             year = settings_service.org_today(db).year
             seed_holidays(db, year)

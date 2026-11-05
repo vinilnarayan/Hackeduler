@@ -31,7 +31,7 @@ export default function RequesterDashboard() {
             <ul className="divide-y divide-slate-100">
               {data.upcoming.map((b: Booking) => (
                 <li key={b.id} className="flex flex-wrap items-center gap-3 px-4 py-2 text-sm">
-                  <div className="flex-1"><div className="font-medium">{b.application_name} <span className="text-slate-500">v{b.application_version}</span></div><div className="text-xs text-slate-500">{b.activity_name} · {b.resource_display_name}</div></div>
+                  <div className="flex-1"><div className="font-medium">{b.application_name} <span className="text-slate-500">v{b.application_version}</span></div><div className="text-xs text-slate-500">{b.activity_name}{b.resource_display_name ? ` · ${b.resource_display_name}` : ''}</div></div>
                   <div className="text-xs whitespace-nowrap">{fmt(b.start_date)} – {fmt(b.end_date)}</div>
                   <StatusBadge status={b.status} />
                 </li>
@@ -49,7 +49,7 @@ export default function RequesterDashboard() {
       <div>
         <h2 className="mb-2 text-base font-semibold">Resource availability</h2>
         <ResourceCalendar mode="requester" initialView="week" activityTypes={acts.data ?? []}
-          onCellClick={(r, cell) => cell.mine ? nav('/my-bookings') : nav(`/book?resource=${r.id}&start=${cell.date}`)} />
+          onCellClick={(_r, cell) => cell.mine ? nav('/my-bookings') : nav(`/book?start=${cell.date}`)} />
       </div>
     </div>
   )

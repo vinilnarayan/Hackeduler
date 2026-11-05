@@ -21,9 +21,9 @@ export default function BookingConfirmation() {
       </div>
       <div className="card p-4">
         <KV items={[
-          ['Status', <StatusBadge status={b.status} />], ['Resource', b.resource_display_name],
+          ['Status', <StatusBadge status={b.status} />], ['Resource', b.requires_resource ? b.resource_display_name : 'Not required'], ['Product / implementation', [b.product_name, b.implementation_name].filter(Boolean).join(' · ') || '—'],
           ['Application', `${b.application_name} v${b.application_version}`], ['Activity type', b.activity_name],
-          ['Start date', fmt(b.start_date)], ['Expected end date', fmt(b.end_date)], ['Duration', `${b.duration_days} working days`],
+          ['Start date', fmt(b.start_date)], ['Expected end date', fmt(b.end_date)], ['Duration', b.duration_days ? `${b.duration_days} working days` : '—'],
           ['PCI DSS scope', b.pci_dss_scope ? 'Yes' : 'No'], ['POC', `${b.poc_name} <${b.poc_email}>`], ['Submitted', fmtDateTime(b.submitted_at)],
         ]} />
       </div>
