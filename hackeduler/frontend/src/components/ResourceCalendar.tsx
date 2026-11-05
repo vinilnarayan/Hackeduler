@@ -19,6 +19,7 @@ export function Legend({ compact, showMine = true }: { compact?: boolean; showMi
         </span>
       ))}
       {showMine && <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-emerald-500 ring-2 ring-offset-1 ring-slate-900" aria-hidden /> Your booking</span>}
+      {showMine && <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-emerald-500 ring-2 ring-offset-1 ring-violet-600" aria-hidden /> Your product's booking</span>}
     </div>
   )
 }
@@ -62,7 +63,8 @@ export function ResourceCalendar({ mode, activityTypes = [], onCellClick, refres
 
   const cellTitle = (r: CalendarResource, c: CalendarCell) => {
     const parts = [`${r.display_name}${r.engineer_name ? ` (${r.engineer_name})` : ''}`, format(parse(c.date), 'EEE dd MMM yyyy'), cellExplanation(c.state, c.reason, c.label)]
-    if (c.mine) parts.push('Your booking')
+    if (c.team) parts.push("Your product's booking")
+    else if (c.mine) parts.push('Your booking')
     c.bookings?.forEach((b) => parts.push(`${b.application_name} – ${STATUS_LABELS[b.status]}${b.forced ? ' (FORCED)' : ''}`))
     if (c.conflict) parts.push('⚠ Overlapping allocations')
     return parts.join(' · ')
@@ -158,7 +160,7 @@ export function ResourceCalendar({ mode, activityTypes = [], onCellClick, refres
                           <Tag
                             {...(can ? { type: 'button', onClick: () => onCellClick!(r, raw) } : {})}
                             title={cellTitle(r, c)} aria-label={cellTitle(r, c)}
-                            className={`relative block w-full rounded-sm text-left text-[10px] leading-tight text-white ${view === 'week' ? 'h-14 px-1 py-0.5' : 'h-8 min-w-6'} ${style.cls} ${dim ? 'opacity-30' : ''} ${c.mine ? 'ring-2 ring-slate-900 ring-offset-1' : ''} ${can ? 'cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-700' : 'cursor-default'}`}>
+                            className={`relative block w-full rounded-sm text-left text-[10px] leading-tight text-white ${view === 'week' ? 'h-14 px-1 py-0.5' : 'h-8 min-w-6'} ${style.cls} ${dim ? 'opacity-30' : ''} ${c.team ? 'ring-2 ring-violet-600 ring-offset-1' : c.mine ? 'ring-2 ring-slate-900 ring-offset-1' : ''} ${can ? 'cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-700' : 'cursor-default'}`}>
                             {view === 'week' && (
                               <span className="line-clamp-3 font-medium drop-shadow-sm">
                                 {c.bookings?.length ? c.bookings.map((b) => b.application_name).join(', ')

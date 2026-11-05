@@ -93,7 +93,7 @@ npm test
 npm run typecheck
 ```
 
-The backend suite has 142 tests, including 45 SSO tests against an in-process fake identity provider (signature,
+The backend suite has 168 tests, including 45 SSO tests against an in-process fake identity provider (signature,
 issuer, audience, expiry, nonce, state, PKCE, algorithm confusion, key rotation, group and domain restrictions,
 account-linking takeover protection, sign-in policy and lockout protection). It also covers: working-day engine unit tests, API integration tests, concurrent booking races
 (8 threads at the service layer and 6 parallel HTTP clients), RBAC and IDOR tests, Force Allocate restrictions,

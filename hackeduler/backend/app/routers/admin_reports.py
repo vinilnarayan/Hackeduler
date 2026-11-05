@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import csv
 import io
+import uuid
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -21,6 +22,7 @@ from ..models import (
     BookingStatus,
     Holiday,
     LockStatus,
+    Product,
     SecurityResource,
     User,
 )
@@ -41,14 +43,15 @@ def _next_month(d: date) -> date:
 
 
 @router.get("/dashboard")
-def dashboard(start: date | None = None, end: date | None = None, db: Session = Depends(get_db)):
+def dashboard(start: date | None = None, end: date | None = None, product_id: uuid.UUID | None = None,
+              db: Session = Depends(get_db)):
     today = settings_service.org_today(db)
     start = start or _month_start(today - timedelta(days=150))
     end = end or (_next_month(_next_month(_month_start(today))) - timedelta(days=1)) + timedelta(days=150)
     if end < start or (end - start).days > 800:
         raise bad_request("Invalid date range (max ~2 years).")
 
-    resources = list(db.scalars(select(SecurityResource).order_by(SecurityResource.sequence_no)))
+    resources = list(db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)))
     active = [r for r in resources if r.is_active]
     rids = [r.id for r in resources]
     holidays = availability.load_holidays(db, min(start, today), max(end, today))
@@ -70,7 +73,8 @@ def dashboard(start: date | None = None, end: date | None = None, db: Session = 
         select(BookingResourceLock.resource_id, BookingResourceLock.work_date)
         .join(Booking, Booking.id == BookingResourceLock.booking_id)
         .where(BookingResourceLock.work_date.between(start, end), BookingResourceLock.lock_status == LockStatus.CONFIRMED,
-               Booking.status.in_([BookingStatus.APPROVED, BookingStatus.COMPLETED]))
+               Booking.status.in_([BookingStatus.APPROVED, BookingStatus.COMPLETED]),
+               *( [Booking.product_id == product_id] if product_id else []))
     ).all()
     used_by_month: Counter = Counter()
     used_by_resource: Counter = Counter()
@@ -100,19 +104,39 @@ def dashboard(start: date | None = None, end: date | None = None, db: Session = 
     total_used = sum(v for k, v in used_by_resource.items() if k in {r.id for r in active})
 
     # ---- booking stats
-    in_range = db.scalars(select(Booking).where(Booking.start_date <= end, Booking.end_date >= start)).unique().all()
+    pf = [Booking.product_id == product_id] if product_id else []
+    # dated bookings overlapping the range, plus undated (resource-less) bookings submitted in the range
+    in_range = db.scalars(select(Booking).where(
+        or_(and_(Booking.start_date <= end, Booking.end_date >= start),
+            and_(Booking.start_date.is_(None), func.date(Booking.submitted_at).between(start, end))), *pf)).unique().all()
     status_counts = Counter(b.status for b in in_range)
-    all_status = dict(db.execute(select(Booking.status, func.count()).group_by(Booking.status)).all())
-    activity_counts = Counter(b.activity_name_snapshot for b in in_range
-                              if b.status in (BookingStatus.APPROVED, BookingStatus.PENDING, BookingStatus.COMPLETED))
+    all_status = dict(db.execute(select(Booking.status, func.count()).where(*pf).group_by(Booking.status)).all())
+    live = (BookingStatus.APPROVED, BookingStatus.PENDING, BookingStatus.COMPLETED)
+    activity_counts = Counter(b.activity_name_snapshot for b in in_range if b.status in live)
     volume = dict(db.execute(
         select(func.date_trunc("month", Booking.submitted_at).label("m"), func.count())
-        .where(func.date(Booking.submitted_at).between(start, end)).group_by("m")).all())
+        .where(func.date(Booking.submitted_at).between(start, end), *pf).group_by("m")).all())
     volume_by_month = defaultdict(int, {k.date().replace(day=1): v for k, v in volume.items()})
 
-    upcoming = db.scalars(select(Booking).where(Booking.status == BookingStatus.APPROVED, Booking.end_date >= today)
+    # ---- product breakdown (all live bookings in range, with and without a resource)
+    def booking_month(b: Booking) -> date:
+        return _month_start(b.start_date or b.submitted_at.date())
+    live_in_range = [b for b in in_range if b.status in live]
+    product_names = {p.id: p.name for p in db.scalars(select(Product)).all()}
+    pname = lambda b: product_names.get(b.product_id, "No product")  # noqa: E731
+    by_product: dict[str, Counter] = defaultdict(Counter)
+    for b in live_in_range:
+        by_product[pname(b)]["total"] += 1
+        by_product[pname(b)]["with_resource" if b.requires_resource else "without_resource"] += 1
+    matrix: dict[str, Counter] = defaultdict(Counter)
+    for b in live_in_range:
+        matrix[pname(b)][booking_month(b)] += 1
+    product_rows = sorted(by_product.items(), key=lambda kv: (-kv[1]["total"], kv[0]))
+    impl_counts = Counter((pname(b), b.implementation.name if b.implementation else "—") for b in live_in_range)
+
+    upcoming = db.scalars(select(Booking).where(Booking.status == BookingStatus.APPROVED, Booking.end_date >= today, *pf)
                           .order_by(Booking.start_date).limit(10)).unique().all()
-    pending = db.scalars(select(Booking).where(Booking.status == BookingStatus.PENDING)
+    pending = db.scalars(select(Booking).where(Booking.status == BookingStatus.PENDING, *pf)
                          .order_by(Booking.submitted_at).limit(10)).unique().all()
     upcoming_holidays = db.scalars(select(Holiday).where(Holiday.holiday_date.between(today, today + timedelta(days=90)))
                                    .order_by(Holiday.holiday_date)).all()
@@ -136,6 +160,8 @@ def dashboard(start: date | None = None, end: date | None = None, db: Session = 
             "expired": all_status.get(BookingStatus.EXPIRED, 0),
             "unresolved_conflicts": open_conflicts,
             "utilization_pct": round(100 * total_used / total_cap, 1) if total_cap else 0.0,
+            "bookings_without_resource": sum(1 for b in live_in_range if not b.requires_resource),
+            "bookings_in_range": len(live_in_range),
         },
         "engineers_on_leave_today": [{"resource": r.display_name, "engineer_name": r.engineer_name} for r in on_leave],
         "charts": {
@@ -152,6 +178,15 @@ def dashboard(start: date | None = None, end: date | None = None, db: Session = 
                  "utilization_pct": round(100 * used_by_resource[r.id] / cap_by_resource[r.id], 1) if cap_by_resource[r.id] else 0.0}
                 for r in resources],
             "monthly_volume": [{"month": mm.strftime("%Y-%m"), "count": volume_by_month[mm]} for mm in months],
+            "product_distribution": [{"product": k, "count": v["total"], "with_resource": v["with_resource"],
+                                      "without_resource": v["without_resource"]} for k, v in product_rows],
+            "product_month_matrix": {
+                "months": [mm.strftime("%Y-%m") for mm in months],
+                "rows": [{"product": k, "counts": [matrix[k][mm] for mm in months], "total": sum(matrix[k].values())}
+                         for k, _ in product_rows],
+            },
+            "implementation_distribution": [{"product": p, "implementation": i, "count": c}
+                                            for (p, i), c in impl_counts.most_common()],
         },
         "upcoming_bookings": [booking_admin_out(b) for b in upcoming],
         "pending_bookings": [booking_admin_out(b) for b in pending],
@@ -162,9 +197,13 @@ def dashboard(start: date | None = None, end: date | None = None, db: Session = 
 EXPORT_COLUMNS = [
     ("Booking ID", lambda b: str(b.id)), ("Application Name", lambda b: b.application_name),
     ("Application Version", lambda b: b.application_version), ("Activity Type", lambda b: b.activity_name_snapshot),
-    ("Duration (working days)", lambda b: b.duration_days), ("PCI DSS Scope", lambda b: "Yes" if b.pci_dss_scope else "No"),
-    ("Resource", lambda b: b.resource.display_name), ("Engineer", lambda b: b.resource.engineer_name),
-    ("Start Date", lambda b: b.start_date.isoformat()), ("End Date", lambda b: b.end_date.isoformat()),
+    ("Duration (working days)", lambda b: b.duration_days if b.duration_days is not None else ""), ("PCI DSS Scope", lambda b: "Yes" if b.pci_dss_scope else "No"),
+    ("Product", lambda b: b.product.name if b.product else ""),
+    ("Implementation", lambda b: b.implementation.name if b.implementation else ""),
+    ("Resource", lambda b: b.resource.display_name if b.resource else "Not required"),
+    ("Engineer", lambda b: b.resource.engineer_name if b.resource else ""),
+    ("Start Date", lambda b: b.start_date.isoformat() if b.start_date else ""),
+    ("End Date", lambda b: b.end_date.isoformat() if b.end_date else ""),
     ("Status", lambda b: BookingStatus.LABELS[b.status]), ("POC Name", lambda b: b.poc_name),
     ("POC Email", lambda b: b.poc_email), ("Requester", lambda b: b.requester.email),
     ("Submitted At", lambda b: b.submitted_at.isoformat()), ("Force Allocated", lambda b: "Yes" if b.is_force_allocated else "No"),
@@ -182,7 +221,8 @@ def _safe_cell(v):
 
 @router.get("/reports/bookings.{fmt}")
 def export_bookings(fmt: str, status: str | None = None, start: date | None = None, end: date | None = None,
-                    resource_id: str | None = None, limit: int = Query(10000, le=50000), db: Session = Depends(get_db),
+                    resource_id: str | None = None, product_id: uuid.UUID | None = None,
+                    limit: int = Query(10000, le=50000), db: Session = Depends(get_db),
                     admin: User = Depends(require_admin)):
     if fmt not in ("csv", "xlsx"):
         raise bad_request("Format must be csv or xlsx.")
@@ -190,12 +230,14 @@ def export_bookings(fmt: str, status: str | None = None, start: date | None = No
     if status:
         q = q.where(Booking.status == status)
     if start:
-        q = q.where(Booking.end_date >= start)
+        q = q.where(or_(Booking.end_date >= start, and_(Booking.start_date.is_(None), func.date(Booking.submitted_at) >= start)))
     if end:
-        q = q.where(Booking.start_date <= end)
+        q = q.where(or_(Booking.start_date <= end, and_(Booking.start_date.is_(None), func.date(Booking.submitted_at) <= end)))
+    if product_id:
+        q = q.where(Booking.product_id == product_id)
     if resource_id:
         q = q.where(Booking.resource_id == resource_id)
-    rows = db.scalars(q.order_by(Booking.start_date).limit(limit)).unique().all()
+    rows = db.scalars(q.order_by(Booking.start_date.nulls_last(), Booking.submitted_at).limit(limit)).unique().all()
     audit.record(db, "report.exported", admin, entity_type="report", entity_id=f"bookings.{fmt}",
                  new={"rows": len(rows), "status": status, "start": start, "end": end})
     commit(db)

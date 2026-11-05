@@ -22,7 +22,7 @@ from ..models import AuditLog, Booking, User
 log = logging.getLogger(__name__)
 
 BOOKING_SNAPSHOT_FIELDS = (
-    "status", "resource_id", "activity_type_id", "activity_name_snapshot", "base_duration_snapshot",
+    "status", "resource_id", "requires_resource", "product_id", "implementation_id", "activity_type_id", "activity_name_snapshot", "base_duration_snapshot",
     "additional_days", "duration_days", "duration_overridden", "application_name", "application_version",
     "pci_dss_scope", "poc_name", "poc_email", "additional_comments", "start_date", "end_date",
     "is_force_allocated", "needs_review", "rejection_reason", "cancellation_reason", "version",

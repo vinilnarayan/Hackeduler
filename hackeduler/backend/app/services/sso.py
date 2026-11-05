@@ -66,6 +66,7 @@ class Identity:
     name: str
     groups: list[str]
     claims: dict
+    groups_present: bool = False  # False when the token carries no groups claim at all
 
 
 # --------------------------------------------------------------------------------------
@@ -346,13 +347,17 @@ def extract_identity(p: SSOProvider, claims: dict) -> Identity:
     if not isinstance(name, str) or not name.strip():
         name = email.split("@")[0]
     raw = _claim(claims, p.groups_claim) if p.groups_claim else None
+    # Entra ID "groups overage": >200 groups -> claim replaced by a _claim_names pointer; treat as absent
+    overage = isinstance(claims.get("_claim_names"), dict) and p.groups_claim in claims["_claim_names"]
+    present = raw is not None and not overage
     if isinstance(raw, str):
         groups = [g for g in re.split(r"[\s,]+", raw) if g]
     elif isinstance(raw, list):
         groups = [str(g) for g in raw if isinstance(g, (str, int))]
     else:
         groups = []
-    return Identity(subject=str(claims["sub"]), email=email, name=name.strip()[:200], groups=groups, claims=claims)
+    return Identity(subject=str(claims["sub"]), email=email, name=name.strip()[:200], groups=groups, claims=claims,
+                    groups_present=present)
 
 
 def _norm(values) -> set[str]:
@@ -385,7 +390,7 @@ def provision_user(db: Session, p: SSOProvider, ident: Identity) -> tuple[User, 
 
     user = db.scalars(select(User).where(User.sso_provider_id == p.id, User.sso_subject == ident.subject)).first()
     if user is None:
-        existing = db.scalars(select(User).where(func.lower(User.email) == ident.email)).first()
+        existing = db.scalars(select(User).where(func.lower(User.email) == ident.email, User.deleted_at.is_(None))).first()
         if existing is not None:
             if not p.link_existing_by_email:
                 raise SSOError("identity_conflict", f"An account for {ident.email} exists but email linking is disabled")
@@ -407,7 +412,15 @@ def provision_user(db: Session, p: SSOProvider, ident: Identity) -> tuple[User, 
     if not user.is_active:
         raise SSOError("account_disabled", f"Account {user.email} is disabled")
 
-    if p.sync_role_on_login and not info["provisioned"] and user.role_id != role_id:
+    # Role sync is only trustworthy when the IdP is actually configured to tell us about roles:
+    # admin groups must be mapped AND the token must contain the groups claim. A missing claim
+    # (not configured at the IdP, or Entra group overage) must never demote anyone.
+    sync = p.sync_role_on_login and not info["provisioned"]
+    if sync and not _norm(p.admin_groups):
+        sync, info["role_sync_skipped"] = False, "no admin groups mapped - role managed in the app"
+    elif sync and not ident.groups_present:
+        sync, info["role_sync_skipped"] = False, f"token has no '{p.groups_claim}' claim - role kept"
+    if sync and user.role_id != role_id:
         if user.role_id == ROLE_ADMIN_ID and _active_admin_count(db) <= 1:
             info["role_sync_skipped"] = "last active admin would be demoted"
         else:
@@ -418,7 +431,8 @@ def provision_user(db: Session, p: SSOProvider, ident: Identity) -> tuple[User, 
         user.full_name = ident.name
     if user.email.lower() != ident.email:
         # identity is keyed on (provider, sub); keep the email in sync unless it collides
-        if not db.scalar(select(User.id).where(func.lower(User.email) == ident.email, User.id != user.id)):
+        if not db.scalar(select(User.id).where(func.lower(User.email) == ident.email, User.id != user.id,
+                                               User.deleted_at.is_(None))):
             user.email = ident.email
     user.last_login_at = now_utc()
     user.last_login_method = f"sso:{p.slug}"
@@ -446,6 +460,7 @@ def complete_login(db: Session, p: SSOProvider, code: str, state: str, tx_cookie
                      new={"email": user.email, "role": user.role_name, "provider": p.slug})
     audit.record(db, "auth.sso_login", user, entity_type="user", entity_id=user.id,
                  new={"provider": p.slug, "subject": ident.subject, "email": ident.email, "role": user.role_name,
+                      "groups_claim_present": ident.groups_present, "groups_received": ident.groups[:50],
                       "groups_matched": sorted(_norm(ident.groups) & (_norm(p.admin_groups) | _norm(p.requester_groups))),
                       **{k: v for k, v in info.items() if v}})
     return user, tx.get("next") or "/"

@@ -244,7 +244,7 @@ def suggest_next_start(db: Session, resource: SecurityResource, duration: int, a
 
 def alternative_resources(db: Session, exclude_resource_id: uuid.UUID, start: date, duration: int) -> list[SecurityResource]:
     out = []
-    for r in db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True)).order_by(SecurityResource.sequence_no)):
+    for r in db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True), SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)):
         if r.id == exclude_resource_id:
             continue
         try:
@@ -256,7 +256,12 @@ def alternative_resources(db: Session, exclude_resource_id: uuid.UUID, start: da
     return out
 
 
-def total_duration(activity: ActivityType, additional_days: int) -> int:
+def total_duration(activity: ActivityType, additional_days: int) -> int | None:
+    """Working days for a booking. None for activities without a configured duration (resource-less only)."""
+    if activity.base_duration_days is None:
+        if additional_days:
+            raise SchedulingError("invalid_duration", "This activity type has no duration; additional days are not applicable.")
+        return None
     if additional_days < 0:
         raise SchedulingError("invalid_duration", "Additional days cannot be negative.")
     if additional_days and not activity.allow_additional_days:
@@ -278,6 +283,7 @@ def calendar_grid(
     viewer_id: uuid.UUID | None,
     admin: bool,
     activity_duration: int | None = None,
+    viewer_product_id: uuid.UUID | None = None,
 ) -> dict:
     """Per-resource, per-day availability states.
 
@@ -288,7 +294,7 @@ def calendar_grid(
     """
     if (end - start).days > 186:
         raise SchedulingError("range_too_large", "Calendar range is limited to ~6 months.")
-    resources = list(db.scalars(select(SecurityResource).order_by(SecurityResource.sequence_no)))
+    resources = list(db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)))
     rids = [r.id for r in resources]
     look_ahead = end + timedelta(days=(activity_duration or 0) * 3 + 30)
     holidays = load_holidays(db, start, look_ahead)
@@ -306,6 +312,7 @@ def calendar_grid(
             Booking.status,
             Booking.application_name,
             Booking.activity_name_snapshot,
+            Booking.product_id,
         )
         .join(Booking, Booking.id == BookingResourceLock.booking_id)
         .where(BookingResourceLock.work_date.between(start, look_ahead), active_lock_clause(db))
@@ -329,6 +336,10 @@ def calendar_grid(
                 cell["state"] = "occupied" if confirmed else "reserved"
                 mine = [x for x in rows if viewer_id and x.requester_id == viewer_id]
                 cell["mine"] = bool(mine)
+                team = [x for x in rows if viewer_product_id and x.product_id == viewer_product_id and x not in mine]
+                if team and not admin:
+                    cell["team"] = True
+                    mine = mine + team  # product colleagues may see each other's bookings
                 if admin:
                     cell["bookings"] = [
                         {"id": str(x.id), "status": x.status, "application_name": x.application_name,

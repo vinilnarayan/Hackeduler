@@ -109,7 +109,8 @@ provider has no discovery document, fill in the endpoint overrides under *Advanc
 | **Allowed email domains** | If set, the user's email domain must match exactly. |
 | **Role when no admin group matches** | Normally *Requester*. *Admin* is only allowed together with a group or domain restriction. |
 | **Create accounts automatically** | On: first SSO sign-in creates the account. Off: an admin must first create the user under **Admin → Users** (tick *SSO only*, no password needed). |
-| **Update the role at every sign-in** | On: the role follows IdP groups at each sign-in, and existing sessions are revoked when the role changes. Off: the role is set at first sign-in and then managed in the app. The **last active admin is never demoted** by a sync, so a mapping mistake can't remove all admins. |
+| **Update the role at every sign-in** | On: the role follows IdP groups at each sign-in, and existing sessions are revoked when the role changes. The sync only runs when **Admin groups are configured and the ID token actually contains the groups claim**. If the claim is missing (not configured at the IdP, or Entra group overage), the role set under **Admin → Users** is kept. Off: roles are always managed in the app. The **last active admin is never demoted** by a sync. |
+| **Sign-ins** (button on each provider) | Shows the last 25 sign-ins and failures: whether the groups claim was present, the exact group values received, which matched, and the resulting role. Copy values from here into **Admin groups**. |
 | **Link existing accounts by email** | Lets existing local users (for example the initial admin) start using SSO. An account already linked to an SSO identity is **never** re-linked to a different one; that attempt fails with *identity conflict*, preventing account takeover. |
 | **Sign out of the identity provider on logout** | After the planner logout, the browser is sent to the IdP's `end_session_endpoint` (single logout). |
 

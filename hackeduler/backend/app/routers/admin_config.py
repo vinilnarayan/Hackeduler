@@ -7,7 +7,9 @@ import uuid
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -18,6 +20,7 @@ from ..models import (
     ROLE_REQUESTER_ID,
     ActivityType,
     Booking,
+    BookingStatus,
     EmailNotificationLog,
     EmailTemplate,
     Holiday,
@@ -65,8 +68,66 @@ RES_FIELDS = ("code", "display_name", "engineer_name", "engineer_email", "notes"
 
 
 @router.get("/resources", response_model=list[ResourceAdmin])
-def list_resources(db: Session = Depends(get_db)):
-    return db.scalars(select(SecurityResource).order_by(SecurityResource.sequence_no)).all()
+def list_resources(include_deleted: bool = False, db: Session = Depends(get_db)):
+    q = select(SecurityResource).order_by(SecurityResource.sequence_no)
+    if not include_deleted:
+        q = q.where(SecurityResource.deleted_at.is_(None))
+    return db.scalars(q).all()
+
+
+def _get_resource(db: Session, resource_id: uuid.UUID) -> SecurityResource:
+    r = db.get(SecurityResource, resource_id)
+    if r is None or r.deleted_at is not None:
+        raise not_found("Resource")
+    return r
+
+
+@router.delete("/resources/{resource_id}")
+def delete_resource(resource_id: uuid.UUID, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Delete a resource. Blocked while it has pending/approved bookings (reassign or cancel them first).
+    A resource that was never booked is removed completely; otherwise it is archived so booking
+    history keeps its identifier. Archived identifiers are never reused."""
+    r = _get_resource(db, resource_id)
+    active = db.scalars(select(Booking).where(Booking.resource_id == r.id, Booking.status.in_(BookingStatus.ACTIVE))
+                        .order_by(Booking.start_date)).unique().all()
+    if active:
+        raise conflict(
+            f"{r.display_name} still has {len(active)} pending or approved booking(s). Reassign or cancel them first.",
+            "resource_in_use",
+            {"bookings": [{"id": str(b.id), "application_name": b.application_name, "status": b.status,
+                           "start_date": b.start_date.isoformat(), "end_date": b.end_date.isoformat()} for b in active]},
+        )
+    snap = _snap(r, RES_FIELDS)
+    mode = "removed"
+    try:
+        with db.begin_nested():
+            db.execute(sa_delete(ResourceLeave).where(ResourceLeave.resource_id == r.id))
+            db.delete(r)
+            db.flush()
+    except IntegrityError:
+        mode = "archived"  # referenced by booking history
+        r = db.get(SecurityResource, resource_id)
+        r.deleted_at = now_utc()
+        if r.is_active:
+            r.is_active, r.deactivated_at = False, now_utc()
+            r.inactive_from = r.inactive_from or settings_service.org_today(db)
+        db.execute(update(ResourceLeave).where(ResourceLeave.resource_id == r.id, ResourceLeave.status == "active")
+                   .values(status="cancelled"))
+    audit.record(db, "resource.deleted", admin, entity_type="resource", entity_id=resource_id, previous=snap,
+                 new={"mode": mode})
+    commit(db)
+    return {"ok": True, "mode": mode}
+
+
+@router.post("/resources/{resource_id}/restore", response_model=ResourceAdmin)
+def restore_resource(resource_id: uuid.UUID, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    r = db.get(SecurityResource, resource_id)
+    if r is None or r.deleted_at is None:
+        raise not_found("Deleted resource")
+    r.deleted_at = None  # restored as inactive; activate it explicitly
+    audit.record(db, "resource.restored", admin, entity_type="resource", entity_id=r.id, new={"is_active": r.is_active})
+    commit(db)
+    return r
 
 
 @router.post("/resources", response_model=ResourceAdmin, status_code=201)
@@ -86,9 +147,7 @@ def create_resource(body: ResourceCreate, db: Session = Depends(get_db), admin: 
 @router.patch("/resources/{resource_id}", response_model=ResourceAdmin)
 def update_resource(resource_id: uuid.UUID, body: ResourceUpdate, db: Session = Depends(get_db),
                     admin: User = Depends(require_admin)):
-    r = db.get(SecurityResource, resource_id)
-    if r is None:
-        raise not_found("Resource")
+    r = _get_resource(db, resource_id)
     prev = _snap(r, RES_FIELDS)
     data = body.model_dump(exclude_unset=True)
     reason = (data.pop("reason", None) or "").strip() or None
@@ -142,9 +201,7 @@ def update_resource(resource_id: uuid.UUID, body: ResourceUpdate, db: Session = 
 @router.get("/resources/{resource_id}/allocation")
 def resource_allocation(resource_id: uuid.UUID, start: date | None = None, end: date | None = None,
                         db: Session = Depends(get_db)):
-    r = db.get(SecurityResource, resource_id)
-    if r is None:
-        raise not_found("Resource")
+    r = _get_resource(db, resource_id)
     today = settings_service.org_today(db)
     start = start or today - timedelta(days=90)
     end = end or today + timedelta(days=180)
@@ -157,10 +214,15 @@ def resource_allocation(resource_id: uuid.UUID, start: date | None = None, end: 
 
 
 # =============================================================== activity types
-ACT_FIELDS = ("name", "description", "base_duration_days", "allow_additional_days", "max_additional_days", "is_active", "sort_order")
+ACT_FIELDS = ("name", "description", "base_duration_days", "requires_resource", "allow_additional_days", "max_additional_days", "is_active", "sort_order")
 
 
 def _check_activity(a: ActivityType) -> None:
+    if a.requires_resource and not a.base_duration_days:
+        raise bad_request("Activities that need a security resource must have a duration in working days. "
+                          "Turn off 'Requires a security resource' for activities such as automated scans.")
+    if a.base_duration_days is None and a.allow_additional_days:
+        raise bad_request("Additional days need a base duration.")
     if not a.allow_additional_days and a.max_additional_days:
         raise bad_request("max_additional_days must be 0 unless additional days are allowed.")
     if a.allow_additional_days and a.max_additional_days <= 0:
@@ -388,9 +450,7 @@ def create_leave(body: LeaveIn, db: Session = Depends(get_db), admin: User = Dep
         raise bad_request("Leave end date must be on or after the start date.")
     if (body.end_date - body.start_date).days > 366:
         raise bad_request("Leave period cannot exceed one year.")
-    r = db.get(SecurityResource, body.resource_id)
-    if r is None:
-        raise not_found("Resource")
+    r = _get_resource(db, body.resource_id)
     lv = ResourceLeave(id=uuid.uuid4(), created_by=admin.id, **body.model_dump())
     db.add(lv)
     db.flush()
@@ -448,6 +508,24 @@ def cancel_leave(leave_id: uuid.UUID, db: Session = Depends(get_db), admin: User
 
 
 # =============================================================== users
+def _product_pair(db: Session, product_id, implementation_id):
+    """Validate a product / implementation assignment (implementation must belong to the product)."""
+    from ..models import Implementation, Product
+
+    if implementation_id and not product_id:
+        impl = db.get(Implementation, implementation_id)
+        if impl is None:
+            raise bad_request("Unknown implementation.")
+        product_id = impl.product_id
+    if product_id and db.get(Product, product_id) is None:
+        raise bad_request("Unknown product.")
+    if implementation_id:
+        impl = db.get(Implementation, implementation_id)
+        if impl is None or impl.product_id != product_id:
+            raise bad_request("The implementation does not belong to the selected product.")
+    return product_id, implementation_id
+
+
 def _users_out(db: Session, users) -> list:
     from ..models import SSOProvider
 
@@ -456,8 +534,60 @@ def _users_out(db: Session, users) -> list:
 
 
 @router.get("/users")
-def list_users(db: Session = Depends(get_db)):
-    return _users_out(db, db.scalars(select(User).order_by(User.full_name)).unique().all())
+def list_users(include_deleted: bool = False, db: Session = Depends(get_db)):
+    q = select(User).order_by(User.full_name)
+    if not include_deleted:
+        q = q.where(User.deleted_at.is_(None))
+    return _users_out(db, db.scalars(q).unique().all())
+
+
+def _active_admins(db: Session) -> int:
+    return db.scalar(select(func.count()).select_from(User).where(
+        User.role_id == ROLE_ADMIN_ID, User.is_active.is_(True), User.deleted_at.is_(None))) or 0
+
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: uuid.UUID, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Delete a user. Users with no activity are removed completely. Users referenced by bookings or
+    other history are archived: they disappear from the app and can never sign in, but bookings and the
+    audit trail keep showing who they were. The email address becomes free for a new account."""
+    u = db.get(User, user_id)
+    if u is None or u.deleted_at is not None:
+        raise not_found("User")
+    if u.id == admin.id:
+        raise bad_request("You cannot delete your own account.")
+    if u.is_admin and u.is_active and _active_admins(db) <= 1:
+        raise bad_request("Cannot delete the last active administrator.")
+    snap = {"email": u.email, "full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
+            "sso_provider_id": u.sso_provider_id}
+    mode = "removed"
+    try:
+        with db.begin_nested():
+            db.delete(u)
+            db.flush()
+    except IntegrityError:
+        mode = "archived"
+        u = db.get(User, user_id)
+        u.deleted_at = now_utc()
+        u.is_active = False
+        u.sso_provider_id, u.sso_subject = None, None
+        u.token_version += 1  # revoke sessions
+    audit.record(db, "user.deleted", admin, entity_type="user", entity_id=user_id, previous=snap, new={"mode": mode})
+    commit(db)
+    return {"ok": True, "mode": mode}
+
+
+@router.post("/users/{user_id}/restore")
+def restore_user(user_id: uuid.UUID, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    u = db.get(User, user_id)
+    if u is None or u.deleted_at is None:
+        raise not_found("Deleted user")
+    if db.scalar(select(User.id).where(func.lower(User.email) == u.email.lower(), User.deleted_at.is_(None))):
+        raise conflict(f"Another account now uses {u.email}; the deleted account cannot be restored.", "duplicate")
+    u.deleted_at = None  # restored disabled; enable it explicitly
+    audit.record(db, "user.restored", admin, entity_type="user", entity_id=u.id, new={"email": u.email})
+    commit(db)
+    return _users_out(db, [u])[0]
 
 
 @router.post("/users", status_code=201)
@@ -466,31 +596,38 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = D
         err = validate_password_strength(body.password)
         if err:
             raise bad_request(err)
-    if db.scalar(select(User.id).where(func.lower(User.email) == body.email.lower())):
+    if db.scalar(select(User.id).where(func.lower(User.email) == body.email.lower(), User.deleted_at.is_(None))):
         raise conflict("A user with that email already exists.", "duplicate")
     u = User(id=uuid.uuid4(), email=body.email.lower(), full_name=body.full_name,
              password_hash=hash_password(body.password) if body.password else None,
              role_id=ROLE_ADMIN_ID if body.role == "admin" else ROLE_REQUESTER_ID)
+    u.product_id, u.implementation_id = _product_pair(db, body.product_id, body.implementation_id)
     db.add(u)
     db.flush()
     db.refresh(u)
     audit.record(db, "user.created", admin, entity_type="user", entity_id=u.id,
-                 new={"email": u.email, "full_name": u.full_name, "role": body.role, "sso_only": not body.password})
+                 new={"email": u.email, "full_name": u.full_name, "role": body.role, "sso_only": not body.password,
+                      "product_id": u.product_id, "implementation_id": u.implementation_id})
     commit(db)
-    return user_out(u)
+    return _users_out(db, [u])[0]
 
 
 @router.patch("/users/{user_id}")
 def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     u = db.get(User, user_id)
-    if u is None:
+    if u is None or u.deleted_at is not None:
         raise not_found("User")
     data = body.model_dump(exclude_unset=True)
     if u.id == admin.id and (data.get("is_active") is False or data.get("role") == "requester"):
         raise bad_request("You cannot deactivate or demote your own account.")
-    prev = {"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active}
+    prev = {"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
+            "product_id": audit.jsonable(u.product_id), "implementation_id": audit.jsonable(u.implementation_id)}
     if "full_name" in data:
         u.full_name = data["full_name"]
+    if "product_id" in data or "implementation_id" in data:
+        pid = data.get("product_id", u.product_id)
+        iid = data.get("implementation_id", None if "product_id" in data and pid != u.product_id else u.implementation_id)
+        u.product_id, u.implementation_id = _product_pair(db, pid, iid)
     revoke = False
     if "role" in data:
         new_role = ROLE_ADMIN_ID if data["role"] == "admin" else ROLE_REQUESTER_ID
@@ -523,6 +660,7 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
     db.refresh(u)
     audit.record(db, "user.updated", admin, entity_type="user", entity_id=u.id, previous=prev,
                  new={"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
+                      "product_id": u.product_id, "implementation_id": u.implementation_id,
                       "password_reset": bool(data.get("password")), "password_removed": bool(data.get("remove_password")),
                       "sso_unlinked": bool(data.get("unlink_sso"))})
     commit(db)

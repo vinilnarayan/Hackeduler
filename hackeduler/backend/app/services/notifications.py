@@ -26,7 +26,7 @@ PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z][A-Za-z0-9 _/\-]*?)\s*\}\}")
 ALLOWED_VARIABLES = {
     "Booking ID", "Application Name", "Application Version", "Activity Type", "PCI DSS Scope", "Yes/No",
     "Resource ID", "Start Date", "End Date", "Duration", "POC Name", "POC Email", "Rejection Reason",
-    "Booking Status", "Change Summary", "Reason", "Requester", "App URL",
+    "Booking Status", "Change Summary", "Reason", "Requester", "App URL", "Product", "Implementation",
 }
 
 SIGNATURE = "\n\nRegards,\nOffensive Security Team\n"
@@ -158,10 +158,12 @@ def booking_context(b: Booking, **extra: Any) -> dict[str, Any]:
         "Activity Type": b.activity_name_snapshot,
         "PCI DSS Scope": yes_no,
         "Yes/No": yes_no,
-        "Resource ID": b.resource.display_name if b.resource else "",
-        "Start Date": b.start_date.isoformat(),
-        "End Date": b.end_date.isoformat(),
-        "Duration": f"{b.duration_days} working days",
+        "Resource ID": b.resource.display_name if b.resource else "Not required",
+        "Start Date": b.start_date.isoformat() if b.start_date else "To be scheduled",
+        "End Date": b.end_date.isoformat() if b.end_date else "To be scheduled",
+        "Duration": f"{b.duration_days} working days" if b.duration_days else "Not applicable",
+        "Product": b.product.name if b.product else "",
+        "Implementation": b.implementation.name if b.implementation else "",
         "POC Name": b.poc_name,
         "POC Email": b.poc_email,
         "Rejection Reason": b.rejection_reason or "",

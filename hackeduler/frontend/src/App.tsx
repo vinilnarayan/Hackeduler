@@ -23,6 +23,7 @@ const EmailPage = lazy(() => import('./pages/admin/Email'))
 const UsersPage = lazy(() => import('./pages/admin/Users'))
 const SettingsPage = lazy(() => import('./pages/admin/Settings'))
 const SSOPage = lazy(() => import('./pages/admin/SSO'))
+const Products = lazy(() => import('./pages/admin/Products'))
 import { lazy, Suspense, type ReactNode } from 'react'
 
 /** UI-level guard only; every admin API is independently protected by the backend. */
@@ -58,6 +59,7 @@ export default function App() {
         <Route path="admin/users" element={<AdminOnly><UsersPage /></AdminOnly>} />
         <Route path="admin/settings" element={<AdminOnly><SettingsPage /></AdminOnly>} />
         <Route path="admin/sso" element={<AdminOnly><SSOPage /></AdminOnly>} />
+        <Route path="admin/products" element={<AdminOnly><Products /></AdminOnly>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

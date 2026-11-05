@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Check, Pencil, Trash2, X } from 'lucide-react'
 import { get, patch, post, validationMessage } from '../api/client'
-import type { ActivityType, AdminBooking, AuditEntry, ForcePayload, ResourceAdmin } from '../api/types'
+import type { ActivityType, AdminBooking, AuditEntry, ForcePayload, Product, ResourceAdmin } from '../api/types'
 import { fmt, fmtDateTime } from '../lib/dates'
 import { CONFLICT_TYPE_LABELS, STATUS_LABELS } from '../lib/status'
 import { useToast } from '../lib/toast'
@@ -33,7 +33,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
   const toast = useToast()
   const { data, error, loading, reload } = useAsync<any>(() => get(`/api/admin/bookings/${bookingId}`), [bookingId])
   const [tab, setTab] = useState<'overview' | 'edit' | 'audit' | 'conflicts' | 'emails'>('overview')
-  const [dlg, setDlg] = useState<null | 'approve' | 'reject' | 'cancel'>(null)
+  const [dlg, setDlg] = useState<null | 'approve' | 'reject' | 'cancel' | 'complete'>(null)
   const force = useForceFlow()
   const changed = () => { reload(); onChanged?.() }
 
@@ -49,6 +49,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
     <Modal open onClose={onClose} size="xl" title={<span className="flex flex-wrap items-center gap-2">{b.application_name} <StatusBadge status={b.status} />{b.is_force_allocated && <Pill className="bg-red-100 text-red-800">Force allocated</Pill>}{b.needs_review && <Pill className="bg-amber-100 text-amber-800"><AlertTriangle className="h-3 w-3" />Needs review</Pill>}</span>}
       footer={<>
         {b.status === 'pending_approval' && <><button className="btn-success" onClick={() => setDlg('approve')}><Check className="h-4 w-4" />Approve</button><button className="btn-danger" onClick={() => setDlg('reject')}><X className="h-4 w-4" />Reject</button></>}
+        {b.status === 'approved' && !b.requires_resource && <button className="btn-success" onClick={() => setDlg('complete')}><Check className="h-4 w-4" />Mark completed</button>}
         {active && <button className="btn-secondary" onClick={() => setDlg('cancel')}><Trash2 className="h-4 w-4" />Cancel booking</button>}
         {active && <button className="btn-secondary" onClick={() => setTab('edit')}><Pencil className="h-4 w-4" />Modify</button>}
       </>}>
@@ -60,8 +61,10 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
           <KV items={[
             ['Booking ID', <span className="font-mono text-xs break-all">{b.id}</span>], ['Status', STATUS_LABELS[b.status]],
             ['Application', `${b.application_name} v${b.application_version}`], ['PCI DSS scope', b.pci_dss_scope ? 'Yes' : 'No'],
-            ['Activity type', `${b.activity_name} (${b.duration_days} working days${b.duration_overridden ? ', overridden' : ''}; snapshot base ${b.base_duration_snapshot})`],
-            ['Resource', `${b.resource_display_name} (${b.resource_code})`], ['Assigned engineer', <span className="font-medium">{b.engineer_name}</span>],
+            ['Activity type', b.duration_days ? `${b.activity_name} (${b.duration_days} working days${b.duration_overridden ? ', overridden' : ''}${b.base_duration_snapshot ? `; snapshot base ${b.base_duration_snapshot}` : ''})` : b.activity_name],
+            ['Resource', b.requires_resource ? `${b.resource_display_name} (${b.resource_code})` : 'Not required for this activity'],
+            ['Assigned engineer', b.requires_resource ? <span className="font-medium">{b.engineer_name}</span> : '—'],
+            ['Product', b.product_name ?? '—'], ['Implementation', b.implementation_name ?? '—'],
             ['Start date', fmt(b.start_date)], ['Expected end date', fmt(b.end_date)],
             ['POC', `${b.poc_name} <${b.poc_email}>`], ['Requester', `${b.requester_name} <${b.requester_email}>`],
             ['Source', b.source === 'admin' ? 'Admin-created' : 'Requester'], ['Submitted', fmtDateTime(b.submitted_at)],
@@ -102,7 +105,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
       )}
 
       <ConfirmDialog open={dlg === 'approve'} title="Approve booking" tone="success" confirmLabel="Approve" onClose={() => setDlg(null)}
-        message={<>Availability will be revalidated on the server. If the reservation is no longer valid you will be shown the conflict. Approve <b>{b.application_name}</b> on {b.resource_display_name} ({fmt(b.start_date)} – {fmt(b.end_date)})?</>}
+        message={<>Availability will be revalidated on the server. If the reservation is no longer valid you will be shown the conflict. Approve <b>{b.application_name}</b>{b.requires_resource ? <> on {b.resource_display_name} ({fmt(b.start_date)} – {fmt(b.end_date)})</> : ' (no security resource needed)'}?</>}
         onConfirm={async () => { setDlg(null); await approve() }} />
       <ConfirmDialog open={dlg === 'reject'} title="Reject booking" tone="danger" confirmLabel="Reject" requireReason reasonLabel="Rejection reason (sent to the POC)" onClose={() => setDlg(null)}
         message="The temporary reservation will be released and the POC notified with the reason."
@@ -110,6 +113,9 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
       <ConfirmDialog open={dlg === 'cancel'} title="Cancel booking" tone="danger" confirmLabel="Cancel booking" requireReason reasonLabel="Cancellation reason" onClose={() => setDlg(null)}
         message={b.status === 'approved' ? 'This is an approved booking. The POC will be notified and the resource released.' : 'The pending reservation will be released.'}
         onConfirm={async (reason) => { try { await post(`/api/admin/bookings/${b.id}/cancel`, { reason }); toast('success', 'Booking cancelled'); setDlg(null); changed() } catch (e) { toast('error', validationMessage(e)) } }} />
+      <ConfirmDialog open={dlg === 'complete'} title="Mark completed" tone="success" confirmLabel="Mark completed" requireReason={false} reasonLabel="Note (optional)" onClose={() => setDlg(null)}
+        message="Confirm that this activity has been carried out."
+        onConfirm={async (note) => { try { await post(`/api/admin/bookings/${b.id}/complete`, { note: note || null }); toast('success', 'Booking marked completed'); setDlg(null); changed() } catch (e) { toast('error', validationMessage(e)) } }} />
       {force.dialog}
     </Modal>
   )
@@ -118,9 +124,11 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
 function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typeof useForceFlow>['run']; onSaved: () => void }) {
   const resources = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))
   const acts = useAsync<ActivityType[]>(() => get('/api/admin/activity-types'))
+  const products = useAsync<Product[]>(() => get('/api/admin/products'))
   const [f, setF] = useState({
-    resource_id: b.resource_id, start_date: b.start_date, activity_type_id: b.activity_type_id, additional_days: b.additional_days,
-    duration_mode: 'keep' as 'keep' | 'recalculate' | 'duration' | 'end_date', duration_days: b.duration_days, end_date: b.end_date,
+    resource_id: b.resource_id ?? '', start_date: b.start_date ?? '', activity_type_id: b.activity_type_id, additional_days: b.additional_days,
+    duration_mode: 'keep' as 'keep' | 'recalculate' | 'duration' | 'end_date', duration_days: b.duration_days ?? 1, end_date: b.end_date ?? '',
+    product_id: b.product_id ?? '', implementation_id: b.implementation_id ?? '',
     application_name: b.application_name, application_version: b.application_version, pci: b.pci_dss_scope, poc_name: b.poc_name,
     poc_email: b.poc_email, additional_comments: b.additional_comments ?? '', reason: '',
   })
@@ -130,8 +138,10 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
 
   function body(force?: ForcePayload) {
     const out: Record<string, any> = { reason: f.reason }
-    if (f.resource_id !== b.resource_id) out.resource_id = f.resource_id
-    if (f.start_date !== b.start_date) out.start_date = f.start_date
+    if (f.resource_id && f.resource_id !== b.resource_id && act?.requires_resource !== false) out.resource_id = f.resource_id
+    if (f.start_date && f.start_date !== b.start_date) out.start_date = f.start_date
+    if ((f.product_id || null) !== b.product_id) out.product_id = f.product_id || null
+    if ((f.implementation_id || null) !== b.implementation_id) out.implementation_id = f.implementation_id || null
     if (f.activity_type_id !== b.activity_type_id) out.activity_type_id = f.activity_type_id
     if (f.additional_days !== b.additional_days) out.additional_days = f.additional_days
     if (f.duration_mode === 'recalculate') out.recalculate = true
@@ -145,17 +155,23 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
     return out
   }
   const act = acts.data?.find((a) => a.id === f.activity_type_id)
+  const needsRes = act?.requires_resource ?? b.requires_resource
+  const prod = products.data?.find((p) => p.id === f.product_id)
   return (
     <form className="space-y-4" onSubmit={async (e) => { e.preventDefault(); setBusy(true); await run((force) => patch(`/api/admin/bookings/${b.id}`, body(force)), onSaved); setBusy(false) }}>
       <p className="text-xs text-slate-500">All changes are revalidated on the server, audited with previous values, and notify the POC if the booking is approved. The old reservation is only released when the new allocation commits.</p>
       <div className="grid gap-3 md:grid-cols-3">
-        <Field label="Resource (reassign)" htmlFor="e-res"><select id="e-res" className="input" value={f.resource_id} onChange={s('resource_id')}>{resources.data?.map((r) => <option key={r.id} value={r.id}>{r.display_name} – {r.engineer_name}{r.is_active ? '' : ' (inactive)'}</option>)}</select></Field>
-        <Field label="Start date" htmlFor="e-start"><input id="e-start" type="date" className="input" value={f.start_date} onChange={s('start_date')} /></Field>
-        <Field label="Activity type" htmlFor="e-act"><select id="e-act" className="input" value={f.activity_type_id} onChange={s('activity_type_id')}>{acts.data?.map((a) => <option key={a.id} value={a.id} disabled={!a.is_active && a.id !== b.activity_type_id}>{a.name} ({a.base_duration_days}d){a.is_active ? '' : ' – inactive'}</option>)}</select></Field>
+        <Field label="Activity type" htmlFor="e-act"><select id="e-act" className="input" value={f.activity_type_id} onChange={s('activity_type_id')}>{acts.data?.map((a) => <option key={a.id} value={a.id} disabled={!a.is_active && a.id !== b.activity_type_id}>{a.name}{a.base_duration_days ? ` (${a.base_duration_days}d)` : ''}{a.requires_resource ? '' : ' – no resource'}{a.is_active ? '' : ' – inactive'}</option>)}</select></Field>
+        {needsRes ? (
+          <Field label="Resource (reassign)" htmlFor="e-res" hint={!b.resource_id ? 'Leave on auto to pick the best available engineer.' : undefined}><select id="e-res" className="input" value={f.resource_id} onChange={s('resource_id')}>
+            {!b.resource_id && <option value="">Auto-assign best available</option>}
+            {resources.data?.map((r) => <option key={r.id} value={r.id}>{r.display_name} – {r.engineer_name}{r.is_active ? '' : ' (inactive)'}</option>)}</select></Field>
+        ) : <Field label="Resource" htmlFor="e-res"><input id="e-res" className="input" disabled value="Not required" /></Field>}
+        <Field label={needsRes ? 'Start date' : 'Date (optional)'} htmlFor="e-start"><input id="e-start" type="date" className="input" value={f.start_date} onChange={s('start_date')} /></Field>
         <Field label="Duration" htmlFor="e-dm">
           <select id="e-dm" className="input" value={f.duration_mode} onChange={s('duration_mode')}>
-            <option value="keep">Keep current ({b.duration_days} working days)</option>
-            <option value="recalculate">Recalculate from activity{act ? ` (${act.base_duration_days + (f.additional_days || 0)}d)` : ''}</option>
+            <option value="keep">Keep current ({b.duration_days ? `${b.duration_days} working days` : 'none'})</option>
+            <option value="recalculate">Recalculate from activity{act?.base_duration_days ? ` (${act.base_duration_days + (f.additional_days || 0)}d)` : ''}</option>
             <option value="duration">Override working days</option>
             <option value="end_date">Set explicit end date</option>
           </select>
@@ -171,6 +187,8 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
         <Field label="POC name" htmlFor="e-pn"><input id="e-pn" className="input" value={f.poc_name} onChange={s('poc_name')} /></Field>
         <Field label="POC email" htmlFor="e-pe"><input id="e-pe" type="email" className="input" value={f.poc_email} onChange={s('poc_email')} /></Field>
         <Field label="Comments" htmlFor="e-c"><input id="e-c" className="input" value={f.additional_comments} onChange={s('additional_comments')} /></Field>
+        <Field label="Product" htmlFor="e-prod"><select id="e-prod" className="input" value={f.product_id} onChange={(e) => setF({ ...f, product_id: e.target.value, implementation_id: '' })}><option value="">— None —</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{p.name}{p.is_active ? '' : ' (inactive)'}</option>)}</select></Field>
+        <Field label="Implementation" htmlFor="e-impl"><select id="e-impl" className="input" value={f.implementation_id} onChange={s('implementation_id')} disabled={!prod}><option value="">— None —</option>{prod?.implementations.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</select></Field>
       </div>
       <Field label="Reason for change *" htmlFor="e-r"><textarea id="e-r" className="input min-h-16" maxLength={2000} value={f.reason} onChange={s('reason')} /></Field>
       <div className="flex justify-end"><button className="btn-primary" disabled={busy || !f.reason.trim()}>{busy ? 'Saving…' : 'Save changes'}</button></div>

@@ -32,6 +32,8 @@ export default function SSOPage() {
   const [pickPreset, setPickPreset] = useState(false)
   const [test, setTest] = useState<{ p: SSOProvider; result: any } | null>(null)
   const [remove, setRemove] = useState<SSOProvider | null>(null)
+  const [logins, setLogins] = useState<{ p: SSOProvider; rows: any[] } | null>(null)
+  const showLogins = async (p: SSOProvider) => { try { setLogins({ p, rows: await get(`/api/admin/sso/providers/${p.id}/recent-logins`) }) } catch (e) { toast('error', validationMessage(e)) } }
   const reloadAll = () => { settings.reload(); providers.reload() }
 
   const runTest = async (p: SSOProvider) => {
@@ -76,6 +78,7 @@ export default function SSOPage() {
                 <td className="td text-sm tabular-nums">{p.linked_users}</td>
                 <td className="td whitespace-nowrap"><div className="flex gap-1">
                   <button className="btn-secondary" onClick={() => runTest(p)}>Test</button>
+                  <button className="btn-secondary" onClick={() => showLogins(p)}>Sign-ins</button>
                   <button className="btn-secondary" onClick={() => setEdit({ ...p, client_secret: '' })}>Edit</button>
                   <button className={p.enabled ? 'btn-secondary' : 'btn-success'} onClick={() => toggle(p)}>{p.enabled ? 'Disable' : 'Enable'}</button>
                   <button className="btn-ghost px-2 text-red-700" onClick={() => setRemove(p)}>Delete</button>
@@ -110,6 +113,22 @@ export default function SSOPage() {
           {test.result.metadata?.authorization_endpoint && <div className="rounded bg-slate-50 p-2 font-mono text-[11px] break-all">{Object.entries(test.result.metadata).filter(([, v]) => v).map(([k, v]) => <div key={k}><span className="text-slate-500">{k}:</span> {String(v)}</div>)}</div>}
           <p className="text-xs text-slate-500">The test checks discovery, issuer and signing keys. To verify the full sign-in (client secret, redirect URI, group claims), enable the provider and sign in from a private browser window.</p>
         </div>}
+      </Modal>
+
+      <Modal open={!!logins} onClose={() => setLogins(null)} size="xl" title={`Recent sign-ins – ${logins?.p.display_name}`}>
+        <p className="mb-3 text-xs text-slate-600">Shows what the identity provider sent at each sign-in. To grant Admin via SSO, copy a value from <b>Groups received</b> (Entra ID: group Object IDs or app-role values) into the provider's <b>Admin groups</b>. If "Groups claim" says <b>missing</b>, configure a groups claim at the IdP (Entra: Token configuration → Add groups claim) – until then roles are taken from the Users page.</p>
+        {!logins?.rows.length ? <Empty title="No SSO sign-ins yet" /> : (
+          <div className="overflow-x-auto"><table className="min-w-full divide-y divide-slate-200 text-xs">
+            <thead className="bg-slate-50"><tr><th className="th">When</th><th className="th">User</th><th className="th">Result</th><th className="th">Groups claim</th><th className="th">Groups received</th><th className="th">Role</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">{logins.rows.map((l, i) => (
+              <tr key={i} className="align-top"><td className="td whitespace-nowrap">{fmtDateTime(l.at)}</td><td className="td">{l.email ?? '—'}</td>
+                <td className="td">{l.ok ? <span className="text-emerald-700">✓ Signed in{l.provisioned ? ' (new account)' : ''}</span> : <span className="text-red-700">✗ {l.error_code}<div className="max-w-xs break-words text-slate-500">{l.error_detail}</div></span>}</td>
+                <td className="td">{!l.ok || l.groups_claim_present == null ? '—' : l.groups_claim_present ? 'present' : <span className="font-medium text-amber-700">missing</span>}</td>
+                <td className="td max-w-sm font-mono break-all">{(l.groups_received ?? []).map((g: string) => <div key={g} className={(l.groups_matched ?? []).map((x: string) => x.toLowerCase()).includes(g.toLowerCase()) ? 'font-bold text-emerald-700' : ''}>{g}</div>)}</td>
+                <td className="td">{l.role}{l.role_changed && <div className="text-amber-700">changed {l.role_changed.from} → {l.role_changed.to}</div>}{l.role_sync_skipped && <div className="text-slate-500">kept: {l.role_sync_skipped}</div>}</td></tr>
+            ))}</tbody>
+          </table></div>
+        )}
       </Modal>
 
       <ConfirmDialog open={!!remove} onClose={() => setRemove(null)} title={`Delete ${remove?.display_name}`} tone="danger" confirmLabel="Delete provider"
@@ -237,7 +256,7 @@ function ProviderForm({ initial, preset, baseUrl, onClose, onSaved }: {
 
         <Section title="Provisioning">
           <Check label="Create accounts automatically on first sign-in" hint="Off = an admin must pre-create the user under Users (password optional)." checked={f.auto_provision} onChange={set('auto_provision')} />
-          <Check label="Update the role from IdP groups at every sign-in" hint="Off = roles are managed in this app after the first sign-in. The last active admin is never demoted." checked={f.sync_role_on_login} onChange={set('sync_role_on_login')} />
+          <Check label="Update the role from IdP groups at every sign-in" hint="Applies only when Admin groups are set AND the token contains the groups claim; otherwise the role set in Users is kept. Off = roles always managed in this app. The last active admin is never demoted." checked={f.sync_role_on_login} onChange={set('sync_role_on_login')} />
           <Check label="Link existing accounts by email" hint="Lets current local users switch to SSO. Accounts already linked to another identity are never re-linked." checked={f.link_existing_by_email} onChange={set('link_existing_by_email')} />
           <Check label="Sign out of the identity provider on logout" hint="RP-initiated logout via the provider's end_session_endpoint." checked={f.rp_initiated_logout} onChange={set('rp_initiated_logout')} />
         </Section>

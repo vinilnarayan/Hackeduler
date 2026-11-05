@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
-import { get, patch, post, validationMessage } from '../../api/client'
+import { ApiError, del, get, patch, post, validationMessage } from '../../api/client'
 import type { ResourceAdmin } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner, StatusBadge } from '../../components/ui'
@@ -10,7 +10,11 @@ import { useAsync } from '../../lib/useAsync'
 
 export default function Resources() {
   const toast = useToast()
-  const { data, error, loading, reload } = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))
+  const [showDeleted, setShowDeleted] = useState(false)
+  const { data, error, loading, reload } = useAsync<ResourceAdmin[]>(() => get(`/api/admin/resources${showDeleted ? '?include_deleted=true' : ''}`), [showDeleted])
+  const [remove, setRemove] = useState<ResourceAdmin | null>(null)
+  const [inUse, setInUse] = useState<{ r: ResourceAdmin; bookings: any[] } | null>(null)
+  const restore = async (r: ResourceAdmin) => { try { await post(`/api/admin/resources/${r.id}/restore`); toast('success', `${r.display_name} restored (inactive). Activate it when ready.`); reload() } catch (e) { toast('error', validationMessage(e)) } }
   const [edit, setEdit] = useState<Partial<ResourceAdmin> | null>(null)
   const [toggle, setToggle] = useState<ResourceAdmin | null>(null)
   const [cancelSched, setCancelSched] = useState<ResourceAdmin | null>(null)
@@ -24,29 +28,34 @@ export default function Resources() {
   }
   return (
     <div>
-      <PageHeader title="Resources" subtitle="Security engineers mapped to stable anonymous identifiers. Identifiers are never reassigned; deactivate instead of deleting to preserve history."
-        actions={<button className="btn-primary" onClick={() => setEdit({ engineer_name: '' })}><Plus className="h-4 w-4" />Add resource</button>} />
+      <PageHeader title="Resources" subtitle="Security engineers mapped to stable anonymous identifiers. Identifiers are never reassigned. Deleting a resource that has booking history archives it, so past bookings stay intact."
+        actions={<>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} />Show deleted</label>
+          <button className="btn-primary" onClick={() => setEdit({ engineer_name: '' })}><Plus className="h-4 w-4" />Add resource</button>
+        </>} />
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No resources yet" /> : (
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50"><tr><th className="th">Identifier</th><th className="th">Engineer (admin only)</th><th className="th">Email</th><th className="th">Notes</th><th className="th">Status</th><th className="th" /></tr></thead>
             <tbody className="divide-y divide-slate-100">{data.map((r) => (
-              <tr key={r.id}>
+              <tr key={r.id} className={r.deleted_at ? 'bg-slate-50 opacity-70' : ''}>
                 <td className="td"><div className="font-semibold">{r.display_name}</div><div className="font-mono text-xs text-slate-500">{r.code}</div></td>
                 <td className="td">{r.engineer_name}</td><td className="td text-xs">{r.engineer_email ?? '—'}</td><td className="td max-w-xs text-xs">{r.notes ?? ''}</td>
                 <td className="td">
-                  {!r.is_active ? <Pill className="bg-slate-200 text-slate-700">Inactive since {r.inactive_from ? fmt(r.inactive_from) : fmtDateTime(r.deactivated_at)}</Pill>
+                  {r.deleted_at ? <Pill className="bg-red-100 text-red-800">Deleted {fmtDateTime(r.deleted_at)}</Pill>
+                    : !r.is_active ? <Pill className="bg-slate-200 text-slate-700">Inactive since {r.inactive_from ? fmt(r.inactive_from) : fmtDateTime(r.deactivated_at)}</Pill>
                     : r.inactive_from ? <Pill className="bg-amber-100 text-amber-800">Active · inactive from {fmt(r.inactive_from)}</Pill>
                     : <Pill className="bg-emerald-100 text-emerald-800">Active</Pill>}
                   {r.inactive_reason && <div className="mt-1 max-w-48 text-xs text-slate-500">{r.inactive_reason}</div>}
                 </td>
-                <td className="td whitespace-nowrap"><div className="flex gap-1">
+                <td className="td whitespace-nowrap">{r.deleted_at ? <button className="btn-secondary" onClick={() => restore(r)}>Restore</button> : <div className="flex gap-1">
                   <button className="btn-secondary" onClick={() => setAlloc(r)}>Allocation</button>
                   <button className="btn-secondary" onClick={() => setEdit(r)}>Edit</button>
                   {r.is_active && r.inactive_from
                     ? <button className="btn-secondary" onClick={() => setCancelSched(r)}>Cancel deactivation</button>
                     : <button className={r.is_active ? 'btn-secondary' : 'btn-success'} onClick={() => setToggle(r)}>{r.is_active ? 'Deactivate' : 'Activate'}</button>}
-                </div></td>
+                  <button className="btn-ghost px-2 text-red-700" onClick={() => setRemove(r)}>Delete</button>
+                </div>}</td>
               </tr>
             ))}</tbody>
           </table>
@@ -69,6 +78,18 @@ export default function Resources() {
         message={<>{cancelSched?.display_name} ({cancelSched?.engineer_name}) is scheduled to become inactive on <b>{fmt(cancelSched?.inactive_from)}</b>. Cancel this and keep the resource available? Conflicts already raised stay open for you to resolve.</>}
         onConfirm={async () => { try { await patch(`/api/admin/resources/${cancelSched!.id}`, { inactive_from: null }); toast('success', 'Scheduled deactivation cancelled'); setCancelSched(null); reload() } catch (e) { toast('error', validationMessage(e)) } }} />
       {alloc && <AllocationModal r={alloc} onClose={() => setAlloc(null)} />}
+      <ConfirmDialog open={!!remove} onClose={() => setRemove(null)} title={`Delete ${remove?.display_name} – ${remove?.engineer_name}`} tone="danger" confirmLabel="Delete resource"
+        message={<div className="space-y-2"><p>The resource disappears from the calendar, booking screens and resource lists.</p>
+          <p className="text-xs text-slate-600">If it was ever booked, its past bookings keep showing <b>{remove?.display_name}</b> (the record is archived, not erased, and the identifier is never reused). Its leave records are removed. Resources with pending or approved bookings can't be deleted until those are reassigned or cancelled.</p></div>}
+        onConfirm={async () => {
+          const r = remove!
+          try { const res = await del<any>(`/api/admin/resources/${r.id}`); toast('success', `${r.display_name} deleted${res.mode === 'archived' ? ' (archived with its booking history)' : ''}`); setRemove(null); reload() }
+          catch (e) { setRemove(null); if (e instanceof ApiError && e.code === 'resource_in_use') setInUse({ r, bookings: e.details?.bookings ?? [] }); else toast('error', validationMessage(e)) }
+        }} />
+      <Modal open={!!inUse} onClose={() => setInUse(null)} size="md" title={`${inUse?.r.display_name} still has active bookings`}>
+        <p className="mb-2 text-sm">Reassign these bookings to another resource (Bookings → open booking → Modify / Reassign) or cancel them, then delete the resource.</p>
+        <ul className="divide-y divide-slate-100 text-sm">{inUse?.bookings.map((b) => <li key={b.id} className="flex items-center gap-2 py-1.5"><span className="flex-1">{b.application_name}</span><span className="text-xs">{fmt(b.start_date)} – {fmt(b.end_date)}</span><StatusBadge status={b.status} /></li>)}</ul>
+      </Modal>
     </div>
   )
 }

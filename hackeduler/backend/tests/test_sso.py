@@ -481,3 +481,40 @@ def test_admin_unlink_and_password_management(admin, idp, provider):
     assert admin.patch(f"/api/admin/users/{uid}", json={"unlink_sso": True}).status_code == 422  # would be unusable
     r = admin.patch(f"/api/admin/users/{uid}", json={"unlink_sso": True, "password": PASSWORD})
     assert r.status_code == 200 and r.json()["sso_provider_id"] is None and r.json()["has_password"] is True
+
+
+# ---------------------------------------------------------------- role sync must not demote without IdP role data
+def test_precreated_sso_admin_stays_admin_when_token_has_no_groups(admin, idp, provider):
+    """Regression: an admin created in the app was demoted to requester at SSO sign-in because the
+    IdP (e.g. Entra ID without a groups claim configured) sent no group information."""
+    r = admin.post("/api/admin/users", json={"email": "lead@corp.example", "full_name": "Team Lead", "role": "admin"})
+    assert r.status_code == 201
+    c, resp = sso_login(idp, claims={"email": "lead@corp.example", "sub": "lead", "groups": None})
+    assert resp.headers["location"] == "/"
+    me = c.get("/api/auth/me").json()["user"]
+    assert me["role"] == "admin"
+    log = admin.get(f"/api/admin/sso/providers/{provider['id']}/recent-logins").json()[0]
+    assert log["ok"] and log["groups_claim_present"] is False and "no 'groups' claim" in log["role_sync_skipped"]
+
+
+def test_no_admin_groups_mapped_means_roles_managed_in_app(admin, idp, provider):
+    admin.patch(f"/api/admin/sso/providers/{provider['id']}", json={"admin_groups": []})
+    admin.post("/api/admin/users", json={"email": "lead@corp.example", "full_name": "Lead", "role": "admin"})
+    c, _ = sso_login(idp, claims={"email": "lead@corp.example", "sub": "lead", "groups": ["something-else"]})
+    assert c.get("/api/auth/me").json()["user"]["role"] == "admin"
+
+
+def test_entra_group_overage_does_not_demote(admin, idp, provider):
+    admin.post("/api/admin/users", json={"email": "lead@corp.example", "full_name": "Lead", "role": "admin"})
+    c, _ = sso_login(idp, claims={"email": "lead@corp.example", "sub": "lead", "groups": None,
+                                  "_claim_names": {"groups": "src1"}, "_claim_sources": {"src1": {"endpoint": "https://graph"}}})
+    assert c.get("/api/auth/me").json()["user"]["role"] == "admin"
+
+
+def test_recent_logins_show_groups_received(admin, idp, provider):
+    sso_login(idp, claims={"groups": ["abc-123", "offsec-admins"]})
+    sso_login(idp, tamper_state=True)
+    logs = admin.get(f"/api/admin/sso/providers/{provider['id']}/recent-logins").json()
+    assert logs[0]["ok"] is False and logs[0]["error_code"] == "state_mismatch"
+    ok = logs[1]
+    assert ok["groups_received"] == ["abc-123", "offsec-admins"] and ok["groups_matched"] == ["offsec-admins"] and ok["role"] == "admin"

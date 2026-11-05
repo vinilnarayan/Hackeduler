@@ -52,10 +52,12 @@ schema is at `/api/openapi.json`.
 | GET | `/api/holidays?start&end` | Holidays |
 | GET | `/api/settings/public` | Timezone, today, working weekdays, expiry and cancellation policy |
 | GET | `/api/calendar?start&end[&activity_type_id]` | Anonymous availability grid (≤ ~6 months) |
-| POST | `/api/availability/check` | Server-side slot calculation |
-| POST | `/api/bookings` | Submit booking |
-| GET | `/api/bookings/mine?status&q` | Own bookings |
-| GET | `/api/bookings/{id}` | Own booking (404 otherwise) |
+| POST | `/api/availability/auto` | `{activity_type_id, start_date?, additional_days?}` → the resource that would be assigned, end date, or `suggested_start_date` |
+| POST | `/api/availability/check` | Slot calculation for a specific resource |
+| POST | `/api/bookings` | Submit booking. `resource_id` optional (omit = auto-assign); `start_date` optional for activities without a resource; `implementation_id` optional (must belong to the requester's product). 409 `no_resource_available` includes `suggested_start_date` |
+| GET | `/api/bookings/mine?status&q&scope=mine\|product&implementation_id` | Own bookings, or all bookings of the caller's product |
+| GET | `/api/bookings/{id}` | Own or same-product booking (404 otherwise); `is_mine` tells whether the caller may change it |
+| GET | `/api/me/implementations` | The caller's product and its active implementations |
 | GET | `/api/bookings/{id}/history` | Filtered status / change-request history |
 | POST | `/api/bookings/{id}/cancel` | `{reason}`. Direct cancel of own **pending** booking (if policy allows) |
 | POST | `/api/bookings/{id}/change-requests` | `{request_type: cancel\|reschedule, reason, proposed_start_date?, proposed_resource_id?}` |
@@ -128,6 +130,20 @@ the slot was taken.
    - A non-admin caller gets **403** (audited). A missing confirmation gets 422 `confirmation_required`; a blank
      reason gets 422 `override_reason_required`.
 
+### Products
+
+| Method | Path | Description |
+|---|---|---|
+| GET/POST | `/api/admin/products` | List (with implementations and usage counts) / create `{name, description}` |
+| PATCH/DELETE | `/api/admin/products/{id}` | Edit / (de)activate / delete (only when unused) |
+| POST | `/api/admin/products/{id}/implementations` | Add an implementation |
+| PATCH/DELETE | `/api/admin/implementations/{id}` | Edit / (de)activate / delete (only when unused) |
+
+Users accept `product_id` / `implementation_id` on create and update. Bookings (admin create/modify) accept them too.
+`GET /api/admin/bookings` filters by `product_id`, `implementation_id` and `requires_resource`. `POST /api/admin/bookings/{id}/complete`
+completes an approved booking that has no resource. The dashboard accepts `product_id` and returns `product_distribution`,
+`implementation_distribution` and `product_month_matrix`.
+
 ### Conflicts and audit
 
 | Method | Path | Description |
@@ -141,6 +157,8 @@ the slot was taken.
 | Method | Path | Description |
 |---|---|---|
 | GET/POST | `/api/admin/resources` | List / add (identifier auto-assigned) |
+| DELETE | `/api/admin/resources/{id}` | Delete. 409 `resource_in_use` while it has pending/approved bookings (details list them). Never-booked resources are removed with their leave; otherwise archived (`mode: archived`) |
+| GET | `/api/admin/resources?include_deleted=true` / POST `/api/admin/resources/{id}/restore` | Show / restore archived resources (restored as inactive) |
 | PATCH | `/api/admin/resources/{id}` | Edit. Deactivate: `{"is_active": false}` (immediately) or `{"inactive_from": "YYYY-MM-DD"}` (from a date, today or later). `{"inactive_from": null}` cancels a scheduled deactivation; `{"is_active": true}` reactivates. Optional `reason`. The response lists flagged bookings |
 | GET | `/api/admin/resources/{id}/allocation` | Engineer's bookings and leave |
 | GET/POST | `/api/admin/activity-types` | List / add |
@@ -150,7 +168,9 @@ the slot was taken.
 | POST | `/api/admin/holidays/import` | multipart `file` (.csv/.xlsx, columns `name,date,description`, ≤2 MB, ≤1000 rows) |
 | GET/POST | `/api/admin/leaves` | List (`resource_id, start, end, include_cancelled`) / add |
 | PATCH/DELETE | `/api/admin/leaves/{id}` | Edit / cancel (flags affected bookings) |
-| GET/POST | `/api/admin/users`, PATCH `/api/admin/users/{id}` | User management |
+| GET/POST | `/api/admin/users[?include_deleted=true]`, PATCH `/api/admin/users/{id}` | User management |
+| DELETE | `/api/admin/users/{id}` | Delete. Users with no activity are removed; users with history are archived (can't sign in, hidden, email reusable). Can't delete yourself or the last active admin |
+| POST | `/api/admin/users/{id}/restore` | Restore an archived user (restored disabled) |
 | GET/PUT | `/api/admin/settings` | `{values: {key: value}}`. Secrets are never accepted or returned |
 | GET | `/api/admin/email-templates`, `/api/admin/email-templates/variables` | Templates and allowed variables |
 | PUT | `/api/admin/email-templates/{key}` | Edit (unknown variables are rejected) |
@@ -166,6 +186,7 @@ the slot was taken.
 | GET | `/api/admin/sso/presets` | Defaults and set-up help for Entra ID, Okta, Google, Keycloak, Generic |
 | GET/POST | `/api/admin/sso/providers` | List / create (created disabled). `client_secret` is write-only; responses expose `has_client_secret` and `redirect_uri` |
 | GET/PATCH/DELETE | `/api/admin/sso/providers/{id}` | Edit (`client_secret` to replace, `clear_client_secret` to remove), enable/disable, delete (unlinks users) |
+| GET | `/api/admin/sso/providers/{id}/recent-logins` | Last 25 SSO sign-ins/failures with groups received, matched groups, role changes and skip reasons |
 | POST | `/api/admin/sso/providers/{id}/test` | Checks discovery, issuer, JWKS, algorithms, PKCE support, secret |
 
 `POST /api/admin/users` accepts no `password` to create an SSO-only account. `PATCH /api/admin/users/{id}` also

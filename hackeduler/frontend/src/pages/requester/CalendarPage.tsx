@@ -12,7 +12,7 @@ export default function CalendarPage() {
     <div>
       <PageHeader title="Availability Calendar" subtitle="Anonymous resource availability. Select a green day to request that resource; choose an activity type to highlight days where it would not fit (yellow)." />
       <ResourceCalendar mode="requester" activityTypes={acts.data ?? []}
-        onCellClick={(r, cell) => cell.mine ? nav('/my-bookings') : nav(`/book?resource=${r.id}&start=${cell.date}`)} />
+        onCellClick={(_r, cell) => cell.mine ? nav('/my-bookings') : nav(`/book?start=${cell.date}`)} />
     </div>
   )
 }

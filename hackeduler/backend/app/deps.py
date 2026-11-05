@@ -30,7 +30,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
         user = db.get(User, uuid.UUID(claims["sub"]))
     except ValueError:
         user = None
-    if user is None or not user.is_active or user.token_version != claims["tv"]:
+    if user is None or not user.is_active or user.deleted_at is not None or user.token_version != claims["tv"]:
         raise ServiceError(401, "not_authenticated", "Session is no longer valid. Please sign in again.")
     if request.method in UNSAFE_METHODS:
         if not csrf_valid(request.headers.get("X-CSRF-Token"), request.cookies.get(s.csrf_cookie_name), claims["csrf"]):

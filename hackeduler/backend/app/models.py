@@ -63,10 +63,15 @@ class User(Base):
     sso_provider_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sso_providers.id", ondelete="SET NULL"))
     sso_subject: Mapped[str | None] = mapped_column(Text)
     last_login_method: Mapped[str | None] = mapped_column(Text)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    product_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"))
+    implementation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("implementations.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     role: Mapped[Role] = relationship(lazy="joined")
+    product: Mapped["Product | None"] = relationship(lazy="joined", foreign_keys=[product_id])
+    implementation: Mapped["Implementation | None"] = relationship(lazy="joined", foreign_keys=[implementation_id])
 
     @property
     def role_name(self) -> str:
@@ -75,6 +80,29 @@ class User(Base):
     @property
     def is_admin(self) -> bool:
         return self.role_id == ROLE_ADMIN_ID
+
+
+class Product(Base):
+    __tablename__ = "products"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Implementation(Base):
+    __tablename__ = "implementations"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"))
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    product: Mapped[Product] = relationship(lazy="joined")
 
 
 class SSOProvider(Base):
@@ -132,6 +160,7 @@ class SecurityResource(Base):
     # First date the resource is unavailable (scheduled or immediate deactivation). NULL = no deactivation planned.
     inactive_from: Mapped[date | None] = mapped_column(Date)
     inactive_reason: Mapped[str | None] = mapped_column(Text)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     def inactive_on(self, d: date) -> bool:
         """True if the resource cannot work on ``d``."""
@@ -147,7 +176,8 @@ class ActivityType(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(Text)
     description: Mapped[str | None] = mapped_column(Text)
-    base_duration_days: Mapped[int] = mapped_column(Integer)
+    base_duration_days: Mapped[int | None] = mapped_column(Integer)
+    requires_resource: Mapped[bool] = mapped_column(Boolean, default=True)
     allow_additional_days: Mapped[bool] = mapped_column(Boolean, default=False)
     max_additional_days: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -186,12 +216,15 @@ class Booking(Base):
     __tablename__ = "bookings"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     requester_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
-    resource_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("security_resources.id"))
+    resource_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("security_resources.id"))
     activity_type_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("activity_types.id"))
     activity_name_snapshot: Mapped[str] = mapped_column(Text)
-    base_duration_snapshot: Mapped[int] = mapped_column(Integer)
+    base_duration_snapshot: Mapped[int | None] = mapped_column(Integer)
     additional_days: Mapped[int] = mapped_column(Integer, default=0)
-    duration_days: Mapped[int] = mapped_column(Integer)
+    duration_days: Mapped[int | None] = mapped_column(Integer)
+    requires_resource: Mapped[bool] = mapped_column(Boolean, default=True)
+    product_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"))
+    implementation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("implementations.id"))
     duration_overridden: Mapped[bool] = mapped_column(Boolean, default=False)
     application_name: Mapped[str] = mapped_column(Text)
     application_version: Mapped[str] = mapped_column(Text)
@@ -199,8 +232,8 @@ class Booking(Base):
     poc_name: Mapped[str] = mapped_column(Text)
     poc_email: Mapped[str] = mapped_column(Text)
     additional_comments: Mapped[str | None] = mapped_column(Text)
-    start_date: Mapped[date] = mapped_column(Date)
-    end_date: Mapped[date] = mapped_column(Date)
+    start_date: Mapped[date | None] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
     status: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(Text, default="requester")
     is_force_allocated: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -219,9 +252,11 @@ class Booking(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    resource: Mapped[SecurityResource] = relationship(lazy="joined")
+    resource: Mapped[SecurityResource | None] = relationship(lazy="joined")
     requester: Mapped[User] = relationship(foreign_keys=[requester_id], lazy="joined")
     activity_type: Mapped[ActivityType] = relationship(lazy="joined")
+    product: Mapped[Product | None] = relationship(lazy="joined", foreign_keys=[product_id])
+    implementation: Mapped[Implementation | None] = relationship(lazy="joined", foreign_keys=[implementation_id])
 
 
 class BookingStatusHistory(Base):
