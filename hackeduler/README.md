@@ -29,8 +29,7 @@ Documentation:
 
 ```bash
 cd hackeduler
-cp .env.example .env          # then edit secrets (POSTGRES_PASSWORD, HACKEDULER_SECRET_KEY)
-docker compose --profile dev up -d --build
+./deploy.sh                   # first run creates .env with random secrets, then builds and starts everything
 ```
 
 - App: <http://localhost:8080>
@@ -38,6 +37,11 @@ docker compose --profile dev up -d --build
 - Mailpit (captured notification emails): <http://localhost:8025>
 
 The backend container runs migrations on start. With `HACKEDULER_SEED=demo` it also seeds sample data.
+
+> **Install and upgrade with one command: `./deploy.sh`.** It backs up the database before every deployment,
+> reuses your existing data (including installs from before the rename), and never deletes anything. The database
+> volume is external, so no `docker compose` command can remove it, and daily automatic backups go to `./backups`.
+> See [docs/OPERATIONS.md → Upgrading without losing data](docs/OPERATIONS.md#8-upgrading-without-losing-data).
 
 ### Local development test accounts (seeded with `HACKEDULER_SEED=demo`)
 

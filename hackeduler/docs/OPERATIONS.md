@@ -12,19 +12,9 @@
    - `HACKEDULER_APP_BASE_URL=https://<your host>`.
 2. Terminate **HTTPS** in front of the `frontend` container (corporate load balancer, Traefik, or an nginx 443 block). Don't expose `backend` or `db` directly.
 3. `docker compose up -d --build`. Leave out `--profile dev` in production so Mailpit doesn't start.
-4. Create the first admin:
-   ```bash
-   docker compose exec backend python - <<'PY'
-   import uuid
-   from app.db import SessionLocal
-   from app.models import User, ROLE_ADMIN_ID
-   from app.security import hash_password
-   db = SessionLocal()
-   db.add(User(id=uuid.uuid4(), email="you@corp.example", full_name="Your Name",
-               password_hash=hash_password("<strong password>"), role_id=ROLE_ADMIN_ID))
-   db.commit()
-   PY
-   ```
+4. The first admin is created by `./deploy.sh` on the very first install (`admin@hackeduler.local`, or set
+   `HACKEDULER_INITIAL_ADMIN_EMAIL`), and the generated password is printed once. To create or reset an admin later:
+   `docker compose exec backend python -m app.manage create-admin you@corp.example`
 5. Sign in, configure **Single Sign-On** (see `SSO.md`), then add resources (engineers), holidays (CSV/Excel import) and settings: admin notification recipients and sender.
    With SSO auto-provisioning, users don't need to be created manually.
 6. Database role hardening: give the application a non-superuser role. See `DATABASE.md` → Immutability.
@@ -125,12 +115,44 @@ provider set-up, role mapping and the break-glass procedure. Operationally:
 - **Break-glass:** if an SSO misconfiguration locks everyone out, set `HACKEDULER_FORCE_LOCAL_LOGIN=true`, restart the
   backend, sign in with a local admin password at `/login?local=1`, fix the configuration, then remove the variable.
 
-## 8. Upgrading
+## 8. Upgrading without losing data
+
+**One command for every install and every upgrade:**
 
 ```bash
-git pull
-docker compose build
-docker compose up -d        # the backend runs `alembic upgrade head` on start
+cd hackeduler
+git pull            # or copy the new version's files over the old ones (keep .env and backups/)
+./deploy.sh
 ```
 
-New schema changes go in new Alembic revisions under `backend/alembic/versions/`.
+`deploy.sh` never deletes data. Each run it:
+
+1. Creates `.env` with random secrets on the very first install only. After that `.env` is yours and is kept.
+2. Renames old `ORP_*` settings to `HACKEDULER_*` (the old file is saved as `.env.bak`).
+3. Finds the database volume that holds your data, including the pre-rename `offsec-resource-planner_pgdata`, and
+   refuses to start if a configured volume is missing instead of silently using an empty database.
+4. **Backs up the database** to `backups/pre-deploy-<timestamp>.dump` before changing anything, and stops if the
+   backup fails.
+5. Rebuilds and restarts the containers. Database migrations run automatically, only add tables and columns, and
+   run once each.
+6. Waits until the app is healthy, and shows the logs if it isn't.
+
+### Why data can't be lost
+
+- **The database volume is external** (`external: true` in `docker-compose.yml`). Docker Compose never creates or
+  deletes it, so `docker compose down`, `docker compose down -v`, rebuilds, folder renames and new checkouts all
+  leave it alone. Only an explicit `docker volume rm <name>` removes it.
+- **Automatic backups.** The `backup` service writes `backups/auto-<timestamp>.dump` every 24 hours and keeps 14
+  days. Change this with `HACKEDULER_BACKUP_INTERVAL_HOURS` / `HACKEDULER_BACKUP_KEEP_DAYS`. Pre-deploy and manual
+  backups are never pruned. Copy `backups/` to another machine or storage regularly.
+- **Manual backup at any time:** `./scripts/backup-db.sh`.
+
+Keep `HACKEDULER_SEED=none` (or `minimal`) on a system with real data. `demo` re-creates demo accounts you deleted.
+
+### Restoring a backup
+
+```bash
+./scripts/restore-db.sh backups/hackeduler-YYYYMMDD-HHMMSS.dump   # asks for confirmation, replaces current data
+```
+
+New schema changes go in new Alembic revisions under `backend/alembic/versions/`. Never edit an existing one.

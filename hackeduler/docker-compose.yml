@@ -51,6 +51,25 @@ services:
       - backend
     restart: unless-stopped
 
+  # Automatic database backups: one dump every HACKEDULER_BACKUP_INTERVAL_HOURS (default 24) into
+  # ./backups on the host, keeping HACKEDULER_BACKUP_KEEP_DAYS (default 14) days of backups.
+  backup:
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      DB_USER: ${POSTGRES_USER:-hackeduler}
+      DB_NAME: ${POSTGRES_DB:-hackeduler}
+      INTERVAL_HOURS: ${HACKEDULER_BACKUP_INTERVAL_HOURS:-24}
+      KEEP_DAYS: ${HACKEDULER_BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/auto-backup.sh:/auto-backup.sh:ro
+    entrypoint: ["/bin/sh", "/auto-backup.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   # Development mail catcher - view sent notifications at http://localhost:8025. Remove in production.
   mailpit:
     image: axllent/mailpit:latest
@@ -59,4 +78,9 @@ services:
     profiles: ["dev"]
 
 volumes:
+  # The database volume is EXTERNAL: Docker Compose never creates or deletes it, so no compose
+  # command (not even "docker compose down -v") can wipe your data, and every rebuild/upgrade
+  # reuses it. ./deploy.sh creates it on first install and finds it on upgrades.
   pgdata:
+    external: true
+    name: ${HACKEDULER_DB_VOLUME:-hackeduler_pgdata}

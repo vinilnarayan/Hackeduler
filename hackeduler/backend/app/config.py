@@ -54,8 +54,27 @@ class Settings(BaseSettings):
         return self.environment == "production"
 
 
+def _apply_legacy_env() -> None:
+    """Accept settings from deployments made before the rename (ORP_* -> HACKEDULER_*).
+    A HACKEDULER_* value always wins; legacy names are only used when the new one is absent."""
+    import logging
+    import os
+
+    used = []
+    for key, value in list(os.environ.items()):
+        if key.startswith("ORP_"):
+            new = "HACKEDULER_" + key[4:]
+            if new not in os.environ:
+                os.environ[new] = value
+                used.append(key)
+    if used:
+        logging.getLogger("hackeduler").warning(
+            "Using legacy environment variable(s) %s - rename them to HACKEDULER_* in your .env", ", ".join(sorted(used)))
+
+
 @lru_cache
 def get_settings() -> Settings:
+    _apply_legacy_env()
     s = Settings()
     if s.is_production:
         if s.secret_key.startswith("dev-") or len(s.secret_key) < 32:
