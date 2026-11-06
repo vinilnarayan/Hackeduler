@@ -125,12 +125,61 @@ provider set-up, role mapping and the break-glass procedure. Operationally:
 - **Break-glass:** if an SSO misconfiguration locks everyone out, set `HACKEDULER_FORCE_LOCAL_LOGIN=true`, restart the
   backend, sign in with a local admin password at `/login?local=1`, fix the configuration, then remove the variable.
 
-## 8. Upgrading
+## 8. Upgrading without losing data
+
+Your data is stored in the Docker volume **`hackeduler_pgdata`** (set by `HACKEDULER_DB_VOLUME`), not inside the
+containers. Rebuilding or replacing containers never touches it. On start the backend runs the database migrations
+(`alembic upgrade head`). They only **add** tables and columns, and each one runs exactly once.
+
+### What deletes data (never do these on a live system)
+
+| Command | Effect |
+|---|---|
+| `docker compose down -v` | `-v` **deletes the database volume** |
+| `docker volume rm …_pgdata` / `docker volume prune` | deletes the volume |
+| Changing `HACKEDULER_DB_VOLUME` or `POSTGRES_DB` to a new name | starts an **empty** database (the old data still exists, but isn't used) |
+
+`docker compose down` (without `-v`), `docker compose up -d --build`, `docker compose restart`, and rebooting the
+server are all safe.
+
+### Standard upgrade
 
 ```bash
-git pull
-docker compose build
-docker compose up -d        # the backend runs `alembic upgrade head` on start
+cd hackeduler
+./scripts/backup-db.sh                 # 1. backup -> backups/hackeduler-<timestamp>.dump
+git pull                               # 2. get the new version (or copy the new files over)
+docker compose up -d --build           # 3. rebuild & restart; migrations run automatically
+docker compose logs backend | grep -i -E "alembic|error"   # 4. check migrations applied
 ```
 
-New schema changes go in new Alembic revisions under `backend/alembic/versions/`.
+Keep `HACKEDULER_SEED=none` (or `minimal`) on a system with real data. `demo` re-creates the demo accounts if you
+deleted them.
+
+### Upgrading a deployment created before the rename to Hackeduler
+
+Earlier versions lived in a folder called `offsec-resource-planner/` and used `ORP_*` settings. Docker named the
+database volume after that folder (`offsec-resource-planner_pgdata`).
+
+1. **Back up first**, from the *old* folder while it is still running:
+   `docker compose exec -T db pg_dump -U <POSTGRES_USER> -d <POSTGRES_DB> -Fc > before-upgrade.dump`
+2. Check the volume name that holds your data: `docker volume ls | grep pgdata`
+3. Stop the old stack **without `-v`**: `docker compose down`
+4. Copy your existing `.env` into the new `hackeduler/` folder, and add:
+   ```
+   HACKEDULER_DB_VOLUME=offsec-resource-planner_pgdata
+   ```
+   Keep `POSTGRES_DB`, `POSTGRES_USER` and `POSTGRES_PASSWORD` exactly as they were.
+5. Rename the `ORP_` prefix to `HACKEDULER_` in `.env`, keeping every value the same. Old `ORP_*` names still work
+   for now (the backend logs a warning), but rename them. Keeping `ORP_SECRET_KEY` / `ORP_ENCRYPTION_KEY` values
+   unchanged matters: they decrypt stored SSO client secrets.
+6. `docker compose up -d --build` from the `hackeduler/` folder. Compose may print a warning that the volume
+   "was created for project offsec-resource-planner". That's expected; it uses the existing data.
+7. Sign in and check your data. Everyone has to sign in again once, because the session cookie names changed.
+
+### Restoring a backup
+
+```bash
+./scripts/restore-db.sh backups/hackeduler-YYYYMMDD-HHMMSS.dump   # asks for confirmation, replaces current data
+```
+
+New schema changes go in new Alembic revisions under `backend/alembic/versions/`. Never edit an existing one.

@@ -39,6 +39,11 @@ docker compose --profile dev up -d --build
 
 The backend container runs migrations on start. With `HACKEDULER_SEED=demo` it also seeds sample data.
 
+> **Upgrading an existing installation?** Your data is kept: it lives in the `hackeduler_pgdata` volume and
+> migrations only add to it. Back up with `./scripts/backup-db.sh`, then run `docker compose up -d --build`.
+> Never use `docker compose down -v`. Installed before the rename to Hackeduler? Follow
+> [docs/OPERATIONS.md → Upgrading without losing data](docs/OPERATIONS.md#8-upgrading-without-losing-data).
+
 ### Local development test accounts (seeded with `HACKEDULER_SEED=demo`)
 
 | Role | Email | Password |

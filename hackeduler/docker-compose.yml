@@ -59,4 +59,9 @@ services:
     profiles: ["dev"]
 
 volumes:
+  # The database lives in this named volume. Its name is fixed (not derived from the folder name)
+  # so upgrades and folder renames always reuse the same data. Deployments created before the
+  # rename to Hackeduler: set HACKEDULER_DB_VOLUME=offsec-resource-planner_pgdata in .env.
+  # NEVER run "docker compose down -v" on a live system - "-v" deletes this volume.
   pgdata:
+    name: ${HACKEDULER_DB_VOLUME:-hackeduler_pgdata}
