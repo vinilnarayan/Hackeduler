@@ -10,7 +10,7 @@
    - `HACKEDULER_ENCRYPTION_KEY` – random and stable; encrypts SSO client secrets stored in the database.
    - `HACKEDULER_SEED=minimal`. This loads activity types, templates and settings only, with no demo accounts.
    - `HACKEDULER_APP_BASE_URL=https://<your host>`.
-2. Terminate **HTTPS** in front of the `frontend` container (corporate load balancer, Traefik, or an nginx 443 block). Don't expose `backend` or `db` directly.
+2. Choose the port, DNS name and HTTPS: `./deploy.sh --domain <name> --https files|auto`, or use your existing web server. See [`NETWORK.md`](NETWORK.md). Don't expose `backend` or `db` directly.
 3. `docker compose up -d --build`. Leave out `--profile dev` in production so Mailpit doesn't start.
 4. The first admin is created by `./deploy.sh` on the very first install (`admin@hackeduler.local`, or set
    `HACKEDULER_INITIAL_ADMIN_EMAIL`), and the generated password is printed once. To create or reset an admin later:

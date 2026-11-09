@@ -21,6 +21,7 @@ Documentation:
 - [`docs/DATABASE.md`](docs/DATABASE.md) – schema, constraints and indexes
 - [`docs/API.md`](docs/API.md) – REST API reference (interactive OpenAPI docs are at `/api/docs`)
 - [`docs/SSO.md`](docs/SSO.md) – single sign-on set-up (Entra ID, Okta, Google, Keycloak), role mapping, sign-in policy, break-glass
+- [`docs/NETWORK.md`](docs/NETWORK.md) – change the port, use your DNS name, enable HTTPS, or sit behind an existing nginx/Apache/IIS
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) – deployment, configuration, email, backups, the conflict resolution workflow
 
 ---
@@ -30,6 +31,7 @@ Documentation:
 ```bash
 cd hackeduler
 ./deploy.sh                   # first run creates .env with random secrets, then builds and starts everything
+./deploy.sh --port 9090       # optional: another port; add --domain your.dns.name [--https files|auto] for DNS/HTTPS
 ```
 
 - App: <http://localhost:8080>

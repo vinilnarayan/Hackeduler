@@ -5,3 +5,7 @@ __pycache__/
 .pytest_cache/
 *.tsbuildinfo
 backups/
+certs/*.pem
+certs/*.key
+certs/*.crt
+.env.prev

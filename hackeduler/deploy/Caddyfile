@@ -1,0 +1,18 @@
+# Built-in HTTPS front for Hackeduler (enabled with: ./deploy.sh --domain <name> --https <mode>).
+# All values come from .env and are maintained by deploy.sh - you normally never edit this file.
+{
+	auto_https disable_redirects
+}
+
+{$HACKEDULER_DOMAIN} {
+	tls {$HACKEDULER_CADDY_TLS}
+	encode gzip
+	reverse_proxy frontend:8080 {
+		header_up X-Forwarded-Proto https
+	}
+}
+
+# plain HTTP on the same name -> redirect to HTTPS
+http://{$HACKEDULER_DOMAIN} {
+	redir https://{host}{$HACKEDULER_HTTPS_PORT_SUFFIX}{uri} permanent
+}
