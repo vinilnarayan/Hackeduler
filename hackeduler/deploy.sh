@@ -2,7 +2,14 @@
 # ---------------------------------------------------------------------------------------------
 # Hackeduler - install AND upgrade with one command. Your data is never deleted.
 #
-#     ./deploy.sh
+#     ./deploy.sh                                  # install / upgrade with current settings
+#     ./deploy.sh --port 9090                      # serve on another port (if 8080 is taken)
+#     ./deploy.sh --domain hackeduler.example.com  # use the DNS name that points to this server
+#     ./deploy.sh --domain hackeduler.example.com --https files    # HTTPS with company certs in ./certs
+#     ./deploy.sh --domain hackeduler.example.com --https auto --email you@example.com  # Let's Encrypt
+#     ./deploy.sh --help
+#
+# Options are saved in .env, so later runs need no options. See docs/NETWORK.md.
 #
 # Every run:
 #   1. First run only: creates .env with strong random secrets.
@@ -26,12 +33,45 @@ command -v docker >/dev/null 2>&1 || die "Docker is not installed."
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 ('docker compose') is required."
 docker info >/dev/null 2>&1 || die "Cannot reach the Docker daemon (is it running? do you need sudo?)."
 
+usage() {
+  sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
+  cat <<'TXT'
+Options:
+  --port N            host port for the app (plain HTTP)             [HACKEDULER_HTTP_PORT, default 8080]
+  --bind ADDRESS      0.0.0.0 = all interfaces, 127.0.0.1 = local only [HACKEDULER_BIND_ADDRESS]
+  --domain NAME       DNS name of this server ("" to remove)         [HACKEDULER_DOMAIN]
+  --https MODE        off | files | auto | internal                  [HACKEDULER_HTTPS]
+  --https-port N      HTTPS port when --https is on (default 443)    [HACKEDULER_HTTPS_PORT]
+  --http-port N       HTTP->HTTPS redirect port (default 80)         [HACKEDULER_HTTP_REDIRECT_PORT]
+  --email ADDRESS     contact email for Let's Encrypt (--https auto) [HACKEDULER_ACME_EMAIL]
+TXT
+}
+
+# ---- options (saved to .env further down) ----------------------------------------------------
+OPT_KEYS=""
+opt() { OPT_KEYS="$OPT_KEYS $1"; eval "OPT_$1=\$2"; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --port)        [ $# -ge 2 ] || die "--port needs a value"; opt HACKEDULER_HTTP_PORT "$2"; shift 2;;
+    --bind)        [ $# -ge 2 ] || die "--bind needs a value"; opt HACKEDULER_BIND_ADDRESS "$2"; shift 2;;
+    --domain)      [ $# -ge 2 ] || die "--domain needs a value"; opt HACKEDULER_DOMAIN "$2"; shift 2;;
+    --https)       [ $# -ge 2 ] || die "--https needs a value"; opt HACKEDULER_HTTPS "$2"; shift 2;;
+    --https-port)  [ $# -ge 2 ] || die "--https-port needs a value"; opt HACKEDULER_HTTPS_PORT "$2"; shift 2;;
+    --http-port)   [ $# -ge 2 ] || die "--http-port needs a value"; opt HACKEDULER_HTTP_REDIRECT_PORT "$2"; shift 2;;
+    --email)       [ $# -ge 2 ] || die "--email needs a value"; opt HACKEDULER_ACME_EMAIL "$2"; shift 2;;
+    -h|--help)     usage; exit 0;;
+    *)             die "Unknown option: $1 (see ./deploy.sh --help)";;
+  esac
+done
+is_port() { case "$1" in ''|*[!0-9]*) return 1;; esac; [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
+
 rand() { head -c 48 /dev/urandom | base64 | tr -d '\n/+=' | cut -c1-48; }
-setenv() {  # setenv KEY VALUE : replace KEY=... in .env, or append it
+setenv() {  # setenv KEY VALUE : replace KEY=... in .env, or append it (quoted if it contains spaces)
+  case "$2" in *" "*) line="$1=\"$2\"";; *) line="$1=$2";; esac
   if grep -q "^$1=" .env; then
-    awk -v k="$1" -v v="$2" 'BEGIN{FS=OFS="="} $1==k{print k "=" v; next} {print}' .env > .env.new && mv .env.new .env
+    awk -v k="$1" -v l="$line" 'index($0, k "=") == 1 {print l; next} {print}' .env > .env.new && mv .env.new .env
   else
-    printf '%s=%s\n' "$1" "$2" >> .env
+    printf '%s\n' "$line" >> .env
   fi
 }
 
@@ -53,6 +93,58 @@ if grep -q '^ORP_' .env; then
   cp .env .env.bak
   sed 's/^ORP_/HACKEDULER_/' .env.bak > .env
 fi
+
+# ---- 2b. network options: save, validate and derive URLs -------------------------------------
+# options are only kept if the deployment gets as far as starting: on any earlier error .env is restored
+cp .env .env.prev
+KEEP_ENV=0
+trap '[ "$KEEP_ENV" = 1 ] || { [ -f .env.prev ] && mv .env.prev .env; }' EXIT
+for k in $OPT_KEYS; do eval "setenv $k \"\$OPT_$k\""; done
+set -a; . ./.env; set +a
+
+HTTP_PORT="${HACKEDULER_HTTP_PORT:-8080}"
+HTTPS_MODE="${HACKEDULER_HTTPS:-off}"
+DOMAIN="${HACKEDULER_DOMAIN:-}"
+HTTPS_PORT="${HACKEDULER_HTTPS_PORT:-443}"
+REDIRECT_PORT="${HACKEDULER_HTTP_REDIRECT_PORT:-80}"
+is_port "$HTTP_PORT" || die "Invalid port '$HTTP_PORT'."
+case "$HTTPS_MODE" in off|files|auto|internal) ;; *) die "--https must be off, files, auto or internal (got '$HTTPS_MODE').";; esac
+case "$DOMAIN" in *[!A-Za-z0-9.-]*) die "Invalid domain name '$DOMAIN' (use the bare name, e.g. hackeduler.example.com - no http:// or port).";; esac
+
+if [ "$HTTPS_MODE" != off ]; then
+  [ -n "$DOMAIN" ] || die "HTTPS needs a DNS name: add --domain your.dns.name"
+  is_port "$HTTPS_PORT" || die "Invalid HTTPS port '$HTTPS_PORT'."
+  is_port "$REDIRECT_PORT" || die "Invalid HTTP redirect port '$REDIRECT_PORT'."
+  case "$HTTPS_MODE" in
+    files)
+      [ -s certs/fullchain.pem ] && [ -s certs/privkey.pem ] || \
+        die "Put your certificate in certs/fullchain.pem and the private key in certs/privkey.pem (see certs/README.md)."
+      CADDY_TLS="/certs/fullchain.pem /certs/privkey.pem";;
+    auto)
+      [ -n "${HACKEDULER_ACME_EMAIL:-}" ] || die "--https auto needs --email you@example.com (used by Let's Encrypt)."
+      [ "$HTTPS_PORT" = 443 ] && [ "$REDIRECT_PORT" = 80 ] || \
+        warn "Let's Encrypt validates on public ports 80/443; custom ports only work if they are forwarded from 80/443."
+      CADDY_TLS="$HACKEDULER_ACME_EMAIL";;
+    internal)
+      CADDY_TLS="internal"
+      warn "--https internal uses a self-signed certificate: browsers will show a warning. Use 'files' or 'auto' for real users.";;
+  esac
+  [ "$HTTPS_PORT" = 443 ] && SUFFIX="" || SUFFIX=":$HTTPS_PORT"
+  BASE_URL="https://$DOMAIN$SUFFIX"
+  setenv HACKEDULER_CADDY_TLS "$CADDY_TLS"
+  setenv HACKEDULER_HTTPS_PORT_SUFFIX "$SUFFIX"
+  setenv HACKEDULER_COOKIE_SECURE true
+  setenv COMPOSE_PROFILES https
+else
+  if [ -n "$DOMAIN" ]; then
+    [ "$HTTP_PORT" = 80 ] && BASE_URL="http://$DOMAIN" || BASE_URL="http://$DOMAIN:$HTTP_PORT"
+  else
+    BASE_URL="http://localhost:$HTTP_PORT"
+  fi
+  setenv COMPOSE_PROFILES ""
+  if [ "${HACKEDULER_ENVIRONMENT:-development}" != production ]; then setenv HACKEDULER_COOKIE_SECURE false; fi
+fi
+setenv HACKEDULER_APP_BASE_URL "$BASE_URL"
 set -a; . ./.env; set +a
 
 # ---- 3. database volume ---------------------------------------------------------------------
@@ -94,8 +186,29 @@ else
   say "Database is not running - skipping the pre-deploy backup (automatic daily backups keep running once started)"
 fi
 
+# ---- 4b. make sure the ports are free (ports already used by Hackeduler itself are fine) -------
+listening() {  # is something listening on TCP port $1 on this machine?
+  if command -v ss >/dev/null 2>&1; then ss -ltnH 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$1\$"
+  elif command -v netstat >/dev/null 2>&1; then netstat -an 2>/dev/null | grep -i listen | awk '{print $4}' | grep -Eq "[:.]$1\$"
+  elif command -v lsof >/dev/null 2>&1; then lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  else return 1; fi
+}
+ours() { docker compose ps --format '{{.Ports}}' 2>/dev/null | grep -Eq "[:.]$1->"; }
+free_from() { p=$1; while [ "$p" -le 65535 ]; do listening "$p" || { echo "$p"; return; }; p=$((p + 1)); done; }
+check_port() {  # check_port PORT HOW-TO-CHANGE
+  if listening "$1" && ! ours "$1"; then
+    die "Port $1 is already used by another program on this machine. Free it, or choose another one: $2 $(free_from $(( $1 + 1 )))"
+  fi
+}
+check_port "$HTTP_PORT" "./deploy.sh --port"
+if [ "$HTTPS_MODE" != off ]; then
+  check_port "$HTTPS_PORT" "./deploy.sh --https-port"
+  check_port "$REDIRECT_PORT" "./deploy.sh --http-port"
+fi
+
 # ---- 5. build & start -----------------------------------------------------------------------
 say "Building and starting Hackeduler"
+KEEP_ENV=1; rm -f .env.prev
 docker compose up -d --build --remove-orphans
 
 # ---- 6. wait for health ---------------------------------------------------------------------
@@ -119,5 +232,7 @@ if [ "$(docker compose exec -T backend python -m app.manage count-users 2>/dev/n
   say "Creating the first administrator account (shown once - store the password safely):"
   docker compose exec -T backend python -m app.manage create-admin "$ADMIN_EMAIL"
 fi
-say "Done. Hackeduler is running on port ${HACKEDULER_HTTP_PORT:-8080}."
+say "Done. Open Hackeduler at:  $BASE_URL"
+[ -n "$DOMAIN" ] || say "(Other computers: http://<this-server-ip>:$HTTP_PORT - or map a DNS name with ./deploy.sh --domain <name>)"
+[ "$HTTPS_MODE" = off ] || say "(The app is also reachable without HTTPS on port $HTTP_PORT; use --bind 127.0.0.1 to allow HTTPS only.)"
 say "Database volume: $VOLUME   Backups: $(pwd)/backups"

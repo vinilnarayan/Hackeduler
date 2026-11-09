@@ -46,9 +46,32 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "${HACKEDULER_HTTP_PORT:-8080}:8080"
+      # Host port the app is served on (HACKEDULER_HTTP_PORT). HACKEDULER_BIND_ADDRESS=127.0.0.1 keeps it
+      # private to the server, e.g. when an existing nginx/Apache/IIS on the host proxies a DNS name to it.
+      - "${HACKEDULER_BIND_ADDRESS:-0.0.0.0}:${HACKEDULER_HTTP_PORT:-8080}:8080"
     depends_on:
       - backend
+    restart: unless-stopped
+
+  # Optional built-in HTTPS front (profile "https") serving https://HACKEDULER_DOMAIN with automatic
+  # Let's Encrypt, company-provided certificate files (./certs) or an internal self-signed certificate.
+  https:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    ports:
+      - "${HACKEDULER_HTTPS_PORT:-443}:443"
+      - "${HACKEDULER_HTTP_REDIRECT_PORT:-80}:80"
+    environment:
+      HACKEDULER_DOMAIN: ${HACKEDULER_DOMAIN:-localhost}
+      HACKEDULER_CADDY_TLS: ${HACKEDULER_CADDY_TLS:-internal}
+      HACKEDULER_HTTPS_PORT_SUFFIX: ${HACKEDULER_HTTPS_PORT_SUFFIX:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
     restart: unless-stopped
 
   # Automatic database backups: one dump every HACKEDULER_BACKUP_INTERVAL_HOURS (default 24) into
@@ -84,3 +107,5 @@ volumes:
   pgdata:
     external: true
     name: ${HACKEDULER_DB_VOLUME:-hackeduler_pgdata}
+  caddy_data:     # HTTPS certificates (re-issued automatically if lost)
+  caddy_config:
