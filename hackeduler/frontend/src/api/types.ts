@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'requester'
+export type Role = 'admin' | 'requester' | 'resource'
 export type BookingStatus = 'pending_approval' | 'approved' | 'rejected' | 'cancelled' | 'completed' | 'expired'
 
 export interface User {
@@ -17,7 +17,11 @@ export interface User {
   product_name?: string | null
   implementation_id?: string | null
   implementation_name?: string | null
+  resource_id?: string | null
+  resource_name?: string | null
 }
+
+export type ReportType = 'V1' | 'Met'
 
 export interface Implementation { id: string; product_id: string; name: string; description: string | null; is_active: boolean; users: number; bookings: number }
 export interface Product { id: string; name: string; description: string | null; is_active: boolean; users: number; bookings: number; implementations: Implementation[] }
@@ -149,6 +153,10 @@ export interface Booking {
   rejection_reason: string | null
   cancellation_reason: string | null
   pending_change_request: any | null
+  report_shared: boolean
+  report_type: ReportType | null
+  report_comments: string | null
+  report_shared_at: string | null
 }
 
 export interface AdminBooking extends Booking {

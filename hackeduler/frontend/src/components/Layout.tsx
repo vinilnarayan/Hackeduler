@@ -15,6 +15,12 @@ const REQUESTER_NAV: NavItem[] = [
   { to: '/my-bookings', label: 'My Bookings', icon: <ClipboardList className="h-4 w-4" /> },
 ]
 
+const RESOURCE_NAV: NavItem[] = [
+  { to: '/', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
+  { to: '/assignments', label: 'My Assignments', icon: <ClipboardList className="h-4 w-4" /> },
+  { to: '/leaves', label: 'My Leave', icon: <Plane className="h-4 w-4" /> },
+]
+
 const ADMIN_NAV: { section: string; items: NavItem[] }[] = [
   { section: 'Overview', items: [
     { to: '/admin', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
@@ -59,7 +65,7 @@ export function Layout() {
     <nav aria-label="Main navigation" className="flex h-full flex-col gap-4 overflow-y-auto bg-slate-900 p-3">
       <div className="flex items-center gap-2 px-2 py-1 text-white">
         <ShieldCheck className="h-6 w-6 text-sky-400" />
-        <div><div className="text-sm font-semibold leading-tight">Hackeduler</div><div className="text-[11px] text-slate-400">{isAdmin ? 'Administrator' : 'Requester'}</div></div>
+        <div><div className="text-sm font-semibold leading-tight">Hackeduler</div><div className="text-[11px] text-slate-400">{isAdmin ? 'Administrator' : user?.role === 'resource' ? 'Security Engineer' : 'Requester'}</div></div>
       </div>
       {isAdmin ? ADMIN_NAV.map((s) => (
         <div key={s.section}>
@@ -67,7 +73,7 @@ export function Layout() {
           <div className="space-y-0.5">{s.items.map((i) => <Link key={i.to} item={i} onNav={() => setOpen(false)} />)}</div>
         </div>
       )) : (
-        <div className="space-y-0.5">{REQUESTER_NAV.map((i) => <Link key={i.to} item={i} onNav={() => setOpen(false)} />)}</div>
+        <div className="space-y-0.5">{(user?.role === 'resource' ? RESOURCE_NAV : REQUESTER_NAV).map((i) => <Link key={i.to} item={i} onNav={() => setOpen(false)} />)}</div>
       )}
       {isAdmin && (
         <div>

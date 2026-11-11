@@ -9,6 +9,7 @@ import { useAsync } from '../lib/useAsync'
 import { ConfirmDialog } from './ConfirmDialog'
 import { useForceFlow } from './useForceFlow'
 import { ErrorState, Field, KV, Modal, Pill, Spinner, StatusBadge } from './ui'
+import { ReportEditor } from './ReportEditor'
 
 export function AuditChanges({ a }: { a: AuditEntry }) {
   const prev = a.previous_value ?? {}
@@ -93,6 +94,9 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
             ...(b.cancellation_reason ? [['Cancellation reason', b.cancellation_reason] as [string, string]] : []),
             ...(b.additional_comments ? [['Comments', b.additional_comments] as [string, string]] : []),
           ]} />
+          {(b.status === 'approved' || b.status === 'completed')
+            ? <ReportEditor key={`${b.id}-${b.report_shared}-${b.report_type}-${b.report_comments}`} booking={b} url={`/api/admin/bookings/${b.id}/report`} onSaved={changed} />
+            : null}
           {b.pending_change_request && <div className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">Pending requester {b.pending_change_request.request_type} request: “{b.pending_change_request.reason}”{b.pending_change_request.proposed_start_date ? ` → start ${fmt(b.pending_change_request.proposed_start_date)}` : ''}. Review it under Change Requests.</div>}
           <div>
             <div className="label">Status history</div>

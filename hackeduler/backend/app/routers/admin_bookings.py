@@ -40,9 +40,10 @@ from ..schemas import (
     ConflictResolveIn,
     ForceIn,
     RejectIn,
+    ReportIn,
     booking_admin_out,
 )
-from ..services import availability, booking_service, conflicts, initiation
+from ..services import availability, booking_service, conflicts, initiation, reports
 from ..services.booking_service import ForceOptions
 from ..services.calendar_engine import SchedulingError
 from .common import commit
@@ -211,6 +212,19 @@ def admin_create(body: AdminBookingCreate, db: Session = Depends(get_db), admin:
         additional=[booking_service.ExtraAllocation(i) for i in body.additional_resource_ids]
         + [booking_service.ExtraAllocation(e.resource_id, e.start_date, e.working_days, e.end_date) for e in body.additional_resources])
     commit(db)
+    return _out(db, b)
+
+
+@router.put("/bookings/{booking_id}/report")
+def set_booking_report(booking_id: uuid.UUID, body: ReportIn, db: Session = Depends(get_db),
+                       admin: User = Depends(require_admin)):
+    b = db.get(Booking, booking_id)
+    if b is None:
+        raise not_found("Booking")
+    reports.set_report(db, b, admin, shared=body.report_shared, report_type=body.report_type,
+                       comments=body.report_comments)
+    commit(db)
+    db.refresh(b)
     return _out(db, b)
 
 

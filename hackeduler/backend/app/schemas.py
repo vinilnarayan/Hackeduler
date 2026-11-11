@@ -64,6 +64,8 @@ class UserOut(ORM):
     product_name: str | None = None
     implementation_id: uuid.UUID | None = None
     implementation_name: str | None = None
+    resource_id: uuid.UUID | None = None
+    resource_name: str | None = None
 
 
 class UserCreate(Strict):
@@ -71,14 +73,16 @@ class UserCreate(Strict):
     full_name: str = Field(min_length=1, max_length=200)
     password: str | None = Field(default=None, min_length=12, max_length=256,
                                  description="Omit to create an SSO-only account (pre-provisioning)")
-    role: Literal["admin", "requester"]
+    role: Literal["admin", "requester", "resource"]
     product_id: uuid.UUID | None = None
     implementation_id: uuid.UUID | None = None
+    resource_id: uuid.UUID | None = Field(default=None, description="Required for the resource role: the security resource this person is")
 
 
 class UserUpdate(Strict):
     full_name: str | None = Field(default=None, min_length=1, max_length=200)
-    role: Literal["admin", "requester"] | None = None
+    role: Literal["admin", "requester", "resource"] | None = None
+    resource_id: uuid.UUID | None = Field(default=None, description="Resource this user represents (resource role)")
     is_active: bool | None = None
     password: str | None = Field(default=None, min_length=12, max_length=256)
     remove_password: bool | None = None
@@ -233,6 +237,12 @@ class LeaveUpdate(Strict):
     end_date: date | None = None
     leave_type: str | None = Field(default=None, max_length=100)
     reason: str | None = Field(default=None, max_length=2000)
+
+
+class ReportIn(Strict):
+    report_shared: bool
+    report_type: Literal["V1", "Met"] | None = None
+    report_comments: str | None = Field(default=None, max_length=5000)
 
 
 # ---------------------------------------------------------------- bookings
@@ -390,6 +400,10 @@ class BookingRequesterOut(BaseModel):
     expires_at: datetime | None
     rejection_reason: str | None
     cancellation_reason: str | None
+    report_shared: bool = False
+    report_type: str | None = None
+    report_comments: str | None = None
+    report_shared_at: datetime | None = None
     pending_change_request: dict | None = None
 
 
@@ -432,7 +446,8 @@ def booking_requester_out(b, pending_cr=None, viewer_id=None) -> BookingRequeste
         poc_name=b.poc_name, poc_email=b.poc_email, additional_comments=b.additional_comments, status=b.status,
         status_label=BookingStatus.LABELS[b.status], submitted_at=b.submitted_at, expires_at=b.expires_at,
         rejection_reason=b.rejection_reason, cancellation_reason=b.cancellation_reason,
-        pending_change_request=pending_cr,
+        pending_change_request=pending_cr, report_shared=b.report_shared, report_type=b.report_type,
+        report_comments=b.report_comments, report_shared_at=b.report_shared_at,
     )
 
 

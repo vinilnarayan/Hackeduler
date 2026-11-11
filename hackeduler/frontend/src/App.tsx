@@ -8,6 +8,9 @@ import CalendarPage from './pages/requester/CalendarPage'
 import NewBooking from './pages/requester/NewBooking'
 import MyBookings from './pages/requester/MyBookings'
 import BookingConfirmation from './pages/requester/Confirmation'
+const ResourceDashboard = lazy(() => import('./pages/resource/Dashboard'))
+const ResourceAssignments = lazy(() => import('./pages/resource/Assignments'))
+const ResourceLeaves = lazy(() => import('./pages/resource/Leaves'))
 const AdminDashboard = lazy(() => import('./pages/admin/Dashboard'))
 const AdminCalendar = lazy(() => import('./pages/admin/AdminCalendar'))
 const AdminBookings = lazy(() => import('./pages/admin/Bookings'))
@@ -32,10 +35,28 @@ function AdminOnly({ children }: { children: ReactNode }) {
   return user?.role === 'admin' ? <Suspense fallback={<Spinner />}>{children}</Suspense> : <Navigate to="/" replace />
 }
 
+/** UI-level guard only; every /api/resource endpoint is independently protected by the backend. */
+function ResourceOnly({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
+  return user?.role === 'resource' ? <Suspense fallback={<Spinner />}>{children}</Suspense> : <Navigate to="/" replace />
+}
+
 export default function App() {
   const { user, loading } = useAuth()
   if (loading) return <Spinner label="Loading session…" />
   if (!user) return <Routes><Route path="*" element={<Login />} /></Routes>
+  if (user.role === 'resource') {
+    return (
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<ResourceOnly><ResourceDashboard /></ResourceOnly>} />
+          <Route path="assignments" element={<ResourceOnly><ResourceAssignments /></ResourceOnly>} />
+          <Route path="leaves" element={<ResourceOnly><ResourceLeaves /></ResourceOnly>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    )
+  }
   return (
     <Routes>
       <Route element={<Layout />}>

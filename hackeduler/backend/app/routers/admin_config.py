@@ -18,6 +18,7 @@ from ..errors import bad_request, conflict, not_found
 from ..models import (
     ROLE_ADMIN_ID,
     ROLE_REQUESTER_ID,
+    ROLE_RESOURCE_ID,
     ActivityType,
     Booking,
     BookingStatus,
@@ -568,6 +569,26 @@ def _users_out(db: Session, users) -> list:
     return [user_out(u, names.get(u.sso_provider_id)) for u in users]
 
 
+_ROLE_IDS = {"admin": ROLE_ADMIN_ID, "requester": ROLE_REQUESTER_ID, "resource": ROLE_RESOURCE_ID}
+
+
+def _resource_for_role(db: Session, role: str, resource_id, current_user_id):
+    """Resource-role users must be linked to exactly one active resource, used by no other active user.
+    Other roles never carry a resource link."""
+    if role != "resource":
+        return None
+    if resource_id is None:
+        raise bad_request("Choose the security resource this user represents.")
+    r = db.get(SecurityResource, resource_id)
+    if r is None or r.deleted_at is not None:
+        raise not_found("Resource")
+    taken = db.scalar(select(User.id).where(User.resource_id == resource_id, User.deleted_at.is_(None),
+                                            User.id != (current_user_id or uuid.uuid4())))
+    if taken:
+        raise conflict("Another user is already linked to that resource.", "duplicate")
+    return resource_id
+
+
 @router.get("/users")
 def list_users(include_deleted: bool = False, db: Session = Depends(get_db)):
     q = select(User).order_by(User.full_name)
@@ -635,13 +656,14 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = D
         raise conflict("A user with that email already exists.", "duplicate")
     u = User(id=uuid.uuid4(), email=body.email.lower(), full_name=body.full_name,
              password_hash=hash_password(body.password) if body.password else None,
-             role_id=ROLE_ADMIN_ID if body.role == "admin" else ROLE_REQUESTER_ID)
+             role_id=_ROLE_IDS[body.role])
+    u.resource_id = _resource_for_role(db, body.role, body.resource_id, None)
     u.product_id, u.implementation_id = _product_pair(db, body.product_id, body.implementation_id)
     db.add(u)
     db.flush()
     db.refresh(u)
     audit.record(db, "user.created", admin, entity_type="user", entity_id=u.id,
-                 new={"email": u.email, "full_name": u.full_name, "role": body.role, "sso_only": not body.password,
+                 new={"email": u.email, "full_name": u.full_name, "role": body.role, "resource_id": u.resource_id, "sso_only": not body.password,
                       "product_id": u.product_id, "implementation_id": u.implementation_id})
     if not body.password:
         # SSO-only account: tell the person where to sign in. (Never emails a password.)
@@ -656,7 +678,7 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
     if u is None or u.deleted_at is not None:
         raise not_found("User")
     data = body.model_dump(exclude_unset=True)
-    if u.id == admin.id and (data.get("is_active") is False or data.get("role") == "requester"):
+    if u.id == admin.id and (data.get("is_active") is False or data.get("role") in ("requester", "resource")):
         raise bad_request("You cannot deactivate or demote your own account.")
     prev = {"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
             "product_id": audit.jsonable(u.product_id), "implementation_id": audit.jsonable(u.implementation_id)}
@@ -667,10 +689,16 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
         iid = data.get("implementation_id", None if "product_id" in data and pid != u.product_id else u.implementation_id)
         u.product_id, u.implementation_id = _product_pair(db, pid, iid)
     revoke = False
-    if "role" in data:
-        new_role = ROLE_ADMIN_ID if data["role"] == "admin" else ROLE_REQUESTER_ID
-        revoke = revoke or new_role != u.role_id
-        u.role_id = new_role
+    if "role" in data or "resource_id" in data:
+        role_key = data.get("role") or u.role_name
+        new_role = _ROLE_IDS[role_key]
+        new_res = _resource_for_role(db, role_key, data.get("resource_id", u.resource_id), u.id)
+        if new_role == ROLE_ADMIN_ID or u.role_id != ROLE_ADMIN_ID:
+            pass
+        elif _active_admins(db) <= 1 and u.is_active:
+            raise bad_request("Cannot demote the last active administrator.")
+        revoke = revoke or new_role != u.role_id or new_res != u.resource_id
+        u.role_id, u.resource_id = new_role, new_res
     if "is_active" in data:
         revoke = revoke or data["is_active"] != u.is_active
         u.is_active = data["is_active"]

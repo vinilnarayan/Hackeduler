@@ -32,7 +32,8 @@ def user_out(u: User, provider_name: str | None = None) -> UserOut:
                    last_login_method=u.last_login_method, deleted_at=u.deleted_at,
                    product_id=u.product_id, product_name=u.product.name if u.product else None,
                    implementation_id=u.implementation_id,
-                   implementation_name=u.implementation.name if u.implementation else None)
+                   implementation_name=u.implementation.name if u.implementation else None,
+                   resource_id=u.resource_id, resource_name=u.resource.display_name if u.resource else None)
 
 
 def set_session_cookies(response: Response, user: User, sso_slug: str | None = None) -> str:
