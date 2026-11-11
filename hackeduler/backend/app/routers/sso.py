@@ -14,6 +14,7 @@ Admin (router-level require_admin):
 """
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from typing import Any, Literal
@@ -33,6 +34,8 @@ from ..models import SSOProvider, User
 from ..security import limiter
 from ..services import audit, crypto, settings_service, sso
 from .common import commit
+
+log = logging.getLogger("hackeduler.sso")
 
 public = APIRouter(prefix="/api/auth/sso", tags=["sso"])
 admin = APIRouter(prefix="/api/admin/sso", tags=["admin-sso"], dependencies=[Depends(require_admin)])
@@ -249,25 +252,44 @@ def _enabled_provider(db: Session, slug: str) -> SSOProvider | None:
     return db.scalars(select(SSOProvider).where(SSOProvider.slug == slug, SSOProvider.enabled.is_(True))).first()
 
 
+def _unexpected_failure(db: Session, slug: str, stage: str, exc: Exception) -> RedirectResponse:
+    """Last-resort handler: an unexpected error must never reach the browser as a bare 'Internal Server Error'.
+
+    The full traceback goes to the server log; the exception type and message go to the audit log (visible under
+    Admin > Single Sign-On > Sign-ins), and the user is sent back to the login page with a friendly message.
+    Call from inside an ``except`` block so the traceback is available."""
+    log.exception("Unexpected error during SSO %s for provider '%s'", stage, slug)
+    try:
+        db.rollback()
+    except Exception:  # noqa: BLE001 - the session may already be unusable; the audit write below uses its own
+        pass
+    audit.record_detached("auth.sso_login_failed", None, entity_type="sso_provider", entity_id=slug,
+                          new={"code": "internal_error", "detail": f"{stage}: {type(exc).__name__}: {exc}"[:500]})
+    return _login_redirect("internal_error")
+
+
 @public.get("/{slug}/login")
 def sso_login(slug: str, request: Request, next: str | None = Query(default=None, max_length=500), db: Session = Depends(get_db)):
     ip = request.client.host if request.client else "unknown"
     if not limiter.allow(f"sso:{ip}", get_settings().login_rate_limit_per_minute * 3):
         return _login_redirect("rate_limited")
-    p = _enabled_provider(db, slug)
-    if p is None:
-        return _login_redirect("provider_unavailable")
     try:
-        url, tx = sso.begin_login(db, p, next)
-    except sso.SSOError as e:
-        audit.record_detached("auth.sso_login_failed", None, entity_type="sso_provider", entity_id=slug,
-                              new={"code": e.code, "detail": e.detail[:500]})
-        return _login_redirect(e.code)
-    s = get_settings()
-    r = RedirectResponse(url, status_code=302)
-    r.set_cookie(TX_COOKIE, tx, max_age=sso.TX_TTL_SECONDS, httponly=True, secure=s.cookie_secure, samesite="lax",
-                 path="/api/auth/sso")
-    return r
+        p = _enabled_provider(db, slug)
+        if p is None:
+            return _login_redirect("provider_unavailable")
+        try:
+            url, tx = sso.begin_login(db, p, next)
+        except sso.SSOError as e:
+            audit.record_detached("auth.sso_login_failed", None, entity_type="sso_provider", entity_id=slug,
+                                  new={"code": e.code, "detail": e.detail[:500]})
+            return _login_redirect(e.code)
+        s = get_settings()
+        r = RedirectResponse(url, status_code=302)
+        r.set_cookie(TX_COOKIE, tx, max_age=sso.TX_TTL_SECONDS, httponly=True, secure=s.cookie_secure, samesite="lax",
+                     path="/api/auth/sso")
+        return r
+    except Exception as e:  # noqa: BLE001
+        return _unexpected_failure(db, slug, "login", e)
 
 
 @public.get("/{slug}/callback")
@@ -279,8 +301,8 @@ def sso_callback(slug: str, request: Request, code: str | None = Query(default=N
     ip = request.client.host if request.client else "unknown"
     if not limiter.allow(f"sso:{ip}", get_settings().login_rate_limit_per_minute * 3):
         return _login_redirect("rate_limited")
-    p = _enabled_provider(db, slug)
     try:
+        p = _enabled_provider(db, slug)
         if p is None:
             raise sso.SSOError("provider_unavailable", f"Provider '{slug}' is not enabled")
         if error:
@@ -289,6 +311,10 @@ def sso_callback(slug: str, request: Request, code: str | None = Query(default=N
             raise sso.SSOError("idp_error", "Callback without authorization code")
         user, next_path = sso.complete_login(db, p, code, state or "", request.cookies.get(TX_COOKIE))
         commit(db)
+        r = RedirectResponse(next_path, status_code=302)
+        r.delete_cookie(TX_COOKIE, path="/api/auth/sso")
+        set_session_cookies(r, user, sso_slug=p.slug)
+        return r
     except (sso.SSOError, ServiceError) as e:
         db.rollback()
         code_ = e.code if isinstance(e, sso.SSOError) else "login_failed"
@@ -296,10 +322,8 @@ def sso_callback(slug: str, request: Request, code: str | None = Query(default=N
         audit.record_detached("auth.sso_login_failed", None, entity_type="sso_provider", entity_id=slug,
                               new={"code": code_, "detail": (detail or "")[:500]})
         return _login_redirect(code_)
-    r = RedirectResponse(next_path, status_code=302)
-    r.delete_cookie(TX_COOKIE, path="/api/auth/sso")
-    set_session_cookies(r, user, sso_slug=p.slug)
-    return r
+    except Exception as e:  # noqa: BLE001
+        return _unexpected_failure(db, slug, "callback", e)
 
 
 # =============================================================== admin endpoints

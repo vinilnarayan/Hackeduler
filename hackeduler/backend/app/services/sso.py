@@ -106,7 +106,7 @@ def _get_json(url: str) -> dict:
     try:
         with http_client() as c:
             r = c.get(url)
-    except httpx.HTTPError as e:
+    except (httpx.HTTPError, httpx.InvalidURL) as e:
         raise SSOError("provider_unavailable", f"GET {url} failed: {type(e).__name__}: {e}") from e
     if r.status_code != 200:
         raise SSOError("provider_unavailable", f"GET {url} returned HTTP {r.status_code}")
@@ -260,7 +260,13 @@ def exchange_code(db: Session, p: SSOProvider, md: dict, code: str, verifier: st
     if p.use_pkce:
         data["code_verifier"] = verifier
     auth = None
-    secret = crypto.decrypt(p.client_secret_encrypted) if p.client_secret_encrypted else None
+    try:
+        secret = crypto.decrypt(p.client_secret_encrypted) if p.client_secret_encrypted else None
+    except ValueError as e:
+        # The key that encrypted the secret is not the key in use now (HACKEDULER_ENCRYPTION_KEY / SECRET_KEY changed).
+        raise SSOError("token_exchange_failed",
+                       "The stored client secret cannot be decrypted (the encryption key changed since it was saved). "
+                       "Re-enter the client secret under Admin > Single Sign-On.") from e
     if p.token_auth_method == "client_secret_post" and secret:
         data["client_secret"] = secret
     elif p.token_auth_method == "client_secret_basic" and secret:
@@ -270,7 +276,7 @@ def exchange_code(db: Session, p: SSOProvider, md: dict, code: str, verifier: st
     try:
         with http_client() as c:
             r = c.post(md["token_endpoint"], data=data, auth=auth)
-    except httpx.HTTPError as e:
+    except (httpx.HTTPError, httpx.InvalidURL) as e:
         raise SSOError("token_exchange_failed", f"Token endpoint error: {type(e).__name__}") from e
     try:
         body = r.json()
@@ -315,7 +321,7 @@ def fetch_userinfo(md: dict, access_token: str | None, subject: str) -> dict:
         with http_client() as c:
             r = c.get(md["userinfo_endpoint"], headers={"Authorization": f"Bearer {access_token}"})
         info = r.json() if r.status_code == 200 else {}
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError):
         return {}
     if not isinstance(info, dict) or info.get("sub") != subject:
         return {}  # OIDC Core 5.3.2: userinfo sub MUST match the ID token sub

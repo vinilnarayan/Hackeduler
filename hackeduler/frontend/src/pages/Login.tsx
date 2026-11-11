@@ -23,6 +23,7 @@ export const SSO_ERRORS: Record<string, string> = {
   account_disabled: 'Your account has been disabled.',
   identity_conflict: 'Your email address is already linked to a different sign-in identity. Contact an administrator.',
   rate_limited: 'Too many sign-in attempts. Please wait a minute and try again.',
+  internal_error: 'Sign-in could not be completed because of a server problem. Please contact an administrator; the details are in Admin > Single Sign-On > Sign-ins.',
   login_failed: 'Sign-in failed. Please try again.',
 }
 

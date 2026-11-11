@@ -518,3 +518,69 @@ def test_recent_logins_show_groups_received(admin, idp, provider):
     assert logs[0]["ok"] is False and logs[0]["error_code"] == "state_mismatch"
     ok = logs[1]
     assert ok["groups_received"] == ["abc-123", "offsec-admins"] and ok["groups_matched"] == ["offsec-admins"] and ok["role"] == "admin"
+
+
+# ---------------------------------------------------------------- resilience: never show a raw "Internal Server Error"
+def _failure_audits(code: str):
+    db = SessionLocal()
+    try:
+        rows = db.scalars(select(AuditLog).where(AuditLog.action == "auth.sso_login_failed")).all()
+        return [a.new_value for a in rows if (a.new_value or {}).get("code") == code]
+    finally:
+        db.close()
+
+
+def test_unexpected_error_on_login_redirects_with_message(admin, idp, provider, monkeypatch):
+    from app.main import app
+
+    def boom(*a, **k):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(sso, "begin_login", boom)
+    r = TestClient(app).get("/api/auth/sso/corp/login", follow_redirects=False)
+    assert r.status_code == 302 and err(r) == "internal_error"
+    detail = _failure_audits("internal_error")[0]["detail"]
+    assert "RuntimeError" in detail and "kaboom" in detail
+
+
+def test_unexpected_error_on_callback_redirects_with_message(admin, idp, provider, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(sso, "complete_login", boom)
+    _, resp = sso_login(idp)
+    assert resp.status_code == 302 and err(resp) == "internal_error"
+    assert "kaboom" in _failure_audits("internal_error")[0]["detail"]
+
+
+def test_undecryptable_client_secret_is_reported_not_a_500(admin, idp, provider):
+    """If the encryption key changed after the secret was saved, the secret cannot be read any more."""
+    from cryptography.fernet import Fernet
+
+    db = SessionLocal()
+    row = db.get(SSOProvider, uuid.UUID(provider["id"]))
+    row.client_secret_encrypted = Fernet(Fernet.generate_key()).encrypt(b"old-secret").decode()
+    db.commit()
+    db.close()
+    _, resp = sso_login(idp)
+    assert resp.status_code == 302 and err(resp) == "token_exchange_failed"
+    assert "client secret" in _failure_audits("token_exchange_failed")[0]["detail"].lower()
+
+
+def test_invalid_idp_url_is_reported_as_provider_unavailable(admin, idp, provider, monkeypatch):
+    from app.main import app
+
+    class BadClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, **kw):
+            raise httpx.InvalidURL("Invalid non-printable ASCII character in URL")
+
+    sso.clear_caches()
+    monkeypatch.setattr(sso, "http_client", lambda: BadClient())
+    r = TestClient(app).get("/api/auth/sso/corp/login", follow_redirects=False)
+    assert r.status_code == 302 and err(r) == "provider_unavailable"
