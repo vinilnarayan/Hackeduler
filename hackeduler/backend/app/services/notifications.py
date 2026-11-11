@@ -27,6 +27,7 @@ ALLOWED_VARIABLES = {
     "Booking ID", "Application Name", "Application Version", "Activity Type", "PCI DSS Scope", "Yes/No",
     "Resource ID", "Start Date", "End Date", "Duration", "POC Name", "POC Email", "Rejection Reason",
     "Booking Status", "Change Summary", "Reason", "Requester", "App URL", "Product", "Implementation",
+    "User Name", "User Email", "Role", "Engineer Name", "Additional Comments",
 }
 
 SIGNATURE = "\n\nRegards,\nOffensive Security Team\n"
@@ -128,6 +129,28 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             "- Requested Start Date: {{Start Date}}" + SIGNATURE
         ),
     },
+    "user_welcome": {
+        "name": "Welcome / account created (to new user)",
+        "subject": "[Hackeduler] Your account is ready",
+        "body": (
+            "Hello {{User Name}},\n\nAn account has been created for you on Hackeduler, the Offensive Security "
+            "scheduling portal.\n\n- Name: {{User Name}}\n- Email: {{User Email}}\n- Role: {{Role}}\n\n"
+            "Sign in with your company single sign-on (SSO) account here:\n{{App URL}}\n\n"
+            "Please contact the Offensive Security team if you have any trouble signing in." + SIGNATURE
+        ),
+    },
+    "booking_confirmed_engineer": {
+        "name": "Booking confirmed (to security engineer)",
+        "subject": "[Hackeduler] Assignment Confirmed – {{Application Name}} ({{Start Date}})",
+        "body": (
+            "Hello {{Engineer Name}},\n\nYou have been assigned to the following confirmed security assessment.\n\n"
+            "- Booking ID: {{Booking ID}}\n- Application Name: {{Application Name}}\n"
+            "- Application Version: {{Application Version}}\n- Activity Type: {{Activity Type}}\n"
+            "- PCI DSS Scope: {{Yes/No}}\n- Start Date: {{Start Date}}\n- Expected End Date: {{End Date}}\n"
+            "- POC Name: {{POC Name}}\n- POC Email: {{POC Email}}\n\nAdditional comments:\n{{Additional Comments}}\n\n"
+            "Details are available in Hackeduler: {{App URL}}" + SIGNATURE
+        ),
+    },
 }
 
 
@@ -221,8 +244,34 @@ def notify_submitted(db: Session, b: Booking) -> None:
     enqueue(db, "booking_submitted_admin", admin_recipients(db), booking_context(b), b.id)
 
 
+def engineer_resources(b: Booking) -> list:
+    """Every security resource working on the booking (primary first)."""
+    out = [b.resource] if b.resource else []
+    out += [r for r in getattr(b, "extra_resources", []) if r not in out]
+    return out
+
+
+def notify_engineers(db: Session, b: Booking) -> None:
+    """Tell the assigned security engineer(s) a booking is confirmed. Engineers without an email are skipped."""
+    for r in engineer_resources(b):
+        if not r.engineer_email:
+            continue
+        ctx = booking_context(b, **{"Engineer Name": r.engineer_name or r.display_name,
+                                    "Additional Comments": b.additional_comments or "None"})
+        enqueue(db, "booking_confirmed_engineer", [r.engineer_email], ctx, b.id)
+
+
 def notify_approved(db: Session, b: Booking) -> None:
     enqueue(db, "booking_approved_poc", poc_recipients(db, b), booking_context(b), b.id)
+    notify_engineers(db, b)
+
+
+def notify_user_welcome(db: Session, user) -> None:
+    from .sso import public_base_url
+
+    ctx = {"User Name": user.full_name, "User Email": user.email, "Role": "Administrator" if user.is_admin else "Requester",
+           "App URL": public_base_url(db)}
+    enqueue(db, "user_welcome", [user.email], ctx)
 
 
 def notify_rejected(db: Session, b: Booking) -> None:

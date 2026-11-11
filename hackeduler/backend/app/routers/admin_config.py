@@ -640,6 +640,9 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = D
     audit.record(db, "user.created", admin, entity_type="user", entity_id=u.id,
                  new={"email": u.email, "full_name": u.full_name, "role": body.role, "sso_only": not body.password,
                       "product_id": u.product_id, "implementation_id": u.implementation_id})
+    if not body.password:
+        # SSO-only account: tell the person where to sign in. (Never emails a password.)
+        notifications.notify_user_welcome(db, u)
     commit(db)
     return _users_out(db, [u])[0]
 
