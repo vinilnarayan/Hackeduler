@@ -3,7 +3,7 @@ import { Search } from 'lucide-react'
 import { get, post, qs, validationMessage } from '../../api/client'
 import type { Booking, BookingStatus } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { Empty, ErrorState, Field, KV, Modal, PageHeader, Spinner, StatusBadge } from '../../components/ui'
+import { Empty, ErrorState, Field, KV, Modal, PageHeader, Spinner, StatusBadge, ReportBadge } from '../../components/ui'
 import { fmt, fmtDateTime } from '../../lib/dates'
 import { STATUS_LABELS } from '../../lib/status'
 import { useAuth } from '../../lib/auth'
@@ -38,7 +38,7 @@ export default function MyBookings() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : !data?.length ? <Empty title="No bookings found" hint="Create a new booking request from the calendar." /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Application</th><th className="th">Version</th>{scope === 'product' && <th className="th">Requested by</th>}<th className="th">Implementation</th><th className="th">Activity</th><th className="th">Resource</th><th className="th">Dates</th><th className="th">Status</th><th className="th">Submitted</th></tr></thead>
+            <thead className="bg-slate-50"><tr><th className="th">Application</th><th className="th">Version</th>{scope === 'product' && <th className="th">Requested by</th>}<th className="th">Implementation</th><th className="th">Activity</th><th className="th">Resource</th><th className="th">Dates</th><th className="th">Status</th><th className="th">Report</th><th className="th">Submitted</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {data.map((b) => (
                 <tr key={b.id} className="cursor-pointer hover:bg-slate-50" tabIndex={0} onClick={() => setSel(b)} onKeyDown={(e) => e.key === 'Enter' && setSel(b)}>
@@ -50,6 +50,7 @@ export default function MyBookings() {
                   <td className="td">{b.requires_resource ? b.resource_display_name : <span className="text-xs text-slate-500">Not required</span>}</td>
                   <td className="td whitespace-nowrap">{b.start_date ? <>{fmt(b.start_date)} – {fmt(b.end_date)}</> : <span className="text-xs text-slate-500">Date flexible</span>}</td>
                   <td className="td"><StatusBadge status={b.status} />{b.pending_change_request && <div className="mt-1 text-xs text-amber-700">Change requested</div>}</td>
+                  <td className="td"><ReportBadge shared={b.report_shared} type={b.report_type} /></td>
                   <td className="td text-xs text-slate-500">{fmtDateTime(b.submitted_at)}</td>
                 </tr>
               ))}
@@ -104,6 +105,8 @@ function BookingDetail({ booking: b, onClose, onChanged }: { booking: Booking; o
           ...(b.expires_at && b.status === 'pending_approval' ? [['Reservation held until', fmtDateTime(b.expires_at)] as [string, string]] : []),
           ...(b.rejection_reason ? [['Rejection reason', b.rejection_reason] as [string, string]] : []),
           ...(b.cancellation_reason ? [['Cancellation reason', b.cancellation_reason] as [string, string]] : []),
+          ['Report', <ReportBadge shared={b.report_shared} type={b.report_type} />],
+          ...(b.report_comments ? [['Report comments', <span className="whitespace-pre-wrap">{b.report_comments}</span>] as [string, React.ReactNode]] : []),
           ...(b.additional_comments ? [['Comments', b.additional_comments] as [string, string]] : []),
         ]} />
         {b.pending_change_request && <div className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">A {b.pending_change_request.request_type} request is awaiting admin review{b.pending_change_request.proposed_start_date ? ` (proposed start ${fmt(b.pending_change_request.proposed_start_date)})` : ''}.</div>}

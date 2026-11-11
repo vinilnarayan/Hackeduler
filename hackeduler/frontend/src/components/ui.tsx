@@ -11,6 +11,12 @@ export function StatusBadge({ status }: { status: BookingStatus }) {
   )
 }
 
+/** Report-sharing state of a booking, shown identically to every role. */
+export function ReportBadge({ shared, type }: { shared?: boolean; type?: string | null }) {
+  if (!shared) return <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 ring-1 ring-slate-500/20 ring-inset">Not shared</span>
+  return <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-emerald-800 ring-1 ring-emerald-600/20 ring-inset">Shared · {type === 'Met' ? 'Met report' : 'V1 report'}</span>
+}
+
 export function Pill({ children, className = 'bg-slate-100 text-slate-700' }: { children: ReactNode; className?: string }) {
   return <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${className}`}>{children}</span>
 }

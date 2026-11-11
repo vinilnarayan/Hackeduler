@@ -14,7 +14,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError
 from .config import get_settings
 from .context import client_ip_var, request_id_var
 from .errors import ServiceError
-from .routers import admin_bookings, admin_config, admin_products, admin_reports, auth, requester, sso
+from .routers import admin_bookings, admin_config, admin_products, admin_reports, auth, requester, resource, sso
 from .security import limiter
 from .services import audit
 
@@ -129,3 +129,4 @@ app.include_router(admin_config.router)
 app.include_router(admin_products.router)
 app.include_router(admin_bookings.router)
 app.include_router(admin_reports.router)
+app.include_router(resource.router)

@@ -34,7 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import ROLE_ADMIN_ID, ROLE_REQUESTER_ID, SSOProvider, User
+from ..models import ROLE_ADMIN_ID, ROLE_REQUESTER_ID, ROLE_RESOURCE_ID, SSOProvider, User
 from . import audit, crypto, settings_service
 from .availability import now_utc
 
@@ -426,6 +426,8 @@ def provision_user(db: Session, p: SSOProvider, ident: Identity) -> tuple[User, 
         sync, info["role_sync_skipped"] = False, "no admin groups mapped - role managed in the app"
     elif sync and not ident.groups_present:
         sync, info["role_sync_skipped"] = False, f"token has no '{p.groups_claim}' claim - role kept"
+    if sync and user.role_id == ROLE_RESOURCE_ID:
+        sync, info["role_sync_skipped"] = False, "resource-role users are managed in the app"
     if sync and user.role_id != role_id:
         if user.role_id == ROLE_ADMIN_ID and _active_admin_count(db) <= 1:
             info["role_sync_skipped"] = "last active admin would be demoted"

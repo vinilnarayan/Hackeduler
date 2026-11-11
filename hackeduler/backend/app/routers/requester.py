@@ -13,7 +13,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import get_current_user
+from ..deps import get_requester_user
 from ..errors import bad_request, forbidden, not_found
 from ..models import (
     ActivityType,
@@ -79,13 +79,13 @@ def _pending_cr(db: Session, booking_id: uuid.UUID) -> dict | None:
 
 
 @router.get("/resources", response_model=list[ResourcePublic])
-def list_resources(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def list_resources(db: Session = Depends(get_db), _: User = Depends(get_requester_user)):
     return db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None), SecurityResource.visible_to_requesters.is_(True))
                       .order_by(SecurityResource.sequence_no)).all()
 
 
 @router.get("/activity-types", response_model=list[ActivityOut])
-def list_activity_types(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def list_activity_types(db: Session = Depends(get_db), _: User = Depends(get_requester_user)):
     return db.scalars(select(ActivityType).where(ActivityType.is_active.is_(True), ActivityType.deleted_at.is_(None),
                                          ActivityType.visible_to_requesters.is_(True))
                       .order_by(ActivityType.sort_order, ActivityType.name)).all()
@@ -93,13 +93,13 @@ def list_activity_types(db: Session = Depends(get_db), _: User = Depends(get_cur
 
 @router.get("/holidays", response_model=list[HolidayOut])
 def list_holidays(start: date | None = None, end: date | None = None, db: Session = Depends(get_db),
-                  _: User = Depends(get_current_user)):
+                  _: User = Depends(get_requester_user)):
     start, end = parse_range(start, end, 366)
     return db.scalars(select(Holiday).where(Holiday.holiday_date.between(start, end)).order_by(Holiday.holiday_date)).all()
 
 
 @router.get("/settings/public")
-def public_settings(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def public_settings(db: Session = Depends(get_db), _: User = Depends(get_requester_user)):
     return {
         "timezone": settings_service.get_setting(db, "timezone"),
         "today": settings_service.org_today(db).isoformat(),
@@ -112,7 +112,7 @@ def public_settings(db: Session = Depends(get_db), _: User = Depends(get_current
 
 @router.get("/calendar")
 def calendar(start: date, end: date, activity_type_id: uuid.UUID | None = None, db: Session = Depends(get_db),
-             user: User = Depends(get_current_user)):
+             user: User = Depends(get_requester_user)):
     """Anonymous, colour-coded availability grid (same view for every role)."""
     duration = None
     if activity_type_id:
@@ -128,7 +128,7 @@ def calendar(start: date, end: date, activity_type_id: uuid.UUID | None = None, 
 
 
 @router.post("/availability/check")
-def check_availability(body: AvailabilityQuery, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def check_availability(body: AvailabilityQuery, db: Session = Depends(get_db), user: User = Depends(get_requester_user)):
     try:
         return booking_service.preview(db, user, body.resource_id, body.activity_type_id, body.start_date,
                                        body.additional_days)
@@ -137,7 +137,7 @@ def check_availability(body: AvailabilityQuery, db: Session = Depends(get_db), u
 
 
 @router.post("/availability/auto")
-def check_auto_availability(body: AutoAvailabilityQuery, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def check_auto_availability(body: AutoAvailabilityQuery, db: Session = Depends(get_db), user: User = Depends(get_requester_user)):
     """Preview for the booking page: the requester picks activity + date, the system picks the resource."""
     try:
         return booking_service.preview_auto(db, user, body.activity_type_id, body.start_date, body.additional_days)
@@ -146,7 +146,7 @@ def check_auto_availability(body: AutoAvailabilityQuery, db: Session = Depends(g
 
 
 @router.get("/me/implementations")
-def my_implementations(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def my_implementations(db: Session = Depends(get_db), user: User = Depends(get_requester_user)):
     """The caller's product and its active implementations (for the booking form)."""
     if not user.product_id:
         return {"product": None, "implementations": [], "default_implementation_id": None}
@@ -158,7 +158,7 @@ def my_implementations(db: Session = Depends(get_db), user: User = Depends(get_c
 
 
 @router.post("/bookings", status_code=201)
-def submit_booking(body: BookingCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def submit_booking(body: BookingCreate, db: Session = Depends(get_db), user: User = Depends(get_requester_user)):
     b = booking_service.submit_booking(db, user, booking_service.BookingInput(**body.model_dump()))
     commit(db)
     return booking_requester_out(b)
@@ -168,7 +168,7 @@ def submit_booking(body: BookingCreate, db: Session = Depends(get_db), user: Use
 def my_bookings(status: str | None = None, q: str | None = Query(default=None, max_length=100),
                 scope: str = Query(default="mine", pattern="^(mine|product)$"),
                 implementation_id: uuid.UUID | None = None,
-                db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+                db: Session = Depends(get_db), user: User = Depends(get_requester_user)):
     """scope=mine: my own bookings. scope=product: every booking of my product (read-only for others' bookings)."""
     stmt = select(Booking).where(_visible(user) if scope == "product" else Booking.requester_id == user.id)
     if implementation_id:
@@ -184,13 +184,13 @@ def my_bookings(status: str | None = None, q: str | None = Query(default=None, m
 
 
 @router.get("/bookings/{booking_id}")
-def get_my_booking(booking_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def get_my_booking(booking_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_requester_user)):
     b = _visible_booking(db, user, booking_id)
     return booking_requester_out(b, _pending_cr(db, b.id), viewer_id=user.id)
 
 
 @router.get("/bookings/{booking_id}/history")
-def my_booking_history(booking_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def my_booking_history(booking_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_requester_user)):
     """Filtered history for the requester: status transitions and change requests, without admin identities/internal notes."""
     b = _visible_booking(db, user, booking_id)
     hist = db.scalars(select(BookingStatusHistory).where(BookingStatusHistory.booking_id == b.id)
@@ -213,7 +213,7 @@ def my_booking_history(booking_id: uuid.UUID, db: Session = Depends(get_db), use
 
 @router.post("/bookings/{booking_id}/cancel")
 def cancel_my_booking(booking_id: uuid.UUID, body: CancelIn, db: Session = Depends(get_db),
-                      user: User = Depends(get_current_user)):
+                      user: User = Depends(get_requester_user)):
     _own_booking(db, user, booking_id)
     b = booking_service.cancel(db, user, booking_id, body.reason)
     commit(db)
@@ -222,7 +222,7 @@ def cancel_my_booking(booking_id: uuid.UUID, body: CancelIn, db: Session = Depen
 
 @router.post("/bookings/{booking_id}/change-requests", status_code=201)
 def request_change(booking_id: uuid.UUID, body: ChangeRequestIn, db: Session = Depends(get_db),
-                   user: User = Depends(get_current_user)):
+                   user: User = Depends(get_requester_user)):
     _own_booking(db, user, booking_id)
     result = booking_service.request_change(db, user, booking_id, body.request_type, body.reason,
                                             body.proposed_start_date, body.proposed_resource_id)
@@ -231,7 +231,7 @@ def request_change(booking_id: uuid.UUID, body: ChangeRequestIn, db: Session = D
 
 
 @router.get("/me/dashboard")
-def my_dashboard(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def my_dashboard(db: Session = Depends(get_db), user: User = Depends(get_requester_user)):
     today = settings_service.org_today(db)
     counts = dict(db.execute(select(Booking.status, func.count()).where(Booking.requester_id == user.id)
                              .group_by(Booking.status)).all())

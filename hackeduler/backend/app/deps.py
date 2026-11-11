@@ -39,6 +39,26 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
+def get_requester_user(request: Request, user: User = Depends(get_current_user)) -> User:
+    """Admins and requesters. The resource role has its own /api/resource endpoints and is kept out of these."""
+    if user.is_resource:
+        audit.record_detached("authorization.denied", user, entity_type="endpoint",
+                              entity_id=f"{request.method} {request.url.path}",
+                              reason="Resource-role user attempted a requester endpoint")
+        raise ServiceError(403, "forbidden", "This area is not available to your role.")
+    return user
+
+
+def require_resource(request: Request, user: User = Depends(get_current_user)) -> User:
+    """Resource-role users only (admins act through /api/admin)."""
+    if not user.is_resource or user.resource_id is None:
+        audit.record_detached("authorization.denied", user, entity_type="endpoint",
+                              entity_id=f"{request.method} {request.url.path}",
+                              reason="Non-resource user attempted a resource endpoint")
+        raise ServiceError(403, "forbidden", "Resource access is required.")
+    return user
+
+
 def require_admin(request: Request, user: User = Depends(get_current_user)) -> User:
     if not user.is_admin:
         is_force = "force" in request.url.path or request.headers.get("X-Force-Allocate")

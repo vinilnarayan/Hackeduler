@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
 import { del, get, patch, post, validationMessage } from '../../api/client'
-import type { Product, User } from '../../api/types'
+import type { Product, ResourceAdmin, User } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner } from '../../components/ui'
 import { useAuth } from '../../lib/auth'
@@ -16,6 +16,7 @@ export default function UsersPage() {
   const { data, error, loading, reload } = useAsync<User[]>(() => get(`/api/admin/users${showDeleted ? '?include_deleted=true' : ''}`), [showDeleted])
   const [remove, setRemove] = useState<User | null>(null)
   const products = useAsync<Product[]>(() => get('/api/admin/products'))
+  const resources = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))
   const prodOf = (id?: string | null) => products.data?.find((p) => p.id === id)
   const restore = async (u: User) => { try { await post(`/api/admin/users/${u.id}/restore`); toast('success', `${u.full_name} restored (disabled). Enable the account when ready.`); reload() } catch (e) { toast('error', validationMessage(e)) } }
   const [edit, setEdit] = useState<any>(null)
@@ -23,12 +24,12 @@ export default function UsersPage() {
     try {
       if (edit.id) {
         await patch(`/api/admin/users/${edit.id}`, {
-          full_name: edit.full_name, role: edit.role, ...(edit.password ? { password: edit.password } : {}),
+          full_name: edit.full_name, role: edit.role, resource_id: edit.role === 'resource' ? edit.resource_id || null : null, ...(edit.password ? { password: edit.password } : {}),
           product_id: edit.product_id || null, implementation_id: edit.implementation_id || null,
           ...(edit.remove_password ? { remove_password: true } : {}), ...(edit.unlink_sso ? { unlink_sso: true } : {}),
         })
       } else {
-        await post('/api/admin/users', { email: edit.email, full_name: edit.full_name, role: edit.role, ...(edit.sso_only ? {} : { password: edit.password }),
+        await post('/api/admin/users', { email: edit.email, full_name: edit.full_name, role: edit.role, ...(edit.role === 'resource' ? { resource_id: edit.resource_id || null } : {}), ...(edit.sso_only ? {} : { password: edit.password }),
           product_id: edit.product_id || null, implementation_id: edit.implementation_id || null })
       }
       toast('success', 'User saved'); setEdit(null); reload()
@@ -48,7 +49,7 @@ export default function UsersPage() {
             <thead className="bg-slate-50"><tr><th className="th">Name</th><th className="th">Email</th><th className="th">Role</th><th className="th">Product / implementation</th><th className="th">Sign-in</th><th className="th">Status</th><th className="th">Last login</th><th className="th" /></tr></thead>
             <tbody className="divide-y divide-slate-100">{data.map((u) => (
               <tr key={u.id} className={u.deleted_at ? 'bg-slate-50 opacity-70' : ''}><td className="td font-medium">{u.full_name}</td><td className="td text-xs">{u.email}</td>
-                <td className="td"><Pill className={u.role === 'admin' ? 'bg-blue-100 text-blue-800' : ''}>{u.role}</Pill></td>
+                <td className="td"><Pill className={u.role === 'admin' ? 'bg-blue-100 text-blue-800' : u.role === 'resource' ? 'bg-teal-100 text-teal-800' : ''}>{u.role}</Pill>{u.resource_name && <div className="text-xs text-slate-500">{u.resource_name}</div>}</td>
                 <td className="td text-xs">{u.product_name ? <><div className="font-medium">{u.product_name}</div><div className="text-slate-500">{u.implementation_name ?? '—'}</div></> : <span className="text-slate-400">—</span>}</td>
                 <td className="td"><div className="flex flex-wrap gap-1">
                   {u.sso_provider_id && <Pill className="bg-violet-100 text-violet-800">SSO · {u.sso_provider_name}</Pill>}
@@ -71,7 +72,13 @@ export default function UsersPage() {
         {edit && <div className="space-y-3">
           {!edit.id && <Field label="Email *" htmlFor="u-e" hint="For SSO users this must match the email asserted by the identity provider."><input id="u-e" type="email" className="input" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></Field>}
           <Field label="Full name *" htmlFor="u-n"><input id="u-n" className="input" value={edit.full_name} onChange={(e) => setEdit({ ...edit, full_name: e.target.value })} /></Field>
-          <Field label="Role" htmlFor="u-r" hint={edit.sso_provider_id ? 'If the provider syncs roles from groups, this is overwritten at the next SSO sign-in.' : undefined}><select id="u-r" className="input" disabled={edit.id === me?.id} value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })}><option value="requester">Requester</option><option value="admin">Admin</option></select></Field>
+          <Field label="Role" htmlFor="u-r" hint={edit.sso_provider_id ? 'If the provider syncs roles from groups, this is overwritten at the next SSO sign-in.' : undefined}><select id="u-r" className="input" disabled={edit.id === me?.id} value={edit.role} onChange={(e) => setEdit({ ...edit, role: e.target.value })}><option value="requester">Requester</option><option value="resource">Resource (security engineer)</option><option value="admin">Admin</option></select></Field>
+          {edit.role === 'resource' && <Field label="Security resource *" htmlFor="u-res" hint="This user sees only the bookings assigned to this resource and can manage its leave. SSO role sync never changes a resource user.">
+            <select id="u-res" className="input" value={edit.resource_id ?? ''} onChange={(e) => setEdit({ ...edit, resource_id: e.target.value })}>
+              <option value="">— Select —</option>
+              {resources.data?.map((r) => <option key={r.id} value={r.id}>{r.display_name} – {r.engineer_name}</option>)}
+            </select>
+          </Field>}
           <Field label="Product" htmlFor="u-prod" hint="Requesters in the same product can see each other's bookings.">
             <select id="u-prod" className="input" value={edit.product_id ?? ''} onChange={(e) => setEdit({ ...edit, product_id: e.target.value, implementation_id: '' })}>
               <option value="">— None —</option>

@@ -48,6 +48,7 @@ class Role(Base):
 
 ROLE_ADMIN_ID = 1
 ROLE_REQUESTER_ID = 2
+ROLE_RESOURCE_ID = 3
 
 
 class User(Base):
@@ -66,12 +67,16 @@ class User(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     product_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("products.id"))
     implementation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("implementations.id"))
+    # Only for the 'resource' (security engineer) role: the resource this person is
+    resource_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("security_resources.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     role: Mapped[Role] = relationship(lazy="joined")
     product: Mapped["Product | None"] = relationship(lazy="joined", foreign_keys=[product_id])
     implementation: Mapped["Implementation | None"] = relationship(lazy="joined", foreign_keys=[implementation_id])
+
+    resource: Mapped["SecurityResource | None"] = relationship(lazy="joined", foreign_keys=[resource_id])
 
     @property
     def role_name(self) -> str:
@@ -80,6 +85,10 @@ class User(Base):
     @property
     def is_admin(self) -> bool:
         return self.role_id == ROLE_ADMIN_ID
+
+    @property
+    def is_resource(self) -> bool:
+        return self.role_id == ROLE_RESOURCE_ID
 
 
 class Product(Base):
@@ -265,6 +274,12 @@ class Booking(Base):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancellation_reason: Mapped[str | None] = mapped_column(Text)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    # Report sharing: set by the assigned engineer (or an admin)
+    report_shared: Mapped[bool] = mapped_column(Boolean, default=False)
+    report_type: Mapped[str | None] = mapped_column(Text)            # 'V1' | 'Met'
+    report_comments: Mapped[str | None] = mapped_column(Text)
+    report_shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    report_updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     initiation_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     initiation_email_for_start: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
