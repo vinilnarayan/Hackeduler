@@ -80,7 +80,8 @@ def _pending_cr(db: Session, booking_id: uuid.UUID) -> dict | None:
 
 @router.get("/resources", response_model=list[ResourcePublic])
 def list_resources(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)).all()
+    return db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None), SecurityResource.visible_to_requesters.is_(True))
+                      .order_by(SecurityResource.sequence_no)).all()
 
 
 @router.get("/activity-types", response_model=list[ActivityOut])
@@ -236,7 +237,8 @@ def my_dashboard(db: Session = Depends(get_db), user: User = Depends(get_current
                              .group_by(Booking.status)).all())
     upcoming = db.scalars(select(Booking).where(Booking.requester_id == user.id, Booking.status == BookingStatus.APPROVED,
                                                 Booking.end_date >= today).order_by(Booking.start_date).limit(10)).unique().all()
-    active_ids = [r for r in db.scalars(select(SecurityResource.id).where(SecurityResource.is_active.is_(True)))]
+    active_ids = [r for r in db.scalars(select(SecurityResource.id).where(
+        SecurityResource.is_active.is_(True), SecurityResource.deleted_at.is_(None), SecurityResource.visible_to_requesters.is_(True)))]
     busy_today = set(db.scalars(select(BookingResourceLock.resource_id).where(
         BookingResourceLock.work_date == today, availability.active_lock_clause(db))))
     available_today = 0

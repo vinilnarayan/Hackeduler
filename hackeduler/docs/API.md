@@ -157,7 +157,7 @@ completes an approved booking that has no resource. The dashboard accepts `produ
 
 | Method | Path | Description |
 |---|---|---|
-| GET/POST | `/api/admin/resources` | List / add (identifier auto-assigned) |
+| GET/POST | `/api/admin/resources` | List / add (identifier auto-assigned). `visible_to_requesters` (default true); false makes the resource admin-only: absent from requester `/api/resources`, calendar and dashboard, skipped by automatic assignment, and 404 if a requester selects it |
 | DELETE | `/api/admin/resources/{id}` | Delete. 409 `resource_in_use` while it has pending/approved bookings (details list them). Never-booked resources are removed with their leave; otherwise archived (`mode: archived`) |
 | GET | `/api/admin/resources?include_deleted=true` / POST `/api/admin/resources/{id}/restore` | Show / restore archived resources (restored as inactive) |
 | PATCH | `/api/admin/resources/{id}` | Edit. Deactivate: `{"is_active": false}` (immediately) or `{"inactive_from": "YYYY-MM-DD"}` (from a date, today or later). `{"inactive_from": null}` cancels a scheduled deactivation; `{"is_active": true}` reactivates. Optional `reason`. The response lists flagged bookings |

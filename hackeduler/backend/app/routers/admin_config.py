@@ -65,7 +65,7 @@ def _snap(obj, fields) -> dict:
 
 
 # =============================================================== resources
-RES_FIELDS = ("code", "display_name", "engineer_name", "engineer_email", "notes", "is_active", "inactive_from", "inactive_reason")
+RES_FIELDS = ("code", "display_name", "engineer_name", "engineer_email", "notes", "is_active", "inactive_from", "inactive_reason", "visible_to_requesters")
 
 
 @router.get("/resources", response_model=list[ResourceAdmin])
@@ -137,7 +137,8 @@ def create_resource(body: ResourceCreate, db: Session = Depends(get_db), admin: 
     db.execute(select(func.pg_advisory_xact_lock(424242)))
     seq = (db.scalar(select(func.max(SecurityResource.sequence_no))) or 0) + 1
     r = SecurityResource(id=uuid.uuid4(), sequence_no=seq, code=f"RES-{seq:02d}", display_name=f"Resource {seq:02d}",
-                         engineer_name=body.engineer_name, engineer_email=body.engineer_email, notes=body.notes)
+                         engineer_name=body.engineer_name, engineer_email=body.engineer_email, notes=body.notes,
+                         visible_to_requesters=body.visible_to_requesters)
     db.add(r)
     db.flush()
     audit.record(db, "resource.created", admin, entity_type="resource", entity_id=r.id, new=_snap(r, RES_FIELDS))

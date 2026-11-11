@@ -172,8 +172,10 @@ def _resourceless_dates(db: Session, start: date | None, duration: int | None) -
 def auto_candidates(db: Session, start: date, duration: int, exclude_booking_id: uuid.UUID | None = None) -> list[SchedulePlan]:
     """Every active resource that can take the booking, best first:
     earliest finish, then lightest current workload, then resource number."""
+    # admin-only (hidden) resources are never auto-assigned: an admin assigns work to them explicitly
     resources = list(db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True),
-                                                               SecurityResource.deleted_at.is_(None))))
+                                                               SecurityResource.deleted_at.is_(None),
+                                                               SecurityResource.visible_to_requesters.is_(True))))
     if not resources:
         return []
     load = dict(db.execute(
@@ -195,7 +197,8 @@ def auto_candidates(db: Session, start: date, duration: int, exclude_booking_id:
 
 def earliest_any_resource(db: Session, duration: int, after: date) -> date | None:
     best = None
-    for r in db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True), SecurityResource.deleted_at.is_(None))):
+    for r in db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True), SecurityResource.deleted_at.is_(None),
+                                                    SecurityResource.visible_to_requesters.is_(True))):
         d = suggest_next_start(db, r, duration, after)
         if d and (best is None or d < best):
             best = d
@@ -424,7 +427,7 @@ def preview(db: Session, actor: User, resource_id: uuid.UUID, activity_type_id: 
     resource = db.get(SecurityResource, resource_id)
     if resource is None or resource.deleted_at is not None:
         raise not_found("Resource")
-    if not actor.is_admin and not resource.is_active:
+    if not actor.is_admin and (not resource.is_active or not resource.visible_to_requesters):
         raise not_found("Resource")
     plan = plan_schedule(db, resource, start, duration, exclude_booking_id=exclude_booking_id)
     issues = list(plan.issues)
@@ -456,7 +459,7 @@ def preview(db: Session, actor: User, resource_id: uuid.UUID, activity_type_id: 
         result["suggested_start_date"] = nxt.isoformat() if nxt else None
         if start >= today:
             result["alternative_resources"] = [
-                {"id": str(r.id), "display_name": r.display_name} for r in alternative_resources(db, resource.id, start, duration)
+                {"id": str(r.id), "display_name": r.display_name} for r in alternative_resources(db, resource.id, start, duration, include_hidden=actor.is_admin)
             ]
     return result
 
@@ -540,6 +543,8 @@ def _place(db: Session, actor: User, activity, inp: BookingInput, *, duration: i
     expires_at = None if approved else _pending_expiry(db)
     if inp.resource_id:
         resource = lock_resources(db, [inp.resource_id])[inp.resource_id]  # serialises reservations on this resource
+        if not actor.is_admin and not resource.visible_to_requesters:
+            raise not_found("Resource")  # admin-only resource: requesters cannot choose it
         if not resource.is_active and not actor.is_admin:
             raise conflict(f"{resource.display_name} is not accepting bookings.", "resource_unavailable")
         expire_stale_pending(db, resource.id)
@@ -1077,7 +1082,7 @@ def request_change(db: Session, actor: User, booking_id: uuid.UUID, request_type
     if request_type == "reschedule" and b.requires_resource:
         target = proposed_resource_id or b.resource_id
         r = db.get(SecurityResource, target)
-        if r is None or not r.is_active or r.deleted_at is not None:
+        if r is None or not r.is_active or r.deleted_at is not None or (r.id != b.resource_id and not r.visible_to_requesters):
             raise bad_request("The proposed resource is not available.")
         plan = plan_schedule(db, r, proposed_start, b.duration_days, exclude_booking_id=b.id)
         preview_result = {"available": plan.ok, "end_date": plan.end_date.isoformat() if plan.end_date else None,

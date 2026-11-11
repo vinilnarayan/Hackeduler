@@ -21,7 +21,7 @@ export default function Resources() {
   const [alloc, setAlloc] = useState<ResourceAdmin | null>(null)
   const save = async () => {
     try {
-      const body = { engineer_name: edit!.engineer_name, engineer_email: edit!.engineer_email || null, notes: edit!.notes || null }
+      const body = { engineer_name: edit!.engineer_name, engineer_email: edit!.engineer_email || null, notes: edit!.notes || null, visible_to_requesters: edit!.visible_to_requesters !== false }
       if (edit!.id) await patch(`/api/admin/resources/${edit!.id}`, body); else await post('/api/admin/resources', body)
       toast('success', 'Resource saved'); setEdit(null); reload()
     } catch (e) { toast('error', validationMessage(e)) }
@@ -45,7 +45,7 @@ export default function Resources() {
                   {r.deleted_at ? <Pill className="bg-red-100 text-red-800">Deleted {fmtDateTime(r.deleted_at)}</Pill>
                     : !r.is_active ? <Pill className="bg-slate-200 text-slate-700">Inactive since {r.inactive_from ? fmt(r.inactive_from) : fmtDateTime(r.deactivated_at)}</Pill>
                     : r.inactive_from ? <Pill className="bg-amber-100 text-amber-800">Active · inactive from {fmt(r.inactive_from)}</Pill>
-                    : <Pill className="bg-emerald-100 text-emerald-800">Active</Pill>}
+                    : <Pill className="bg-emerald-100 text-emerald-800">Active</Pill>}{!r.deleted_at && r.visible_to_requesters === false && <Pill className="ml-1 bg-amber-100 text-amber-800">Admin only</Pill>}
                   {r.inactive_reason && <div className="mt-1 max-w-48 text-xs text-slate-500">{r.inactive_reason}</div>}
                 </td>
                 <td className="td whitespace-nowrap">{r.deleted_at ? <button className="btn-secondary" onClick={() => restore(r)}>Restore</button> : <div className="flex gap-1">
@@ -67,6 +67,8 @@ export default function Resources() {
           {!edit.id && <p className="text-xs text-slate-500">The next anonymous identifier (Resource NN) is assigned automatically.</p>}
           <Field label="Engineer name *" htmlFor="r-n"><input id="r-n" className="input" value={edit.engineer_name ?? ''} onChange={(e) => setEdit({ ...edit, engineer_name: e.target.value })} /></Field>
           <Field label="Engineer email" htmlFor="r-e"><input id="r-e" type="email" className="input" value={edit.engineer_email ?? ''} onChange={(e) => setEdit({ ...edit, engineer_email: e.target.value })} /></Field>
+          <label className="flex items-start gap-2 rounded-md border border-slate-200 p-2 text-sm"><input type="checkbox" className="mt-0.5" checked={edit.visible_to_requesters !== false} onChange={(e) => setEdit({ ...edit, visible_to_requesters: e.target.checked })} />
+            <span><span className="font-medium">Visible to requesters</span><span className="block text-xs text-slate-500">Turn off to make this an admin-only resource: it is hidden from the requester calendar and lists, is never auto-assigned, and only an admin can assign work to it (Manual Allocation).</span></span></label>
           <Field label="Notes" htmlFor="r-no"><textarea id="r-no" className="input" value={edit.notes ?? ''} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></Field>
         </div>}
       </Modal>

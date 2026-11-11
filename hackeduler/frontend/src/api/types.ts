@@ -73,6 +73,7 @@ export interface ResourceAdmin extends ResourcePublic {
   engineer_name: string
   engineer_email: string | null
   notes: string | null
+  visible_to_requesters?: boolean
   deactivated_at: string | null
   inactive_from: string | null
   inactive_reason: string | null

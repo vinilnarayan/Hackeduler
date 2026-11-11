@@ -110,6 +110,7 @@ class ResourceAdmin(ORM):
     engineer_email: str | None
     notes: str | None
     is_active: bool
+    visible_to_requesters: bool = True
     deactivated_at: datetime | None
     inactive_from: date | None = None
     inactive_reason: str | None = None
@@ -121,12 +122,14 @@ class ResourceCreate(Strict):
     engineer_name: str = Field(min_length=1, max_length=200)
     engineer_email: EmailStr | None = None
     notes: str | None = Field(default=None, max_length=2000)
+    visible_to_requesters: bool = True
 
 
 class ResourceUpdate(Strict):
     engineer_name: str | None = Field(default=None, min_length=1, max_length=200)
     engineer_email: EmailStr | None = None
     notes: str | None = Field(default=None, max_length=2000)
+    visible_to_requesters: bool | None = None
     is_active: bool | None = Field(default=None, description="false = deactivate immediately (today); true = reactivate")
     inactive_from: date | None = Field(default=None, description="Deactivate from this date (today or later); null cancels a scheduled deactivation")
     reason: str | None = Field(default=None, max_length=2000)

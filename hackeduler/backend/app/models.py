@@ -160,6 +160,8 @@ class SecurityResource(Base):
     # First date the resource is unavailable (scheduled or immediate deactivation). NULL = no deactivation planned.
     inactive_from: Mapped[date | None] = mapped_column(Date)
     inactive_reason: Mapped[str | None] = mapped_column(Text)
+    # False = admin-only: hidden from the requester calendar / lists, never auto-assigned, not selectable by requesters
+    visible_to_requesters: Mapped[bool] = mapped_column(Boolean, default=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     def inactive_on(self, d: date) -> bool:
