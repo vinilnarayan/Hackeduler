@@ -38,7 +38,8 @@ from ..models import (
     SecurityResource,
     User,
 )
-from . import audit, conflicts, notifications, settings_service
+from ..emailutil import split_emails
+from . import audit, conflicts, initiation, notifications, settings_service
 from .availability import (
     UNAVAILABLE_MESSAGE,
     horizon_end,
@@ -171,8 +172,10 @@ def _resourceless_dates(db: Session, start: date | None, duration: int | None) -
 def auto_candidates(db: Session, start: date, duration: int, exclude_booking_id: uuid.UUID | None = None) -> list[SchedulePlan]:
     """Every active resource that can take the booking, best first:
     earliest finish, then lightest current workload, then resource number."""
+    # admin-only (hidden) resources are never auto-assigned: an admin assigns work to them explicitly
     resources = list(db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True),
-                                                               SecurityResource.deleted_at.is_(None))))
+                                                               SecurityResource.deleted_at.is_(None),
+                                                               SecurityResource.visible_to_requesters.is_(True))))
     if not resources:
         return []
     load = dict(db.execute(
@@ -194,7 +197,8 @@ def auto_candidates(db: Session, start: date, duration: int, exclude_booking_id:
 
 def earliest_any_resource(db: Session, duration: int, after: date) -> date | None:
     best = None
-    for r in db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True), SecurityResource.deleted_at.is_(None))):
+    for r in db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True), SecurityResource.deleted_at.is_(None),
+                                                    SecurityResource.visible_to_requesters.is_(True))):
         d = suggest_next_start(db, r, duration, after)
         if d and (best is None or d < best):
             best = d
@@ -234,9 +238,13 @@ def _clean_text(value: str | None, field: str, *, required: bool = True, max_len
     return v or None
 
 
-def _get_activity(db: Session, activity_type_id: uuid.UUID, *, must_be_active: bool = True) -> ActivityType:
+def _get_activity(db: Session, activity_type_id: uuid.UUID, *, must_be_active: bool = True,
+                  for_requester: bool = False) -> ActivityType:
     a = db.get(ActivityType, activity_type_id)
-    if a is None:
+    if a is None or a.deleted_at is not None:
+        raise bad_request("Unknown activity type.")
+    if for_requester and not a.visible_to_requesters:
+        # Hidden types are admin-only: answer exactly as if the type did not exist.
         raise bad_request("Unknown activity type.")
     if must_be_active and not a.is_active:
         raise bad_request("The selected activity type is not available for new bookings.")
@@ -359,7 +367,7 @@ def expire_stale_pending(db: Session, resource_id: uuid.UUID | None = None) -> l
     q = select(Booking).where(Booking.status == BookingStatus.PENDING, Booking.expires_at.is_not(None),
                               Booking.expires_at <= now_utc())
     if resource_id is not None:
-        q = q.where(Booking.resource_id == resource_id)
+        q = q.where(Booking.uses_resource(resource_id))
     ids = []
     for b in db.scalars(q.with_for_update(of=Booking, skip_locked=True)).unique().all():
         _release_locks(db, b.id)
@@ -409,7 +417,7 @@ def complete_past_bookings(db: Session) -> list[uuid.UUID]:
 
 def preview(db: Session, actor: User, resource_id: uuid.UUID, activity_type_id: uuid.UUID, start: date,
             additional_days: int = 0, exclude_booking_id: uuid.UUID | None = None) -> dict[str, Any]:
-    activity = _get_activity(db, activity_type_id)
+    activity = _get_activity(db, activity_type_id, for_requester=not actor.is_admin)
     if not activity.requires_resource:
         raise bad_request("This activity type does not use a security resource.", "no_resource_required")
     try:
@@ -419,7 +427,7 @@ def preview(db: Session, actor: User, resource_id: uuid.UUID, activity_type_id: 
     resource = db.get(SecurityResource, resource_id)
     if resource is None or resource.deleted_at is not None:
         raise not_found("Resource")
-    if not actor.is_admin and not resource.is_active:
+    if not actor.is_admin and (not resource.is_active or not resource.visible_to_requesters):
         raise not_found("Resource")
     plan = plan_schedule(db, resource, start, duration, exclude_booking_id=exclude_booking_id)
     issues = list(plan.issues)
@@ -451,7 +459,7 @@ def preview(db: Session, actor: User, resource_id: uuid.UUID, activity_type_id: 
         result["suggested_start_date"] = nxt.isoformat() if nxt else None
         if start >= today:
             result["alternative_resources"] = [
-                {"id": str(r.id), "display_name": r.display_name} for r in alternative_resources(db, resource.id, start, duration)
+                {"id": str(r.id), "display_name": r.display_name} for r in alternative_resources(db, resource.id, start, duration, include_hidden=actor.is_admin)
             ]
     return result
 
@@ -464,14 +472,14 @@ def _validate_input(inp: BookingInput) -> None:
     inp.application_name = _clean_text(inp.application_name, "Application Name")
     inp.application_version = _clean_text(inp.application_version, "Application Version", max_len=100)
     inp.poc_name = _clean_text(inp.poc_name, "POC Name")
-    inp.poc_email = _clean_text(inp.poc_email, "POC Email", max_len=254)
+    inp.poc_email = _clean_text(inp.poc_email, "POC Email", max_len=2000)
     inp.additional_comments = _clean_text(inp.additional_comments, "Additional Comments", required=False, max_len=4000)
 
 
 def preview_auto(db: Session, actor: User, activity_type_id: uuid.UUID, start: date | None,
                  additional_days: int = 0) -> dict[str, Any]:
     """Requester preview: the system picks the resource. Nothing is reserved until submission."""
-    activity = _get_activity(db, activity_type_id)
+    activity = _get_activity(db, activity_type_id, for_requester=not actor.is_admin)
     try:
         duration = total_duration(activity, additional_days)
     except SchedulingError as e:
@@ -535,6 +543,8 @@ def _place(db: Session, actor: User, activity, inp: BookingInput, *, duration: i
     expires_at = None if approved else _pending_expiry(db)
     if inp.resource_id:
         resource = lock_resources(db, [inp.resource_id])[inp.resource_id]  # serialises reservations on this resource
+        if not actor.is_admin and not resource.visible_to_requesters:
+            raise not_found("Resource")  # admin-only resource: requesters cannot choose it
         if not resource.is_active and not actor.is_admin:
             raise conflict(f"{resource.display_name} is not accepting bookings.", "resource_unavailable")
         expire_stale_pending(db, resource.id)
@@ -570,9 +580,68 @@ def _place(db: Session, actor: User, activity, inp: BookingInput, *, duration: i
                    "no_resource_available", {"suggested_start_date": nxt.isoformat() if nxt else None})
 
 
+@dataclass
+class ExtraAllocation:
+    """An additional resource on an admin booking. Anything left empty follows the main allocation, so a plain
+    resource id reserves the same dates; a start date and working days (or an end date) give it its own slice
+    of the activity (e.g. resource 1 takes the first 5 days, resource 2 takes the last 3 days a week later)."""
+    resource_id: uuid.UUID
+    start_date: date | None = None
+    working_days: int | None = None
+    end_date: date | None = None
+
+    @property
+    def custom(self) -> bool:
+        return self.start_date is not None or self.working_days is not None or self.end_date is not None
+
+
+def _place_multi(db: Session, admin: User, activity, inp: BookingInput, extras: list[ExtraAllocation], *, duration: int,
+                 product_id, implementation_id, end_date_override: date | None, overridden: bool,
+                 reason: str) -> tuple[Booking, SchedulePlan]:
+    """Admin booking that blocks several resources for the same activity: ONE confirmed booking, one set of
+    locks per resource. All-or-nothing - every chosen resource must be free for the whole period."""
+    extra_ids = [e.resource_id for e in extras]
+    all_ids = [inp.resource_id, *extra_ids]
+    resources = lock_resources(db, all_ids)  # sorted row locks: concurrent bookings cannot interleave or deadlock
+    for r in resources.values():
+        expire_stale_pending(db, r.id)
+    plans: list[SchedulePlan] = []
+    # (resource, start, working days, explicit end) for the main resource first, then each additional one
+    slices = [(inp.resource_id, inp.start_date, duration, end_date_override)]
+    for e in extras:
+        # No length given: follow the main allocation (same end date when it has one and the dates are the same)
+        inherited_end = end_date_override if (e.start_date is None and e.working_days is None and e.end_date is None) else None
+        slices.append((e.resource_id, e.start_date or inp.start_date, e.working_days or duration, e.end_date or inherited_end))
+    for rid, start, days, end in slices:
+        r = resources[rid]
+        try:
+            plan = plan_schedule(db, r, start, days, explicit_end_date=end)
+        except SchedulingError as e:
+            raise bad_request(f"{r.display_name}: {e.message}", e.code)
+        if plan.issues:
+            raise conflict(f"{r.display_name} is not free for the selected dates: {plan.issues[0].message} "
+                           "Nothing was booked. Remove it from the selection or change the dates.",
+                           "resource_unavailable",
+                           {"resource_id": str(r.id), "issues": _issues_json(plan.issues, include_booking_ids=True)})
+        plans.append(plan)
+    primary = plans[0]
+    end = max(p.end_date for p in plans if p.end_date)
+    # Same dates for everyone: the booking is as long as the main allocation. Split between resources: it covers
+    # the working days of all the slices together.
+    total_days = sum(len(p.work_dates) for p in plans) if any(e.custom for e in extras) else primary.duration_days
+    b = _new_booking(db, admin, activity, inp, resource_id=primary.resource.id, start=min(p.start_date for p in plans),
+                     end=end, duration=total_days, status=BookingStatus.APPROVED, source="admin",
+                     expires_at=None, product_id=product_id, implementation_id=implementation_id,
+                     overridden=overridden, reason=reason)
+    b.extra_resources = [resources[i] for i in extra_ids]
+    for plan in plans:
+        _write_locks(db, b, plan, LockStatus.CONFIRMED, False, None)
+    return b, primary
+
+
 def submit_booking(db: Session, actor: User, inp: BookingInput) -> Booking:
     _validate_input(inp)
-    activity = _get_activity(db, inp.activity_type_id)
+    activity = _get_activity(db, inp.activity_type_id, for_requester=not actor.is_admin)
     try:
         duration = total_duration(activity, inp.additional_days)
     except SchedulingError as e:
@@ -606,10 +675,13 @@ def submit_booking(db: Session, actor: User, inp: BookingInput) -> Booking:
 
 def admin_create_booking(db: Session, admin: User, inp: BookingInput, *, initial_status: str = BookingStatus.APPROVED,
                          duration_override: int | None = None, end_date_override: date | None = None,
-                         force: ForceOptions | None = None, reason: str | None = None) -> Booking:
+                         force: ForceOptions | None = None, reason: str | None = None,
+                         additional: list[ExtraAllocation] | None = None) -> Booking:
     if not admin.is_admin:
         raise forbidden()
     ensure_force_allowed(admin, force)
+    extras = list(additional or [])
+    extra_ids = [e.resource_id for e in extras]
     if initial_status not in (BookingStatus.APPROVED, BookingStatus.PENDING):
         raise bad_request("Initial status must be approved or pending_approval.")
     _validate_input(inp)
@@ -627,6 +699,8 @@ def admin_create_booking(db: Session, admin: User, inp: BookingInput, *, initial
     note = reason or "Created by administrator"
     forced, plan = False, None
     if not activity.requires_resource:
+        if extra_ids:
+            raise bad_request("This activity type does not use a security resource.", "no_resource_required")
         if inp.resource_id:
             raise bad_request("This activity type does not use a security resource.", "no_resource_required")
         if end_date_override and inp.start_date:
@@ -643,10 +717,25 @@ def admin_create_booking(db: Session, admin: User, inp: BookingInput, *, initial
             raise bad_request("A start date is required for this activity.", "start_required")
         if force is not None and not inp.resource_id:
             raise bad_request("Select a resource to force allocate.")
-        b, plan, forced = _place(db, admin, activity, inp, duration=duration, status=initial_status, source="admin",
-                                 product_id=product_id, implementation_id=implementation_id, force=force,
-                                 end_date_override=end_date_override,
-                                 overridden=duration_override is not None or end_date_override is not None, reason=note)
+        if extra_ids:
+            if not inp.resource_id:
+                raise bad_request("Choose the main resource first, then add the other resources.", "resource_required")
+            if len(set(extra_ids)) != len(extra_ids) or inp.resource_id in extra_ids:
+                raise bad_request("Each resource can only be selected once.", "duplicate_resource")
+            if force is not None:
+                raise bad_request("Force Allocate cannot be combined with multiple resources. Book resources "
+                                  "that are free, or force allocate a single resource.", "force_not_supported")
+            if initial_status != BookingStatus.APPROVED:
+                raise bad_request("Multi-resource bookings are always confirmed.")
+            b, plan = _place_multi(db, admin, activity, inp, extras, duration=duration, product_id=product_id,
+                                   implementation_id=implementation_id, end_date_override=end_date_override,
+                                   overridden=duration_override is not None or end_date_override is not None, reason=note)
+            forced = False
+        else:
+            b, plan, forced = _place(db, admin, activity, inp, duration=duration, status=initial_status, source="admin",
+                                     product_id=product_id, implementation_id=implementation_id, force=force,
+                                     end_date_override=end_date_override,
+                                     overridden=duration_override is not None or end_date_override is not None, reason=note)
     db.refresh(b)
     if forced:
         _record_force(db, admin, b, plan, force, plan.issues, previous_allocation=None)
@@ -792,6 +881,10 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
     b = lock_booking(db, booking_id)
     if b.status not in BookingStatus.ACTIVE:
         raise conflict("Only pending or approved bookings can be modified.", "invalid_state")
+    if b.extra_resources and (set(changes) & SCHEDULE_FIELDS):
+        raise conflict("This booking holds several resources, so its dates, activity and resources can't be edited "
+                       "in place. Cancel it and create a new multi-resource booking, or edit the booking details only.",
+                       "multi_resource_locked")
     before = audit.booking_snapshot(b)
     old_alloc = {"resource_id": str(b.resource_id) if b.resource_id else None,
                  "resource_code": b.resource.code if b.resource else None,
@@ -956,8 +1049,10 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                 lines.append(f"- {labels[k]}: {before.get(k)} -> {after.get(k)}")
         notifications.notify_modified(db, b, "\n".join(lines) or "Booking details updated.", reason)
         if "poc_email" in changed and before.get("poc_email"):
-            notifications.enqueue(db, "booking_modified_poc", [before["poc_email"]],
+            notifications.enqueue(db, "booking_modified_poc", split_emails(before["poc_email"]),
                                   notifications.booking_context(b, **{"Change Summary": "\n".join(lines), "Reason": reason}), b.id)
+    if b.status == BookingStatus.APPROVED:
+        initiation.send_if_due(db, b)  # rescheduled (new start date) and already inside the window => send again now
     return b
 
 
@@ -987,7 +1082,7 @@ def request_change(db: Session, actor: User, booking_id: uuid.UUID, request_type
     if request_type == "reschedule" and b.requires_resource:
         target = proposed_resource_id or b.resource_id
         r = db.get(SecurityResource, target)
-        if r is None or not r.is_active or r.deleted_at is not None:
+        if r is None or not r.is_active or r.deleted_at is not None or (r.id != b.resource_id and not r.visible_to_requesters):
             raise bad_request("The proposed resource is not available.")
         plan = plan_schedule(db, r, proposed_start, b.duration_days, exclude_booking_id=b.id)
         preview_result = {"available": plan.ok, "end_date": plan.end_date.isoformat() if plan.end_date else None,

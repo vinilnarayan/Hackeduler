@@ -29,6 +29,24 @@ export function AuditChanges({ a }: { a: AuditEntry }) {
 }
 const fmtVal = (v: any) => (v === undefined || v === null ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v))
 
+function InitiationStatus({ b, onSent }: { b: AdminBooking; onSent: () => void }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const i = b.initiation_email
+  if (!i) return <>—</>
+  const text = i.state === 'sent' ? `Sent ${fmtDateTime(i.sent_at)}`
+    : i.state === 'scheduled' ? `Will be sent on ${fmt(i.scheduled_for)} (${i.days_before} day${i.days_before === 1 ? '' : 's'} before the start date)`
+    : i.state === 'disabled' ? 'Automatic sending is turned off for this booking' : (i.note || 'Not applicable')
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <span>{text}</span>
+      {i.can_send && <button type="button" className="btn-secondary" disabled={busy}
+        onClick={async () => { setBusy(true); try { await post(`/api/admin/bookings/${b.id}/send-initiation-email`, {}); toast('success', 'Initiation email queued'); onSent() } catch (e) { toast('error', validationMessage(e)) } finally { setBusy(false) } }}>
+        {busy ? 'Sending…' : i.state === 'sent' ? 'Resend initiation email' : 'Send initiation email now'}</button>}
+    </span>
+  )
+}
+
 export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId: string; onClose: () => void; onChanged?: () => void }) {
   const toast = useToast()
   const { data, error, loading, reload } = useAsync<any>(() => get(`/api/admin/bookings/${bookingId}`), [bookingId])
@@ -64,11 +82,13 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
             ['Activity type', b.duration_days ? `${b.activity_name} (${b.duration_days} working days${b.duration_overridden ? ', overridden' : ''}${b.base_duration_snapshot ? `; snapshot base ${b.base_duration_snapshot}` : ''})` : b.activity_name],
             ['Resource', b.requires_resource ? `${b.resource_display_name} (${b.resource_code})` : 'Not required for this activity'],
             ['Assigned engineer', b.requires_resource ? <span className="font-medium">{b.engineer_name}</span> : '—'],
+            ...(b.extra_resources?.length ? [['Additional resources', <span className="font-medium">{b.extra_resources.map((r) => `${r.display_name} (${r.engineer_name})`).join(', ')}</span>] as [string, React.ReactNode]] : []),
             ['Product', b.product_name ?? '—'], ['Implementation', b.implementation_name ?? '—'],
             ['Start date', fmt(b.start_date)], ['Expected end date', fmt(b.end_date)],
             ['POC', `${b.poc_name} <${b.poc_email}>`], ['Requester', `${b.requester_name} <${b.requester_email}>`],
             ['Source', b.source === 'admin' ? 'Admin-created' : 'Requester'], ['Submitted', fmtDateTime(b.submitted_at)],
             ['Approved at', fmtDateTime(b.approved_at)], ['Pending expiry', b.status === 'pending_approval' ? fmtDateTime(b.expires_at) : '—'],
+            ['Initiation email', <InitiationStatus b={b} onSent={changed} />],
             ...(b.rejection_reason ? [['Rejection reason', b.rejection_reason] as [string, string]] : []),
             ...(b.cancellation_reason ? [['Cancellation reason', b.cancellation_reason] as [string, string]] : []),
             ...(b.additional_comments ? [['Comments', b.additional_comments] as [string, string]] : []),
@@ -123,7 +143,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
 
 function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typeof useForceFlow>['run']; onSaved: () => void }) {
   const resources = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))
-  const acts = useAsync<ActivityType[]>(() => get('/api/admin/activity-types'))
+  const acts = useAsync<ActivityType[]>(() => get('/api/admin/activity-types?include_deleted=true'))
   const products = useAsync<Product[]>(() => get('/api/admin/products'))
   const [f, setF] = useState({
     resource_id: b.resource_id ?? '', start_date: b.start_date ?? '', activity_type_id: b.activity_type_id, additional_days: b.additional_days,
@@ -161,7 +181,8 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
     <form className="space-y-4" onSubmit={async (e) => { e.preventDefault(); setBusy(true); await run((force) => patch(`/api/admin/bookings/${b.id}`, body(force)), onSaved); setBusy(false) }}>
       <p className="text-xs text-slate-500">All changes are revalidated on the server, audited with previous values, and notify the POC if the booking is approved. The old reservation is only released when the new allocation commits.</p>
       <div className="grid gap-3 md:grid-cols-3">
-        <Field label="Activity type" htmlFor="e-act"><select id="e-act" className="input" value={f.activity_type_id} onChange={s('activity_type_id')}>{acts.data?.map((a) => <option key={a.id} value={a.id} disabled={!a.is_active && a.id !== b.activity_type_id}>{a.name}{a.base_duration_days ? ` (${a.base_duration_days}d)` : ''}{a.requires_resource ? '' : ' – no resource'}{a.is_active ? '' : ' – inactive'}</option>)}</select></Field>
+        {b.extra_resources?.length > 0 && <div className="col-span-full rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">This booking holds {b.extra_resources.length + 1} resources, so its dates, activity and resources can’t be changed here – only the details. To change them, cancel it and create a new multi-resource booking.</div>}
+        <Field label="Activity type" htmlFor="e-act"><select id="e-act" className="input" value={f.activity_type_id} onChange={s('activity_type_id')}>{acts.data?.filter((a) => !a.deleted_at || a.id === b.activity_type_id).map((a) => <option key={a.id} value={a.id} disabled={(!a.is_active || !!a.deleted_at) && a.id !== b.activity_type_id}>{a.name}{a.base_duration_days ? ` (${a.base_duration_days}d)` : ''}{a.requires_resource ? '' : ' – no resource'}{a.deleted_at ? ' – removed' : a.is_active ? '' : ' – inactive'}</option>)}</select></Field>
         {needsRes ? (
           <Field label="Resource (reassign)" htmlFor="e-res" hint={!b.resource_id ? 'Leave on auto to pick the best available engineer.' : undefined}><select id="e-res" className="input" value={f.resource_id} onChange={s('resource_id')}>
             {!b.resource_id && <option value="">Auto-assign best available</option>}
@@ -185,7 +206,7 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
         <Field label="Version" htmlFor="e-av"><input id="e-av" className="input" value={f.application_version} onChange={s('application_version')} /></Field>
         <Field label="PCI DSS scope" htmlFor="e-pci"><select id="e-pci" className="input" value={f.pci ? 'yes' : 'no'} onChange={(e) => setF({ ...f, pci: e.target.value === 'yes' })}><option value="yes">Yes</option><option value="no">No</option></select></Field>
         <Field label="POC name" htmlFor="e-pn"><input id="e-pn" className="input" value={f.poc_name} onChange={s('poc_name')} /></Field>
-        <Field label="POC email" htmlFor="e-pe"><input id="e-pe" type="email" className="input" value={f.poc_email} onChange={s('poc_email')} /></Field>
+        <Field label="POC email(s)" htmlFor="e-pe" hint="Separate several addresses with commas."><input id="e-pe" type="text" inputMode="email" className="input" value={f.poc_email} onChange={s('poc_email')} /></Field>
         <Field label="Comments" htmlFor="e-c"><input id="e-c" className="input" value={f.additional_comments} onChange={s('additional_comments')} /></Field>
         <Field label="Product" htmlFor="e-prod"><select id="e-prod" className="input" value={f.product_id} onChange={(e) => setF({ ...f, product_id: e.target.value, implementation_id: '' })}><option value="">— None —</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{p.name}{p.is_active ? '' : ' (inactive)'}</option>)}</select></Field>
         <Field label="Implementation" htmlFor="e-impl"><select id="e-impl" className="input" value={f.implementation_id} onChange={s('implementation_id')} disabled={!prod}><option value="">— None —</option>{prod?.implementations.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</select></Field>

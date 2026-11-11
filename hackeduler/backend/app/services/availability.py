@@ -242,9 +242,13 @@ def suggest_next_start(db: Session, resource: SecurityResource, duration: int, a
     return find_next_available_start(cal, duration, occ, after, horizon_days=180)
 
 
-def alternative_resources(db: Session, exclude_resource_id: uuid.UUID, start: date, duration: int) -> list[SecurityResource]:
+def alternative_resources(db: Session, exclude_resource_id: uuid.UUID, start: date, duration: int,
+                          *, include_hidden: bool = False) -> list[SecurityResource]:
     out = []
-    for r in db.scalars(select(SecurityResource).where(SecurityResource.is_active.is_(True), SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)):
+    q = select(SecurityResource).where(SecurityResource.is_active.is_(True), SecurityResource.deleted_at.is_(None))
+    if not include_hidden:
+        q = q.where(SecurityResource.visible_to_requesters.is_(True))
+    for r in db.scalars(q.order_by(SecurityResource.sequence_no)):
         if r.id == exclude_resource_id:
             continue
         try:
@@ -294,7 +298,10 @@ def calendar_grid(
     """
     if (end - start).days > 186:
         raise SchedulingError("range_too_large", "Calendar range is limited to ~6 months.")
-    resources = list(db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)))
+    rq = select(SecurityResource).where(SecurityResource.deleted_at.is_(None))
+    if not admin:
+        rq = rq.where(SecurityResource.visible_to_requesters.is_(True))  # hidden resources are admin-only
+    resources = list(db.scalars(rq.order_by(SecurityResource.sequence_no)))
     rids = [r.id for r in resources]
     look_ahead = end + timedelta(days=(activity_duration or 0) * 3 + 30)
     holidays = load_holidays(db, start, look_ahead)

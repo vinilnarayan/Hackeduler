@@ -30,6 +30,7 @@ from ..models import (
 )
 from ..schemas import (
     ActivityCreate,
+    ActivityAdminOut,
     ActivityOut,
     ActivityUpdate,
     EmailLogOut,
@@ -50,7 +51,7 @@ from ..schemas import (
     booking_admin_out,
 )
 from ..security import hash_password, validate_password_strength
-from ..services import audit, conflicts, notifications, settings_service
+from ..services import audit, conflicts, initiation, notifications, settings_service
 from ..services.availability import now_utc
 from ..services.calendar_engine import expand_ranges
 from .auth import user_out
@@ -64,7 +65,7 @@ def _snap(obj, fields) -> dict:
 
 
 # =============================================================== resources
-RES_FIELDS = ("code", "display_name", "engineer_name", "engineer_email", "notes", "is_active", "inactive_from", "inactive_reason")
+RES_FIELDS = ("code", "display_name", "engineer_name", "engineer_email", "notes", "is_active", "inactive_from", "inactive_reason", "visible_to_requesters")
 
 
 @router.get("/resources", response_model=list[ResourceAdmin])
@@ -88,7 +89,7 @@ def delete_resource(resource_id: uuid.UUID, db: Session = Depends(get_db), admin
     A resource that was never booked is removed completely; otherwise it is archived so booking
     history keeps its identifier. Archived identifiers are never reused."""
     r = _get_resource(db, resource_id)
-    active = db.scalars(select(Booking).where(Booking.resource_id == r.id, Booking.status.in_(BookingStatus.ACTIVE))
+    active = db.scalars(select(Booking).where(Booking.uses_resource(r.id), Booking.status.in_(BookingStatus.ACTIVE))
                         .order_by(Booking.start_date)).unique().all()
     if active:
         raise conflict(
@@ -136,7 +137,8 @@ def create_resource(body: ResourceCreate, db: Session = Depends(get_db), admin: 
     db.execute(select(func.pg_advisory_xact_lock(424242)))
     seq = (db.scalar(select(func.max(SecurityResource.sequence_no))) or 0) + 1
     r = SecurityResource(id=uuid.uuid4(), sequence_no=seq, code=f"RES-{seq:02d}", display_name=f"Resource {seq:02d}",
-                         engineer_name=body.engineer_name, engineer_email=body.engineer_email, notes=body.notes)
+                         engineer_name=body.engineer_name, engineer_email=body.engineer_email, notes=body.notes,
+                         visible_to_requesters=body.visible_to_requesters)
     db.add(r)
     db.flush()
     audit.record(db, "resource.created", admin, entity_type="resource", entity_id=r.id, new=_snap(r, RES_FIELDS))
@@ -205,7 +207,7 @@ def resource_allocation(resource_id: uuid.UUID, start: date | None = None, end: 
     today = settings_service.org_today(db)
     start = start or today - timedelta(days=90)
     end = end or today + timedelta(days=180)
-    bookings = db.scalars(select(Booking).where(Booking.resource_id == r.id, Booking.start_date <= end,
+    bookings = db.scalars(select(Booking).where(Booking.uses_resource(r.id), Booking.start_date <= end,
                                                 Booking.end_date >= start).order_by(Booking.start_date)).unique().all()
     leaves = db.scalars(select(ResourceLeave).where(ResourceLeave.resource_id == r.id, ResourceLeave.start_date <= end,
                                                     ResourceLeave.end_date >= start).order_by(ResourceLeave.start_date)).unique().all()
@@ -214,7 +216,8 @@ def resource_allocation(resource_id: uuid.UUID, start: date | None = None, end: 
 
 
 # =============================================================== activity types
-ACT_FIELDS = ("name", "description", "base_duration_days", "requires_resource", "allow_additional_days", "max_additional_days", "is_active", "sort_order")
+ACT_FIELDS = ("name", "description", "base_duration_days", "requires_resource", "allow_additional_days", "max_additional_days", "is_active", "sort_order",
+              "visible_to_requesters", "initiation_email_enabled", "initiation_days_before", "initiation_details")
 
 
 def _check_activity(a: ActivityType) -> None:
@@ -229,12 +232,16 @@ def _check_activity(a: ActivityType) -> None:
         raise bad_request("max_additional_days must be a positive integer when additional days are allowed.")
 
 
-@router.get("/activity-types", response_model=list[ActivityOut])
-def list_activities(db: Session = Depends(get_db)):
-    return db.scalars(select(ActivityType).order_by(ActivityType.sort_order, ActivityType.name)).all()
+@router.get("/activity-types", response_model=list[ActivityAdminOut])
+def list_activities(include_deleted: bool = False, db: Session = Depends(get_db)):
+    q = select(ActivityType).order_by(ActivityType.sort_order, ActivityType.name)
+    if not include_deleted:
+        q = q.where(ActivityType.deleted_at.is_(None))
+    return [ActivityAdminOut.model_validate(a).model_copy(update={"initiation_details_default": initiation.default_details(a.name)})
+            for a in db.scalars(q).all()]
 
 
-@router.post("/activity-types", response_model=ActivityOut, status_code=201)
+@router.post("/activity-types", response_model=ActivityAdminOut, status_code=201)
 def create_activity(body: ActivityCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     a = ActivityType(id=uuid.uuid4(), **body.model_dump())
     _check_activity(a)
@@ -245,11 +252,11 @@ def create_activity(body: ActivityCreate, db: Session = Depends(get_db), admin: 
     return a
 
 
-@router.patch("/activity-types/{activity_id}", response_model=ActivityOut)
+@router.patch("/activity-types/{activity_id}", response_model=ActivityAdminOut)
 def update_activity(activity_id: uuid.UUID, body: ActivityUpdate, db: Session = Depends(get_db),
                     admin: User = Depends(require_admin)):
     a = db.get(ActivityType, activity_id)
-    if a is None:
+    if a is None or a.deleted_at is not None:
         raise not_found("Activity type")
     prev = _snap(a, ACT_FIELDS)
     for k, v in body.model_dump(exclude_unset=True).items():
@@ -259,10 +266,38 @@ def update_activity(activity_id: uuid.UUID, body: ActivityUpdate, db: Session = 
     action = "activity_type.updated"
     if prev["is_active"] != new["is_active"]:
         action = "activity_type.activated" if a.is_active else "activity_type.deactivated"
+    elif prev["visible_to_requesters"] != new["visible_to_requesters"]:
+        action = "activity_type.visibility_changed"
     # Existing bookings keep their own duration snapshot; nothing else is touched.
     audit.record(db, action, admin, entity_type="activity_type", entity_id=a.id, previous=prev, new=new)
     commit(db)
     return a
+
+
+@router.delete("/activity-types/{activity_id}")
+def delete_activity(activity_id: uuid.UUID, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Remove an activity type. One that no booking has ever used is deleted outright; one that appears in booking
+    history is archived instead (hidden everywhere, cannot be booked) so existing bookings, reports and the audit
+    trail keep working. Existing bookings are never changed."""
+    a = db.get(ActivityType, activity_id)
+    if a is None or a.deleted_at is not None:
+        raise not_found("Activity type")
+    snap = _snap(a, ACT_FIELDS)
+    mode = "removed"
+    try:
+        with db.begin_nested():
+            db.delete(a)
+            db.flush()
+    except IntegrityError:
+        mode = "archived"
+        db.expire_all()
+        a = db.get(ActivityType, activity_id)
+        a.deleted_at = now_utc()
+        a.is_active = False
+    audit.record(db, "activity_type.deleted", admin, entity_type="activity_type", entity_id=activity_id,
+                 previous=snap, new={"mode": mode})
+    commit(db)
+    return {"ok": True, "mode": mode}
 
 
 # =============================================================== holidays
@@ -608,6 +643,9 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = D
     audit.record(db, "user.created", admin, entity_type="user", entity_id=u.id,
                  new={"email": u.email, "full_name": u.full_name, "role": body.role, "sso_only": not body.password,
                       "product_id": u.product_id, "implementation_id": u.implementation_id})
+    if not body.password:
+        # SSO-only account: tell the person where to sign in. (Never emails a password.)
+        notifications.notify_user_welcome(db, u)
     commit(db)
     return _users_out(db, [u])[0]
 

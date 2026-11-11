@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func
+from sqlalchemy import JSON, Boolean, Column, Date, DateTime, ForeignKey, Integer, SmallInteger, String, Table, Text, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -160,6 +160,8 @@ class SecurityResource(Base):
     # First date the resource is unavailable (scheduled or immediate deactivation). NULL = no deactivation planned.
     inactive_from: Mapped[date | None] = mapped_column(Date)
     inactive_reason: Mapped[str | None] = mapped_column(Text)
+    # False = admin-only: hidden from the requester calendar / lists, never auto-assigned, not selectable by requesters
+    visible_to_requesters: Mapped[bool] = mapped_column(Boolean, default=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     def inactive_on(self, d: date) -> bool:
@@ -181,7 +183,14 @@ class ActivityType(Base):
     allow_additional_days: Mapped[bool] = mapped_column(Boolean, default=False)
     max_additional_days: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # False = only admins can book this type (e.g. Manual Allocation); requesters never see it.
+    visible_to_requesters: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Activity initiation email: False = never; days NULL = global default; details NULL = built-in checklist
+    initiation_email_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    initiation_days_before: Mapped[int | None] = mapped_column(Integer)
+    initiation_details: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -210,6 +219,13 @@ class ResourceLeave(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     resource: Mapped[SecurityResource] = relationship(lazy="joined")
+
+
+booking_extra_resources = Table(
+    "booking_extra_resources", Base.metadata,
+    Column("booking_id", UUID(as_uuid=True), ForeignKey("bookings.id", ondelete="CASCADE"), primary_key=True),
+    Column("resource_id", UUID(as_uuid=True), ForeignKey("security_resources.id"), primary_key=True),
+)
 
 
 class Booking(Base):
@@ -249,6 +265,8 @@ class Booking(Base):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancellation_reason: Mapped[str | None] = mapped_column(Text)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    initiation_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    initiation_email_for_start: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -257,6 +275,20 @@ class Booking(Base):
     activity_type: Mapped[ActivityType] = relationship(lazy="joined")
     product: Mapped[Product | None] = relationship(lazy="joined", foreign_keys=[product_id])
     implementation: Mapped[Implementation | None] = relationship(lazy="joined", foreign_keys=[implementation_id])
+    # Additional security resources working the same booking (admin multi-resource allocation). The primary
+    # resource stays in ``resource_id``; every resource (primary + extras) has its own locks.
+    extra_resources: Mapped[list["SecurityResource"]] = relationship(secondary="booking_extra_resources", lazy="selectin",
+                                                                      order_by="SecurityResource.sequence_no")
+
+    @property
+    def extra_resource_ids(self) -> list[uuid.UUID]:
+        return [r.id for r in self.extra_resources]
+
+    @classmethod
+    def uses_resource(cls, resource_id: uuid.UUID):
+        """SQL clause: the booking's primary resource OR one of its additional resources is ``resource_id``."""
+        return or_(cls.resource_id == resource_id,
+                   cls.id.in_(select(booking_extra_resources.c.booking_id).where(booking_extra_resources.c.resource_id == resource_id)))
 
 
 class BookingStatusHistory(Base):

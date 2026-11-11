@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_admin
-from ..errors import bad_request, not_found
+from ..errors import bad_request, conflict, not_found
 from ..models import (
     AuditLog,
     Booking,
@@ -42,7 +42,7 @@ from ..schemas import (
     RejectIn,
     booking_admin_out,
 )
-from ..services import availability, booking_service, conflicts
+from ..services import availability, booking_service, conflicts, initiation
 from ..services.booking_service import ForceOptions
 from ..services.calendar_engine import SchedulingError
 from .common import commit
@@ -82,7 +82,8 @@ def _cr_out(cr: BookingChangeRequest) -> dict:
 
 
 def _out(db: Session, b: Booking):
-    return booking_admin_out(b, _pending_cr(db, b.id), _open_conflicts(db, b.id))
+    out = booking_admin_out(b, _pending_cr(db, b.id), _open_conflicts(db, b.id))
+    return out.model_copy(update={"initiation_email": initiation.status(db, b)})
 
 
 # =============================================================== calendar
@@ -132,7 +133,7 @@ def list_bookings(
             raise bad_request("Invalid status filter.")
         stmt = stmt.where(Booking.status == status)
     if resource_id:
-        stmt = stmt.where(Booking.resource_id == resource_id)
+        stmt = stmt.where(Booking.uses_resource(resource_id))
     if activity_type_id:
         stmt = stmt.where(Booking.activity_type_id == activity_type_id)
     if start:
@@ -145,7 +146,7 @@ def list_bookings(
         stmt = stmt.where(Booking.pci_dss_scope.is_(pci))
     if q:
         like = f"%{q}%"
-        conds = [Booking.application_name.ilike(like), Booking.poc_name.ilike(like), Booking.poc_email.ilike(like)]
+        conds = [Booking.application_name.ilike(like), Booking.application_version.ilike(like), Booking.poc_name.ilike(like), Booking.poc_email.ilike(like)]
         try:
             conds.append(Booking.id == uuid.UUID(q))
         except ValueError:
@@ -202,10 +203,24 @@ def admin_check(body: AdminAvailabilityQuery, db: Session = Depends(get_db), adm
 
 @router.post("/bookings", status_code=201)
 def admin_create(body: AdminBookingCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    data = body.model_dump(exclude={"initial_status", "duration_days", "end_date", "reason", "force"})
+    data = body.model_dump(exclude={"initial_status", "duration_days", "end_date", "reason", "force", "additional_resource_ids", "additional_resources"})
+    # Admin bookings need no approval: always created as confirmed (body.initial_status is ignored).
     b = booking_service.admin_create_booking(
-        db, admin, booking_service.BookingInput(**data), initial_status=body.initial_status,
-        duration_override=body.duration_days, end_date_override=body.end_date, force=_force(body.force), reason=body.reason)
+        db, admin, booking_service.BookingInput(**data), initial_status="approved",
+        duration_override=body.duration_days, end_date_override=body.end_date, force=_force(body.force), reason=body.reason,
+        additional=[booking_service.ExtraAllocation(i) for i in body.additional_resource_ids]
+        + [booking_service.ExtraAllocation(e.resource_id, e.start_date, e.working_days, e.end_date) for e in body.additional_resources])
+    commit(db)
+    return _out(db, b)
+
+
+@router.post("/bookings/{booking_id}/send-initiation-email")
+def send_initiation_email(booking_id: uuid.UUID, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Send the Activity initiation email now (also usable to re-send). Approved bookings with a start date only."""
+    b = booking_service.lock_booking(db, booking_id)
+    if b.status != "approved" or not b.start_date:
+        raise conflict("The initiation email can only be sent for approved bookings that have a start date.", "invalid_state")
+    initiation.send(db, b, admin, manual=True)
     commit(db)
     return _out(db, b)
 

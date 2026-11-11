@@ -236,7 +236,7 @@ def export_bookings(fmt: str, status: str | None = None, start: date | None = No
     if product_id:
         q = q.where(Booking.product_id == product_id)
     if resource_id:
-        q = q.where(Booking.resource_id == resource_id)
+        q = q.where(Booking.uses_resource(resource_id))
     rows = db.scalars(q.order_by(Booking.start_date.nulls_last(), Booking.submitted_at).limit(limit)).unique().all()
     audit.record(db, "report.exported", admin, entity_type="report", entity_id=f"bookings.{fmt}",
                  new={"rows": len(rows), "status": status, "start": start, "end": end})

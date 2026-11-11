@@ -12,7 +12,7 @@ import time
 
 from .config import get_settings
 from .db import SessionLocal
-from .services import booking_service, email_sender
+from .services import booking_service, email_sender, initiation
 
 log = logging.getLogger("hackeduler.worker")
 _running = True
@@ -27,6 +27,8 @@ def run_once() -> dict:
         result["deactivated"] = len(booking_service.apply_scheduled_deactivations(db))
         db.commit()
         result["completed"] = len(booking_service.complete_past_bookings(db))
+        db.commit()
+        result["initiation"] = initiation.send_due(db)
         db.commit()
         result["email"] = email_sender.process_outbox(db)
     except Exception:
@@ -56,7 +58,7 @@ def main() -> None:
     log.info("worker started (interval %ss)", interval)
     while _running:
         r = run_once()
-        if any(r.get(k) for k in ("expired", "completed", "deactivated")) or (r.get("email") and any(r["email"].values())):
+        if any(r.get(k) for k in ("expired", "completed", "deactivated", "initiation")) or (r.get("email") and any(r["email"].values())):
             log.info("pass: %s", r)
         for _ in range(interval):
             if not _running:

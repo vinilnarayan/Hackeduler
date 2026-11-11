@@ -28,6 +28,8 @@ interface MyImpls { product: { id: string; name: string } | null; implementation
  * Requesters choose WHAT (activity) and WHEN (start date); the server picks the security resource
  * (earliest finish, then lightest workload). Admins can reassign the resource later.
  */
+import { validPocEmails } from '../../lib/emails'
+
 export default function NewBooking() {
   const [sp] = useSearchParams()
   const nav = useNavigate()
@@ -62,7 +64,7 @@ export default function NewBooking() {
   }, [activityId, start, extra])
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value })
-  const formValid = form.application_name.trim() && form.application_version.trim() && form.pci_dss_scope && form.poc_name.trim() && /^\S+@\S+\.\S+$/.test(form.poc_email)
+  const formValid = form.application_name.trim() && form.application_version.trim() && form.pci_dss_scope && form.poc_name.trim() && validPocEmails(form.poc_email)
   const ready = !!check?.available
 
   async function submit(e: React.FormEvent) {
@@ -164,8 +166,8 @@ export default function NewBooking() {
           </fieldset>
           <div />
           <Field label="POC name *" htmlFor="pn"><input id="pn" className="input" maxLength={255} value={form.poc_name} onChange={set('poc_name')} required /></Field>
-          <Field label="POC email *" htmlFor="pe" error={form.poc_email && !/^\S+@\S+\.\S+$/.test(form.poc_email) ? 'Enter a valid email address' : undefined}>
-            <input id="pe" type="email" className="input" maxLength={254} value={form.poc_email} onChange={set('poc_email')} required />
+          <Field label="POC email *" htmlFor="pe" hint="You can enter several addresses, separated by commas." error={form.poc_email && !validPocEmails(form.poc_email) ? 'Enter valid email addresses (up to 10), separated by commas' : undefined}>
+            <input id="pe" type="text" inputMode="email" className="input" maxLength={2000} placeholder="name@company.com, other@company.com" value={form.poc_email} onChange={set('poc_email')} required />
           </Field>
           <div className="md:col-span-2"><Field label="Additional comments" htmlFor="ac"><textarea id="ac" className="input min-h-20" maxLength={4000} value={form.additional_comments} onChange={set('additional_comments')} /></Field></div>
         </fieldset>

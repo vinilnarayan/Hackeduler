@@ -47,6 +47,9 @@ def booking_snapshot(b: Booking) -> dict[str, Any]:
     snap = {f: jsonable(getattr(b, f)) for f in BOOKING_SNAPSHOT_FIELDS}
     if b.resource is not None and b.resource.id == b.resource_id:
         snap["resource_code"] = b.resource.code
+    if b.extra_resources:
+        snap["additional_resource_ids"] = [str(r.id) for r in b.extra_resources]
+        snap["additional_resource_codes"] = [r.code for r in b.extra_resources]
     return snap
 
 

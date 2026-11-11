@@ -73,6 +73,7 @@ export interface ResourceAdmin extends ResourcePublic {
   engineer_name: string
   engineer_email: string | null
   notes: string | null
+  visible_to_requesters?: boolean
   deactivated_at: string | null
   inactive_from: string | null
   inactive_reason: string | null
@@ -90,6 +91,12 @@ export interface ActivityType {
   max_additional_days: number
   is_active: boolean
   sort_order: number
+  visible_to_requesters: boolean
+  deleted_at: string | null
+  initiation_email_enabled?: boolean
+  initiation_days_before?: number | null
+  initiation_details?: string | null
+  initiation_details_default?: string | null
 }
 
 export interface Holiday {
@@ -147,6 +154,9 @@ export interface Booking {
 export interface AdminBooking extends Booking {
   resource_code: string | null
   engineer_name: string | null
+  initiation_email_sent_at?: string | null
+  initiation_email?: { state: 'sent' | 'scheduled' | 'disabled' | 'not_applicable'; sent_at: string | null; scheduled_for: string | null; days_before: number | null; can_send: boolean; note?: string } | null
+  extra_resources: { id: string; code: string; display_name: string; engineer_name: string }[]
   requester_id: string
   requester_email: string
   source: string
