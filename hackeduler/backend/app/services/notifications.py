@@ -27,7 +27,7 @@ ALLOWED_VARIABLES = {
     "Booking ID", "Application Name", "Application Version", "Activity Type", "PCI DSS Scope", "Yes/No",
     "Resource ID", "Start Date", "End Date", "Duration", "POC Name", "POC Email", "Rejection Reason",
     "Booking Status", "Change Summary", "Reason", "Requester", "App URL", "Product", "Implementation",
-    "User Name", "User Email", "Role", "Engineer Name", "Additional Comments",
+    "User Name", "User Email", "Role", "Engineer Name", "Additional Comments", "Required Details", "Days Until Start",
 }
 
 SIGNATURE = "\n\nRegards,\nOffensive Security Team\n"
@@ -127,6 +127,20 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             "expired. The reserved slot has been released. Please submit a new request if the assessment is still required.\n\n"
             "- Booking ID: {{Booking ID}}\n- Application Name: {{Application Name}}\n- Activity Type: {{Activity Type}}\n"
             "- Requested Start Date: {{Start Date}}" + SIGNATURE
+        ),
+    },
+    "activity_initiation_poc": {
+        "name": "Activity initiation - details needed before testing (to POC)",
+        "subject": "[Hackeduler] Action needed before testing – {{Application Name}} ({{Start Date}})",
+        "body": (
+            "Hello {{POC Name}},\n\nYour security assessment starts {{Days Until Start}}. To start on time, please send "
+            "us the details below before testing begins.\n\n"
+            "- Booking ID: {{Booking ID}}\n- Application Name: {{Application Name}}\n"
+            "- Application Version: {{Application Version}}\n- Activity Type: {{Activity Type}}\n"
+            "- Start Date: {{Start Date}}\n- Expected End Date: {{End Date}}\n\n"
+            "What we need from you:\n\n{{Required Details}}\n\n"
+            "Please reply to this email or contact the Offensive Security team. Never send passwords or secrets in "
+            "plain email; we will agree a secure way to share them." + SIGNATURE
         ),
     },
     "user_welcome": {
@@ -264,6 +278,9 @@ def notify_engineers(db: Session, b: Booking) -> None:
 def notify_approved(db: Session, b: Booking) -> None:
     enqueue(db, "booking_approved_poc", poc_recipients(db, b), booking_context(b), b.id)
     notify_engineers(db, b)
+    from . import initiation
+
+    initiation.send_if_due(db, b)  # approved inside the initiation window => goes out right away
 
 
 def notify_user_welcome(db: Session, user) -> None:

@@ -29,6 +29,24 @@ export function AuditChanges({ a }: { a: AuditEntry }) {
 }
 const fmtVal = (v: any) => (v === undefined || v === null ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v))
 
+function InitiationStatus({ b, onSent }: { b: AdminBooking; onSent: () => void }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const i = b.initiation_email
+  if (!i) return <>—</>
+  const text = i.state === 'sent' ? `Sent ${fmtDateTime(i.sent_at)}`
+    : i.state === 'scheduled' ? `Will be sent on ${fmt(i.scheduled_for)} (${i.days_before} day${i.days_before === 1 ? '' : 's'} before the start date)`
+    : i.state === 'disabled' ? 'Automatic sending is turned off for this booking' : (i.note || 'Not applicable')
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <span>{text}</span>
+      {i.can_send && <button type="button" className="btn-secondary" disabled={busy}
+        onClick={async () => { setBusy(true); try { await post(`/api/admin/bookings/${b.id}/send-initiation-email`, {}); toast('success', 'Initiation email queued'); onSent() } catch (e) { toast('error', validationMessage(e)) } finally { setBusy(false) } }}>
+        {busy ? 'Sending…' : i.state === 'sent' ? 'Resend initiation email' : 'Send initiation email now'}</button>}
+    </span>
+  )
+}
+
 export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId: string; onClose: () => void; onChanged?: () => void }) {
   const toast = useToast()
   const { data, error, loading, reload } = useAsync<any>(() => get(`/api/admin/bookings/${bookingId}`), [bookingId])
@@ -70,6 +88,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
             ['POC', `${b.poc_name} <${b.poc_email}>`], ['Requester', `${b.requester_name} <${b.requester_email}>`],
             ['Source', b.source === 'admin' ? 'Admin-created' : 'Requester'], ['Submitted', fmtDateTime(b.submitted_at)],
             ['Approved at', fmtDateTime(b.approved_at)], ['Pending expiry', b.status === 'pending_approval' ? fmtDateTime(b.expires_at) : '—'],
+            ['Initiation email', <InitiationStatus b={b} onSent={changed} />],
             ...(b.rejection_reason ? [['Rejection reason', b.rejection_reason] as [string, string]] : []),
             ...(b.cancellation_reason ? [['Cancellation reason', b.cancellation_reason] as [string, string]] : []),
             ...(b.additional_comments ? [['Comments', b.additional_comments] as [string, string]] : []),

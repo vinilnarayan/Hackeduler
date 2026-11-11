@@ -183,6 +183,10 @@ class ActivityType(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # False = only admins can book this type (e.g. Manual Allocation); requesters never see it.
     visible_to_requesters: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Activity initiation email: False = never; days NULL = global default; details NULL = built-in checklist
+    initiation_email_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    initiation_days_before: Mapped[int | None] = mapped_column(Integer)
+    initiation_details: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -259,6 +263,8 @@ class Booking(Base):
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancellation_reason: Mapped[str | None] = mapped_column(Text)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    initiation_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    initiation_email_for_start: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

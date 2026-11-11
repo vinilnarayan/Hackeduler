@@ -15,7 +15,7 @@ export default function SettingsPage() {
   if (loading || !v) return <Spinner />
   const save = async () => {
     const values = { ...v, admin_notification_recipients: v.admin_notification_recipients.split(',').map((s: string) => s.trim()).filter(Boolean),
-      pending_expiry_hours: Number(v.pending_expiry_hours), smtp_port: v.smtp_port === '' || v.smtp_port === null ? null : Number(v.smtp_port),
+      pending_expiry_hours: Number(v.pending_expiry_hours), initiation_email_days_before: Number(v.initiation_email_days_before), smtp_port: v.smtp_port === '' || v.smtp_port === null ? null : Number(v.smtp_port),
       smtp_host: v.smtp_host || null, smtp_username: v.smtp_username || null }
     try { await put('/api/admin/settings', { values }); toast('success', 'Settings saved'); reload() } catch (e) { toast('error', validationMessage(e)) }
   }
@@ -32,6 +32,12 @@ export default function SettingsPage() {
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v.pending_expiry_enabled} onChange={(e) => setV({ ...v, pending_expiry_enabled: e.target.checked })} />Expire pending requests automatically (releases the reservation)</label>
         <Field label="Pending reservation expiry (hours)" htmlFor="s-ph"><input id="s-ph" type="number" min={1} className="input w-40" value={v.pending_expiry_hours} onChange={(e) => setV({ ...v, pending_expiry_hours: e.target.value })} /></Field>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v.requester_direct_cancel_pending} onChange={(e) => setV({ ...v, requester_direct_cancel_pending: e.target.checked })} />Requesters may cancel their own pending requests without admin approval (approved bookings always require a request)</label>
+      </section>
+      <section className="card space-y-3 p-4">
+        <h2 className="text-sm font-semibold">Activity initiation email</h2>
+        <p className="text-xs text-slate-500">Asks the POC for the details needed before testing (URLs, test accounts, scope, IP whitelisting…). Sent once for each approved booking that has a start date, and again if it is rescheduled. Edit the wording under Email &amp; Templates; set a different number of days (or turn it off) for one activity type under Activity Types.</p>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!v.initiation_email_enabled} onChange={(e) => setV({ ...v, initiation_email_enabled: e.target.checked })} />Send the Activity initiation email automatically</label>
+        <Field label="Days before the start date" htmlFor="s-id" hint="Default 7. Use 0 to send on the start date itself."><input id="s-id" type="number" min={0} max={365} className="input w-40" disabled={!v.initiation_email_enabled} value={v.initiation_email_days_before} onChange={(e) => setV({ ...v, initiation_email_days_before: e.target.value })} /></Field>
       </section>
       <section className="card space-y-3 p-4">
         <h2 className="text-sm font-semibold">Email notifications</h2>

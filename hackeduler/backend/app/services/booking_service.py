@@ -38,7 +38,7 @@ from ..models import (
     SecurityResource,
     User,
 )
-from . import audit, conflicts, notifications, settings_service
+from . import audit, conflicts, initiation, notifications, settings_service
 from .availability import (
     UNAVAILABLE_MESSAGE,
     horizon_end,
@@ -1019,6 +1019,8 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
         if "poc_email" in changed and before.get("poc_email"):
             notifications.enqueue(db, "booking_modified_poc", [before["poc_email"]],
                                   notifications.booking_context(b, **{"Change Summary": "\n".join(lines), "Reason": reason}), b.id)
+    if b.status == BookingStatus.APPROVED:
+        initiation.send_if_due(db, b)  # rescheduled (new start date) and already inside the window => send again now
     return b
 
 

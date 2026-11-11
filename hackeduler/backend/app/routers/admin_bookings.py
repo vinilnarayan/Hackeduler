@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_admin
-from ..errors import bad_request, not_found
+from ..errors import bad_request, conflict, not_found
 from ..models import (
     AuditLog,
     Booking,
@@ -42,7 +42,7 @@ from ..schemas import (
     RejectIn,
     booking_admin_out,
 )
-from ..services import availability, booking_service, conflicts
+from ..services import availability, booking_service, conflicts, initiation
 from ..services.booking_service import ForceOptions
 from ..services.calendar_engine import SchedulingError
 from .common import commit
@@ -82,7 +82,8 @@ def _cr_out(cr: BookingChangeRequest) -> dict:
 
 
 def _out(db: Session, b: Booking):
-    return booking_admin_out(b, _pending_cr(db, b.id), _open_conflicts(db, b.id))
+    out = booking_admin_out(b, _pending_cr(db, b.id), _open_conflicts(db, b.id))
+    return out.model_copy(update={"initiation_email": initiation.status(db, b)})
 
 
 # =============================================================== calendar
@@ -208,6 +209,17 @@ def admin_create(body: AdminBookingCreate, db: Session = Depends(get_db), admin:
         db, admin, booking_service.BookingInput(**data), initial_status="approved",
         duration_override=body.duration_days, end_date_override=body.end_date, force=_force(body.force), reason=body.reason,
         additional_resource_ids=body.additional_resource_ids)
+    commit(db)
+    return _out(db, b)
+
+
+@router.post("/bookings/{booking_id}/send-initiation-email")
+def send_initiation_email(booking_id: uuid.UUID, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Send the Activity initiation email now (also usable to re-send). Approved bookings with a start date only."""
+    b = booking_service.lock_booking(db, booking_id)
+    if b.status != "approved" or not b.start_date:
+        raise conflict("The initiation email can only be sent for approved bookings that have a start date.", "invalid_state")
+    initiation.send(db, b, admin, manual=True)
     commit(db)
     return _out(db, b)
 

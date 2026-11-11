@@ -19,7 +19,10 @@ export default function ActivityTypes() {
     const body = { name: edit!.name, description: edit!.description || null, base_duration_days: edit!.base_duration_days || null,
       requires_resource: edit!.requires_resource !== false, allow_additional_days: !!edit!.allow_additional_days && !!edit!.base_duration_days,
       max_additional_days: edit!.allow_additional_days ? edit!.max_additional_days : 0, sort_order: edit!.sort_order ?? 0,
-      visible_to_requesters: edit!.visible_to_requesters !== false }
+      visible_to_requesters: edit!.visible_to_requesters !== false,
+      initiation_email_enabled: edit!.initiation_email_enabled !== false,
+      initiation_days_before: edit!.initiation_days_before == null || (edit!.initiation_days_before as unknown) === '' ? null : Number(edit!.initiation_days_before),
+      initiation_details: edit!.initiation_details?.trim() ? edit!.initiation_details : null }
     try { if (edit!.id) await patch(`/api/admin/activity-types/${edit!.id}`, body); else await post('/api/admin/activity-types', body); toast('success', 'Activity type saved'); setEdit(null); reload() }
     catch (e) { toast('error', validationMessage(e)) }
   }
@@ -27,7 +30,7 @@ export default function ActivityTypes() {
   return (
     <div>
       <PageHeader title="Activity Types" subtitle="Standard durations in working days. Changes apply to new bookings only – each booking keeps a snapshot of its duration."
-        actions={<button className="btn-primary" onClick={() => setEdit({ name: '', base_duration_days: 8, requires_resource: true, allow_additional_days: false, max_additional_days: 0, visible_to_requesters: true })}><Plus className="h-4 w-4" />Add activity type</button>} />
+        actions={<button className="btn-primary" onClick={() => setEdit({ name: '', base_duration_days: 8, requires_resource: true, allow_additional_days: false, max_additional_days: 0, visible_to_requesters: true, initiation_email_enabled: true, initiation_days_before: null, initiation_details: null })}><Plus className="h-4 w-4" />Add activity type</button>} />
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No activity types" /> : (
           <table className="min-w-full divide-y divide-slate-200">
@@ -68,6 +71,16 @@ export default function ActivityTypes() {
           {edit.allow_additional_days && <Field label="Maximum additional days" htmlFor="a-m"><input id="a-m" type="number" min={1} step={1} className="input" value={edit.max_additional_days ?? 1} onChange={(e) => setEdit({ ...edit, max_additional_days: Number(e.target.value) })} /></Field>}
           <label className="flex items-start gap-2 rounded-md border border-slate-200 p-2 text-sm"><input type="checkbox" className="mt-0.5" checked={edit.visible_to_requesters !== false} onChange={(e) => setEdit({ ...edit, visible_to_requesters: e.target.checked })} />
             <span><span className="font-medium">Visible to requesters</span><span className="block text-xs text-slate-500">Turn off to keep this type admin-only: requesters never see it or can book it, but admins can still book it (e.g. via Manual Allocation).</span></span></label>
+          <div className="space-y-2 rounded-md border border-slate-200 p-2">
+            <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={edit.initiation_email_enabled !== false} onChange={(e) => setEdit({ ...edit, initiation_email_enabled: e.target.checked })} />Send the Activity initiation email for this type</label>
+            {edit.initiation_email_enabled !== false && <>
+              <Field label="Days before start (this type)" htmlFor="a-id" hint="Leave empty to use the number of days from Settings."><input id="a-id" type="number" min={0} max={365} className="input w-40" value={edit.initiation_days_before ?? ''} onChange={(e) => setEdit({ ...edit, initiation_days_before: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
+              <Field label="Details to ask the POC for" htmlFor="a-idt" hint="Used for {{Required Details}} in the email. Leave empty to use the built-in checklist for this kind of activity (shown below).">
+                <textarea id="a-idt" className="input min-h-28 font-mono text-xs" value={edit.initiation_details ?? ''} placeholder={edit.initiation_details_default ?? 'Built-in checklist for this kind of activity'} onChange={(e) => setEdit({ ...edit, initiation_details: e.target.value })} />
+              </Field>
+              {edit.initiation_details_default && <button type="button" className="btn-ghost text-xs" onClick={() => setEdit({ ...edit, initiation_details: edit.initiation_details_default })}>Start from the built-in checklist</button>}
+            </>}
+          </div>
           <Field label="Sort order" htmlFor="a-s"><input id="a-s" type="number" className="input" value={edit.sort_order ?? 0} onChange={(e) => setEdit({ ...edit, sort_order: Number(e.target.value) })} /></Field>
         </div>}
       </Modal>

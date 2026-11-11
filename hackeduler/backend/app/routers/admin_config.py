@@ -30,6 +30,7 @@ from ..models import (
 )
 from ..schemas import (
     ActivityCreate,
+    ActivityAdminOut,
     ActivityOut,
     ActivityUpdate,
     EmailLogOut,
@@ -50,7 +51,7 @@ from ..schemas import (
     booking_admin_out,
 )
 from ..security import hash_password, validate_password_strength
-from ..services import audit, conflicts, notifications, settings_service
+from ..services import audit, conflicts, initiation, notifications, settings_service
 from ..services.availability import now_utc
 from ..services.calendar_engine import expand_ranges
 from .auth import user_out
@@ -215,7 +216,7 @@ def resource_allocation(resource_id: uuid.UUID, start: date | None = None, end: 
 
 # =============================================================== activity types
 ACT_FIELDS = ("name", "description", "base_duration_days", "requires_resource", "allow_additional_days", "max_additional_days", "is_active", "sort_order",
-              "visible_to_requesters")
+              "visible_to_requesters", "initiation_email_enabled", "initiation_days_before", "initiation_details")
 
 
 def _check_activity(a: ActivityType) -> None:
@@ -230,15 +231,16 @@ def _check_activity(a: ActivityType) -> None:
         raise bad_request("max_additional_days must be a positive integer when additional days are allowed.")
 
 
-@router.get("/activity-types", response_model=list[ActivityOut])
+@router.get("/activity-types", response_model=list[ActivityAdminOut])
 def list_activities(include_deleted: bool = False, db: Session = Depends(get_db)):
     q = select(ActivityType).order_by(ActivityType.sort_order, ActivityType.name)
     if not include_deleted:
         q = q.where(ActivityType.deleted_at.is_(None))
-    return db.scalars(q).all()
+    return [ActivityAdminOut.model_validate(a).model_copy(update={"initiation_details_default": initiation.default_details(a.name)})
+            for a in db.scalars(q).all()]
 
 
-@router.post("/activity-types", response_model=ActivityOut, status_code=201)
+@router.post("/activity-types", response_model=ActivityAdminOut, status_code=201)
 def create_activity(body: ActivityCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     a = ActivityType(id=uuid.uuid4(), **body.model_dump())
     _check_activity(a)
@@ -249,7 +251,7 @@ def create_activity(body: ActivityCreate, db: Session = Depends(get_db), admin: 
     return a
 
 
-@router.patch("/activity-types/{activity_id}", response_model=ActivityOut)
+@router.patch("/activity-types/{activity_id}", response_model=ActivityAdminOut)
 def update_activity(activity_id: uuid.UUID, body: ActivityUpdate, db: Session = Depends(get_db),
                     admin: User = Depends(require_admin)):
     a = db.get(ActivityType, activity_id)

@@ -146,6 +146,13 @@ class ActivityOut(ORM):
     deleted_at: datetime | None = None
 
 
+class ActivityAdminOut(ActivityOut):
+    initiation_email_enabled: bool = True
+    initiation_days_before: int | None = None
+    initiation_details: str | None = None
+    initiation_details_default: str | None = None   # the built-in checklist used when initiation_details is empty
+
+
 class ActivityCreate(Strict):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
@@ -156,6 +163,9 @@ class ActivityCreate(Strict):
     max_additional_days: int = Field(default=0, ge=0, le=250, strict=True)
     sort_order: int = 0
     visible_to_requesters: bool = True
+    initiation_email_enabled: bool = True
+    initiation_days_before: int | None = Field(default=None, ge=0, le=365, strict=True)
+    initiation_details: str | None = Field(default=None, max_length=4000)
 
 
 class ActivityUpdate(Strict):
@@ -168,6 +178,9 @@ class ActivityUpdate(Strict):
     is_active: bool | None = None
     sort_order: int | None = None
     visible_to_requesters: bool | None = None
+    initiation_email_enabled: bool | None = None
+    initiation_days_before: int | None = Field(default=None, ge=0, le=365, strict=True)
+    initiation_details: str | None = Field(default=None, max_length=4000)
 
 
 # ---------------------------------------------------------------- holidays / leave
@@ -378,6 +391,8 @@ class BookingAdminOut(BookingRequesterOut):
     open_conflicts: int = 0
     # Additional resources blocked by an admin multi-resource booking (primary is resource_code/engineer_name)
     extra_resources: list[dict] = Field(default_factory=list)
+    initiation_email_sent_at: datetime | None = None
+    initiation_email: dict | None = None   # state / schedule; filled on the booking detail only
 
 
 def booking_requester_out(b, pending_cr=None, viewer_id=None) -> BookingRequesterOut:
@@ -408,7 +423,7 @@ def booking_admin_out(b, pending_cr=None, open_conflicts: int = 0) -> BookingAdm
         is_force_allocated=b.is_force_allocated, needs_review=b.needs_review, duration_overridden=b.duration_overridden,
         base_duration_snapshot=b.base_duration_snapshot, approved_by=b.approved_by, approved_at=b.approved_at,
         rejected_by=b.rejected_by, rejected_at=b.rejected_at, cancelled_by=b.cancelled_by, cancelled_at=b.cancelled_at,
-        version=b.version, open_conflicts=open_conflicts,
+        version=b.version, open_conflicts=open_conflicts, initiation_email_sent_at=b.initiation_email_sent_at,
         extra_resources=[{"id": str(r.id), "code": r.code, "display_name": r.display_name, "engineer_name": r.engineer_name}
                          for r in b.extra_resources],
     )
