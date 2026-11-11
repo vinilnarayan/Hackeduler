@@ -48,7 +48,7 @@ schema is at `/api/openapi.json`.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/resources` | Anonymous resources `{id, code, display_name, is_active}` |
-| GET | `/api/activity-types` | Active activity types |
+| GET | `/api/activity-types` | Active activity types that are visible to requesters (types marked admin-only are never listed and cannot be booked or previewed by requesters) |
 | GET | `/api/holidays?start&end` | Holidays |
 | GET | `/api/settings/public` | Timezone, today, working weekdays, expiry and cancellation policy |
 | GET | `/api/calendar?start&end[&activity_type_id]` | Anonymous availability grid (≤ ~6 months) |
@@ -106,7 +106,8 @@ the slot was taken.
 | GET | `/api/admin/bookings?status&resource_id&activity_type_id&q&start&end&needs_review&pci&limit&offset` | Search / filter |
 | GET | `/api/admin/bookings/{id}` | Booking, status history, locks, audit, conflicts, change requests, emails |
 | POST | `/api/admin/availability/check` | Like the requester check plus `exclude_booking_id`, booking ids and inactive resources |
-| POST | `/api/admin/bookings` | Manual allocation: `BookingCreate` + `initial_status`, `duration_days?`, `end_date?`, `reason?`, `force?` |
+| POST | `/api/admin/bookings` | Manual allocation: `BookingCreate` + `duration_days?`, `end_date?`, `reason?`, `force?`, `additional_resource_ids?` (up to 10 more resources blocked in the **same** booking; all-or-nothing, 409 `resource_unavailable` naming the busy one; no Force Allocate). Admin bookings are always created **Approved** (`initial_status` is accepted but ignored) |
+| POST | `/api/admin/bookings/{id}/send-initiation-email` | Send (or re-send) the Activity initiation email now. 409 unless the booking is approved and has a start date. The booking detail carries `initiation_email` `{state: sent\|scheduled\|disabled\|not_applicable, sent_at, scheduled_for, days_before, can_send}` |
 | PATCH | `/api/admin/bookings/{id}` | Modify / reassign / reschedule: any of `resource_id, start_date, activity_type_id, additional_days, duration_days, end_date, recalculate, application_*, pci_dss_scope, poc_*, additional_comments`, plus **required** `reason` and optional `force` |
 | POST | `/api/admin/bookings/{id}/approve` | `{force?}`. Revalidates. 409 `override_required` on conflict |
 | POST | `/api/admin/bookings/{id}/reject` | `{reason}` (required) |
@@ -161,8 +162,9 @@ completes an approved booking that has no resource. The dashboard accepts `produ
 | GET | `/api/admin/resources?include_deleted=true` / POST `/api/admin/resources/{id}/restore` | Show / restore archived resources (restored as inactive) |
 | PATCH | `/api/admin/resources/{id}` | Edit. Deactivate: `{"is_active": false}` (immediately) or `{"inactive_from": "YYYY-MM-DD"}` (from a date, today or later). `{"inactive_from": null}` cancels a scheduled deactivation; `{"is_active": true}` reactivates. Optional `reason`. The response lists flagged bookings |
 | GET | `/api/admin/resources/{id}/allocation` | Engineer's bookings and leave |
-| GET/POST | `/api/admin/activity-types` | List / add |
-| PATCH | `/api/admin/activity-types/{id}` | Edit / (de)activate. Durations must be positive integers |
+| GET/POST | `/api/admin/activity-types[?include_deleted=true]` | List / add. Fields include `visible_to_requesters` (false = admin-only), `initiation_email_enabled`, `initiation_days_before` (null = global setting) and `initiation_details` (null = built-in checklist, returned as `initiation_details_default`) |
+| PATCH | `/api/admin/activity-types/{id}` | Edit / (de)activate / hide. Durations must be positive integers |
+| DELETE | `/api/admin/activity-types/{id}` | Remove. Never-used types are deleted (`mode: removed`); types in booking history are archived (`mode: archived`: hidden everywhere, not bookable, existing bookings unchanged, name reusable) |
 | GET/POST | `/api/admin/holidays[?year]` | List / add. Response includes `flagged_bookings` |
 | PATCH/DELETE | `/api/admin/holidays/{id}` | Edit / delete (flags affected bookings) |
 | POST | `/api/admin/holidays/import` | multipart `file` (.csv/.xlsx, columns `name,date,description`, ≤2 MB, ≤1000 rows) |

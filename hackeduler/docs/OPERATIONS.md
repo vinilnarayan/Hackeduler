@@ -55,12 +55,20 @@ Environment (`HACKEDULER_*`): see `.env.example`. Runtime settings, editable und
 
 ## 4. Background worker
 
+New settings (Admin → Settings → Activity initiation email): `initiation_email_enabled` (default on) and
+`initiation_email_days_before` (default 7). Per activity type, admins can override the number of days or switch the
+email off, and edit the checklist of details it asks for. The wording is the editable template
+`activity_initiation_poc` under Email & Templates. New-user and engineer emails use the templates `user_welcome`
+(sent only for SSO-only accounts, with the sign-in URL from `public_base_url`) and `booking_confirmed_engineer`
+(sent to each assigned engineer's email when a booking becomes approved).
+
 `python -m app.worker` loops every `HACKEDULER_WORKER_INTERVAL_SECONDS` (default 30 s):
 
 1. expires pending bookings past `expires_at` (releases locks, notifies the POC/requester, audits the change)
 2. deactivates resources whose scheduled **inactive-from** date has arrived
 3. marks approved bookings whose end date has passed as **Completed**
-4. delivers queued emails, with retry and backoff
+4. queues the **Activity initiation** email for approved bookings whose send date (start date minus the configured days) has arrived; once per start date
+5. delivers queued emails, with retry and backoff
 
 `python -m app.worker --once` runs a single pass (suitable for cron). Admins can also trigger steps 1–3 with
 `POST /api/admin/jobs/run`.
