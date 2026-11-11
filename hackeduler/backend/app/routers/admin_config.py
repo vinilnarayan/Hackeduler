@@ -214,7 +214,8 @@ def resource_allocation(resource_id: uuid.UUID, start: date | None = None, end: 
 
 
 # =============================================================== activity types
-ACT_FIELDS = ("name", "description", "base_duration_days", "requires_resource", "allow_additional_days", "max_additional_days", "is_active", "sort_order")
+ACT_FIELDS = ("name", "description", "base_duration_days", "requires_resource", "allow_additional_days", "max_additional_days", "is_active", "sort_order",
+              "visible_to_requesters")
 
 
 def _check_activity(a: ActivityType) -> None:
@@ -230,8 +231,11 @@ def _check_activity(a: ActivityType) -> None:
 
 
 @router.get("/activity-types", response_model=list[ActivityOut])
-def list_activities(db: Session = Depends(get_db)):
-    return db.scalars(select(ActivityType).order_by(ActivityType.sort_order, ActivityType.name)).all()
+def list_activities(include_deleted: bool = False, db: Session = Depends(get_db)):
+    q = select(ActivityType).order_by(ActivityType.sort_order, ActivityType.name)
+    if not include_deleted:
+        q = q.where(ActivityType.deleted_at.is_(None))
+    return db.scalars(q).all()
 
 
 @router.post("/activity-types", response_model=ActivityOut, status_code=201)
@@ -249,7 +253,7 @@ def create_activity(body: ActivityCreate, db: Session = Depends(get_db), admin: 
 def update_activity(activity_id: uuid.UUID, body: ActivityUpdate, db: Session = Depends(get_db),
                     admin: User = Depends(require_admin)):
     a = db.get(ActivityType, activity_id)
-    if a is None:
+    if a is None or a.deleted_at is not None:
         raise not_found("Activity type")
     prev = _snap(a, ACT_FIELDS)
     for k, v in body.model_dump(exclude_unset=True).items():
@@ -259,10 +263,38 @@ def update_activity(activity_id: uuid.UUID, body: ActivityUpdate, db: Session = 
     action = "activity_type.updated"
     if prev["is_active"] != new["is_active"]:
         action = "activity_type.activated" if a.is_active else "activity_type.deactivated"
+    elif prev["visible_to_requesters"] != new["visible_to_requesters"]:
+        action = "activity_type.visibility_changed"
     # Existing bookings keep their own duration snapshot; nothing else is touched.
     audit.record(db, action, admin, entity_type="activity_type", entity_id=a.id, previous=prev, new=new)
     commit(db)
     return a
+
+
+@router.delete("/activity-types/{activity_id}")
+def delete_activity(activity_id: uuid.UUID, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Remove an activity type. One that no booking has ever used is deleted outright; one that appears in booking
+    history is archived instead (hidden everywhere, cannot be booked) so existing bookings, reports and the audit
+    trail keep working. Existing bookings are never changed."""
+    a = db.get(ActivityType, activity_id)
+    if a is None or a.deleted_at is not None:
+        raise not_found("Activity type")
+    snap = _snap(a, ACT_FIELDS)
+    mode = "removed"
+    try:
+        with db.begin_nested():
+            db.delete(a)
+            db.flush()
+    except IntegrityError:
+        mode = "archived"
+        db.expire_all()
+        a = db.get(ActivityType, activity_id)
+        a.deleted_at = now_utc()
+        a.is_active = False
+    audit.record(db, "activity_type.deleted", admin, entity_type="activity_type", entity_id=activity_id,
+                 previous=snap, new={"mode": mode})
+    commit(db)
+    return {"ok": True, "mode": mode}
 
 
 # =============================================================== holidays

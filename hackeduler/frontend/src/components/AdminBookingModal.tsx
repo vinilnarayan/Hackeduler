@@ -123,7 +123,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
 
 function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typeof useForceFlow>['run']; onSaved: () => void }) {
   const resources = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))
-  const acts = useAsync<ActivityType[]>(() => get('/api/admin/activity-types'))
+  const acts = useAsync<ActivityType[]>(() => get('/api/admin/activity-types?include_deleted=true'))
   const products = useAsync<Product[]>(() => get('/api/admin/products'))
   const [f, setF] = useState({
     resource_id: b.resource_id ?? '', start_date: b.start_date ?? '', activity_type_id: b.activity_type_id, additional_days: b.additional_days,
@@ -161,7 +161,7 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
     <form className="space-y-4" onSubmit={async (e) => { e.preventDefault(); setBusy(true); await run((force) => patch(`/api/admin/bookings/${b.id}`, body(force)), onSaved); setBusy(false) }}>
       <p className="text-xs text-slate-500">All changes are revalidated on the server, audited with previous values, and notify the POC if the booking is approved. The old reservation is only released when the new allocation commits.</p>
       <div className="grid gap-3 md:grid-cols-3">
-        <Field label="Activity type" htmlFor="e-act"><select id="e-act" className="input" value={f.activity_type_id} onChange={s('activity_type_id')}>{acts.data?.map((a) => <option key={a.id} value={a.id} disabled={!a.is_active && a.id !== b.activity_type_id}>{a.name}{a.base_duration_days ? ` (${a.base_duration_days}d)` : ''}{a.requires_resource ? '' : ' – no resource'}{a.is_active ? '' : ' – inactive'}</option>)}</select></Field>
+        <Field label="Activity type" htmlFor="e-act"><select id="e-act" className="input" value={f.activity_type_id} onChange={s('activity_type_id')}>{acts.data?.filter((a) => !a.deleted_at || a.id === b.activity_type_id).map((a) => <option key={a.id} value={a.id} disabled={(!a.is_active || !!a.deleted_at) && a.id !== b.activity_type_id}>{a.name}{a.base_duration_days ? ` (${a.base_duration_days}d)` : ''}{a.requires_resource ? '' : ' – no resource'}{a.deleted_at ? ' – removed' : a.is_active ? '' : ' – inactive'}</option>)}</select></Field>
         {needsRes ? (
           <Field label="Resource (reassign)" htmlFor="e-res" hint={!b.resource_id ? 'Leave on auto to pick the best available engineer.' : undefined}><select id="e-res" className="input" value={f.resource_id} onChange={s('resource_id')}>
             {!b.resource_id && <option value="">Auto-assign best available</option>}

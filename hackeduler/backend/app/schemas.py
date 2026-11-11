@@ -142,6 +142,8 @@ class ActivityOut(ORM):
     max_additional_days: int
     is_active: bool
     sort_order: int
+    visible_to_requesters: bool = True
+    deleted_at: datetime | None = None
 
 
 class ActivityCreate(Strict):
@@ -153,6 +155,7 @@ class ActivityCreate(Strict):
     allow_additional_days: bool = False
     max_additional_days: int = Field(default=0, ge=0, le=250, strict=True)
     sort_order: int = 0
+    visible_to_requesters: bool = True
 
 
 class ActivityUpdate(Strict):
@@ -164,6 +167,7 @@ class ActivityUpdate(Strict):
     max_additional_days: int | None = Field(default=None, ge=0, le=250, strict=True)
     is_active: bool | None = None
     sort_order: int | None = None
+    visible_to_requesters: bool | None = None
 
 
 # ---------------------------------------------------------------- holidays / leave

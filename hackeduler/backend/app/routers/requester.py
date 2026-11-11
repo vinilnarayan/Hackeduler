@@ -85,7 +85,8 @@ def list_resources(db: Session = Depends(get_db), _: User = Depends(get_current_
 
 @router.get("/activity-types", response_model=list[ActivityOut])
 def list_activity_types(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return db.scalars(select(ActivityType).where(ActivityType.is_active.is_(True))
+    return db.scalars(select(ActivityType).where(ActivityType.is_active.is_(True), ActivityType.deleted_at.is_(None),
+                                         ActivityType.visible_to_requesters.is_(True))
                       .order_by(ActivityType.sort_order, ActivityType.name)).all()
 
 

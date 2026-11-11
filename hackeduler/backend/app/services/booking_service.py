@@ -234,9 +234,13 @@ def _clean_text(value: str | None, field: str, *, required: bool = True, max_len
     return v or None
 
 
-def _get_activity(db: Session, activity_type_id: uuid.UUID, *, must_be_active: bool = True) -> ActivityType:
+def _get_activity(db: Session, activity_type_id: uuid.UUID, *, must_be_active: bool = True,
+                  for_requester: bool = False) -> ActivityType:
     a = db.get(ActivityType, activity_type_id)
-    if a is None:
+    if a is None or a.deleted_at is not None:
+        raise bad_request("Unknown activity type.")
+    if for_requester and not a.visible_to_requesters:
+        # Hidden types are admin-only: answer exactly as if the type did not exist.
         raise bad_request("Unknown activity type.")
     if must_be_active and not a.is_active:
         raise bad_request("The selected activity type is not available for new bookings.")
@@ -409,7 +413,7 @@ def complete_past_bookings(db: Session) -> list[uuid.UUID]:
 
 def preview(db: Session, actor: User, resource_id: uuid.UUID, activity_type_id: uuid.UUID, start: date,
             additional_days: int = 0, exclude_booking_id: uuid.UUID | None = None) -> dict[str, Any]:
-    activity = _get_activity(db, activity_type_id)
+    activity = _get_activity(db, activity_type_id, for_requester=not actor.is_admin)
     if not activity.requires_resource:
         raise bad_request("This activity type does not use a security resource.", "no_resource_required")
     try:
@@ -471,7 +475,7 @@ def _validate_input(inp: BookingInput) -> None:
 def preview_auto(db: Session, actor: User, activity_type_id: uuid.UUID, start: date | None,
                  additional_days: int = 0) -> dict[str, Any]:
     """Requester preview: the system picks the resource. Nothing is reserved until submission."""
-    activity = _get_activity(db, activity_type_id)
+    activity = _get_activity(db, activity_type_id, for_requester=not actor.is_admin)
     try:
         duration = total_duration(activity, additional_days)
     except SchedulingError as e:
@@ -572,7 +576,7 @@ def _place(db: Session, actor: User, activity, inp: BookingInput, *, duration: i
 
 def submit_booking(db: Session, actor: User, inp: BookingInput) -> Booking:
     _validate_input(inp)
-    activity = _get_activity(db, inp.activity_type_id)
+    activity = _get_activity(db, inp.activity_type_id, for_requester=not actor.is_admin)
     try:
         duration = total_duration(activity, inp.additional_days)
     except SchedulingError as e:

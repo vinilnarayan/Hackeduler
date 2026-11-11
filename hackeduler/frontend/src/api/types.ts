@@ -90,6 +90,8 @@ export interface ActivityType {
   max_additional_days: number
   is_active: boolean
   sort_order: number
+  visible_to_requesters: boolean
+  deleted_at: string | null
 }
 
 export interface Holiday {

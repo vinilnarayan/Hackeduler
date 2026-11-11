@@ -181,7 +181,10 @@ class ActivityType(Base):
     allow_additional_days: Mapped[bool] = mapped_column(Boolean, default=False)
     max_additional_days: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # False = only admins can book this type (e.g. Manual Allocation); requesters never see it.
+    visible_to_requesters: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
