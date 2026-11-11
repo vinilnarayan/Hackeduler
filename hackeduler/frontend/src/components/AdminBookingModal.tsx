@@ -64,6 +64,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
             ['Activity type', b.duration_days ? `${b.activity_name} (${b.duration_days} working days${b.duration_overridden ? ', overridden' : ''}${b.base_duration_snapshot ? `; snapshot base ${b.base_duration_snapshot}` : ''})` : b.activity_name],
             ['Resource', b.requires_resource ? `${b.resource_display_name} (${b.resource_code})` : 'Not required for this activity'],
             ['Assigned engineer', b.requires_resource ? <span className="font-medium">{b.engineer_name}</span> : '—'],
+            ...(b.extra_resources?.length ? [['Additional resources', <span className="font-medium">{b.extra_resources.map((r) => `${r.display_name} (${r.engineer_name})`).join(', ')}</span>] as [string, React.ReactNode]] : []),
             ['Product', b.product_name ?? '—'], ['Implementation', b.implementation_name ?? '—'],
             ['Start date', fmt(b.start_date)], ['Expected end date', fmt(b.end_date)],
             ['POC', `${b.poc_name} <${b.poc_email}>`], ['Requester', `${b.requester_name} <${b.requester_email}>`],
@@ -161,6 +162,7 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
     <form className="space-y-4" onSubmit={async (e) => { e.preventDefault(); setBusy(true); await run((force) => patch(`/api/admin/bookings/${b.id}`, body(force)), onSaved); setBusy(false) }}>
       <p className="text-xs text-slate-500">All changes are revalidated on the server, audited with previous values, and notify the POC if the booking is approved. The old reservation is only released when the new allocation commits.</p>
       <div className="grid gap-3 md:grid-cols-3">
+        {b.extra_resources?.length > 0 && <div className="col-span-full rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">This booking holds {b.extra_resources.length + 1} resources, so its dates, activity and resources can’t be changed here – only the details. To change them, cancel it and create a new multi-resource booking.</div>}
         <Field label="Activity type" htmlFor="e-act"><select id="e-act" className="input" value={f.activity_type_id} onChange={s('activity_type_id')}>{acts.data?.filter((a) => !a.deleted_at || a.id === b.activity_type_id).map((a) => <option key={a.id} value={a.id} disabled={(!a.is_active || !!a.deleted_at) && a.id !== b.activity_type_id}>{a.name}{a.base_duration_days ? ` (${a.base_duration_days}d)` : ''}{a.requires_resource ? '' : ' – no resource'}{a.deleted_at ? ' – removed' : a.is_active ? '' : ' – inactive'}</option>)}</select></Field>
         {needsRes ? (
           <Field label="Resource (reassign)" htmlFor="e-res" hint={!b.resource_id ? 'Leave on auto to pick the best available engineer.' : undefined}><select id="e-res" className="input" value={f.resource_id} onChange={s('resource_id')}>

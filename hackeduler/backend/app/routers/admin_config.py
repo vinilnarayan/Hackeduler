@@ -88,7 +88,7 @@ def delete_resource(resource_id: uuid.UUID, db: Session = Depends(get_db), admin
     A resource that was never booked is removed completely; otherwise it is archived so booking
     history keeps its identifier. Archived identifiers are never reused."""
     r = _get_resource(db, resource_id)
-    active = db.scalars(select(Booking).where(Booking.resource_id == r.id, Booking.status.in_(BookingStatus.ACTIVE))
+    active = db.scalars(select(Booking).where(Booking.uses_resource(r.id), Booking.status.in_(BookingStatus.ACTIVE))
                         .order_by(Booking.start_date)).unique().all()
     if active:
         raise conflict(
@@ -205,7 +205,7 @@ def resource_allocation(resource_id: uuid.UUID, start: date | None = None, end: 
     today = settings_service.org_today(db)
     start = start or today - timedelta(days=90)
     end = end or today + timedelta(days=180)
-    bookings = db.scalars(select(Booking).where(Booking.resource_id == r.id, Booking.start_date <= end,
+    bookings = db.scalars(select(Booking).where(Booking.uses_resource(r.id), Booking.start_date <= end,
                                                 Booking.end_date >= start).order_by(Booking.start_date)).unique().all()
     leaves = db.scalars(select(ResourceLeave).where(ResourceLeave.resource_id == r.id, ResourceLeave.start_date <= end,
                                                     ResourceLeave.end_date >= start).order_by(ResourceLeave.start_date)).unique().all()

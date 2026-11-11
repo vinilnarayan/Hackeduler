@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func
+from sqlalchemy import JSON, Boolean, Column, Date, DateTime, ForeignKey, Integer, SmallInteger, String, Table, Text, func, or_, select
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -215,6 +215,13 @@ class ResourceLeave(Base):
     resource: Mapped[SecurityResource] = relationship(lazy="joined")
 
 
+booking_extra_resources = Table(
+    "booking_extra_resources", Base.metadata,
+    Column("booking_id", UUID(as_uuid=True), ForeignKey("bookings.id", ondelete="CASCADE"), primary_key=True),
+    Column("resource_id", UUID(as_uuid=True), ForeignKey("security_resources.id"), primary_key=True),
+)
+
+
 class Booking(Base):
     __tablename__ = "bookings"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
@@ -260,6 +267,20 @@ class Booking(Base):
     activity_type: Mapped[ActivityType] = relationship(lazy="joined")
     product: Mapped[Product | None] = relationship(lazy="joined", foreign_keys=[product_id])
     implementation: Mapped[Implementation | None] = relationship(lazy="joined", foreign_keys=[implementation_id])
+    # Additional security resources working the same booking (admin multi-resource allocation). The primary
+    # resource stays in ``resource_id``; every resource (primary + extras) has its own locks.
+    extra_resources: Mapped[list["SecurityResource"]] = relationship(secondary="booking_extra_resources", lazy="selectin",
+                                                                      order_by="SecurityResource.sequence_no")
+
+    @property
+    def extra_resource_ids(self) -> list[uuid.UUID]:
+        return [r.id for r in self.extra_resources]
+
+    @classmethod
+    def uses_resource(cls, resource_id: uuid.UUID):
+        """SQL clause: the booking's primary resource OR one of its additional resources is ``resource_id``."""
+        return or_(cls.resource_id == resource_id,
+                   cls.id.in_(select(booking_extra_resources.c.booking_id).where(booking_extra_resources.c.resource_id == resource_id)))
 
 
 class BookingStatusHistory(Base):

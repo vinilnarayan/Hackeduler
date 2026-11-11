@@ -132,7 +132,7 @@ def list_bookings(
             raise bad_request("Invalid status filter.")
         stmt = stmt.where(Booking.status == status)
     if resource_id:
-        stmt = stmt.where(Booking.resource_id == resource_id)
+        stmt = stmt.where(Booking.uses_resource(resource_id))
     if activity_type_id:
         stmt = stmt.where(Booking.activity_type_id == activity_type_id)
     if start:
@@ -202,10 +202,12 @@ def admin_check(body: AdminAvailabilityQuery, db: Session = Depends(get_db), adm
 
 @router.post("/bookings", status_code=201)
 def admin_create(body: AdminBookingCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    data = body.model_dump(exclude={"initial_status", "duration_days", "end_date", "reason", "force"})
+    data = body.model_dump(exclude={"initial_status", "duration_days", "end_date", "reason", "force", "additional_resource_ids"})
+    # Admin bookings need no approval: always created as confirmed (body.initial_status is ignored).
     b = booking_service.admin_create_booking(
-        db, admin, booking_service.BookingInput(**data), initial_status=body.initial_status,
-        duration_override=body.duration_days, end_date_override=body.end_date, force=_force(body.force), reason=body.reason)
+        db, admin, booking_service.BookingInput(**data), initial_status="approved",
+        duration_override=body.duration_days, end_date_override=body.end_date, force=_force(body.force), reason=body.reason,
+        additional_resource_ids=body.additional_resource_ids)
     commit(db)
     return _out(db, b)
 

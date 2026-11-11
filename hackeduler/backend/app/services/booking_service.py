@@ -363,7 +363,7 @@ def expire_stale_pending(db: Session, resource_id: uuid.UUID | None = None) -> l
     q = select(Booking).where(Booking.status == BookingStatus.PENDING, Booking.expires_at.is_not(None),
                               Booking.expires_at <= now_utc())
     if resource_id is not None:
-        q = q.where(Booking.resource_id == resource_id)
+        q = q.where(Booking.uses_resource(resource_id))
     ids = []
     for b in db.scalars(q.with_for_update(of=Booking, skip_locked=True)).unique().all():
         _release_locks(db, b.id)
@@ -574,6 +574,40 @@ def _place(db: Session, actor: User, activity, inp: BookingInput, *, duration: i
                    "no_resource_available", {"suggested_start_date": nxt.isoformat() if nxt else None})
 
 
+def _place_multi(db: Session, admin: User, activity, inp: BookingInput, extra_ids: list[uuid.UUID], *, duration: int,
+                 product_id, implementation_id, end_date_override: date | None, overridden: bool,
+                 reason: str) -> tuple[Booking, SchedulePlan]:
+    """Admin booking that blocks several resources for the same activity: ONE confirmed booking, one set of
+    locks per resource. All-or-nothing - every chosen resource must be free for the whole period."""
+    all_ids = [inp.resource_id, *extra_ids]
+    resources = lock_resources(db, all_ids)  # sorted row locks: concurrent bookings cannot interleave or deadlock
+    for r in resources.values():
+        expire_stale_pending(db, r.id)
+    plans: list[SchedulePlan] = []
+    for rid in all_ids:
+        r = resources[rid]
+        try:
+            plan = plan_schedule(db, r, inp.start_date, duration, explicit_end_date=end_date_override)
+        except SchedulingError as e:
+            raise bad_request(f"{r.display_name}: {e.message}", e.code)
+        if plan.issues:
+            raise conflict(f"{r.display_name} is not free for the selected dates: {plan.issues[0].message} "
+                           "Nothing was booked. Remove it from the selection or change the dates.",
+                           "resource_unavailable",
+                           {"resource_id": str(r.id), "issues": _issues_json(plan.issues, include_booking_ids=True)})
+        plans.append(plan)
+    primary = plans[0]
+    end = max(p.end_date for p in plans if p.end_date)
+    b = _new_booking(db, admin, activity, inp, resource_id=primary.resource.id, start=min(p.start_date for p in plans),
+                     end=end, duration=primary.duration_days, status=BookingStatus.APPROVED, source="admin",
+                     expires_at=None, product_id=product_id, implementation_id=implementation_id,
+                     overridden=overridden, reason=reason)
+    b.extra_resources = [resources[i] for i in extra_ids]
+    for plan in plans:
+        _write_locks(db, b, plan, LockStatus.CONFIRMED, False, None)
+    return b, primary
+
+
 def submit_booking(db: Session, actor: User, inp: BookingInput) -> Booking:
     _validate_input(inp)
     activity = _get_activity(db, inp.activity_type_id, for_requester=not actor.is_admin)
@@ -610,10 +644,12 @@ def submit_booking(db: Session, actor: User, inp: BookingInput) -> Booking:
 
 def admin_create_booking(db: Session, admin: User, inp: BookingInput, *, initial_status: str = BookingStatus.APPROVED,
                          duration_override: int | None = None, end_date_override: date | None = None,
-                         force: ForceOptions | None = None, reason: str | None = None) -> Booking:
+                         force: ForceOptions | None = None, reason: str | None = None,
+                         additional_resource_ids: list[uuid.UUID] | None = None) -> Booking:
     if not admin.is_admin:
         raise forbidden()
     ensure_force_allowed(admin, force)
+    extra_ids = list(additional_resource_ids or [])
     if initial_status not in (BookingStatus.APPROVED, BookingStatus.PENDING):
         raise bad_request("Initial status must be approved or pending_approval.")
     _validate_input(inp)
@@ -631,6 +667,8 @@ def admin_create_booking(db: Session, admin: User, inp: BookingInput, *, initial
     note = reason or "Created by administrator"
     forced, plan = False, None
     if not activity.requires_resource:
+        if extra_ids:
+            raise bad_request("This activity type does not use a security resource.", "no_resource_required")
         if inp.resource_id:
             raise bad_request("This activity type does not use a security resource.", "no_resource_required")
         if end_date_override and inp.start_date:
@@ -647,10 +685,25 @@ def admin_create_booking(db: Session, admin: User, inp: BookingInput, *, initial
             raise bad_request("A start date is required for this activity.", "start_required")
         if force is not None and not inp.resource_id:
             raise bad_request("Select a resource to force allocate.")
-        b, plan, forced = _place(db, admin, activity, inp, duration=duration, status=initial_status, source="admin",
-                                 product_id=product_id, implementation_id=implementation_id, force=force,
-                                 end_date_override=end_date_override,
-                                 overridden=duration_override is not None or end_date_override is not None, reason=note)
+        if extra_ids:
+            if not inp.resource_id:
+                raise bad_request("Choose the main resource first, then add the other resources.", "resource_required")
+            if len(set(extra_ids)) != len(extra_ids) or inp.resource_id in extra_ids:
+                raise bad_request("Each resource can only be selected once.", "duplicate_resource")
+            if force is not None:
+                raise bad_request("Force Allocate cannot be combined with multiple resources. Book resources "
+                                  "that are free, or force allocate a single resource.", "force_not_supported")
+            if initial_status != BookingStatus.APPROVED:
+                raise bad_request("Multi-resource bookings are always confirmed.")
+            b, plan = _place_multi(db, admin, activity, inp, extra_ids, duration=duration, product_id=product_id,
+                                   implementation_id=implementation_id, end_date_override=end_date_override,
+                                   overridden=duration_override is not None or end_date_override is not None, reason=note)
+            forced = False
+        else:
+            b, plan, forced = _place(db, admin, activity, inp, duration=duration, status=initial_status, source="admin",
+                                     product_id=product_id, implementation_id=implementation_id, force=force,
+                                     end_date_override=end_date_override,
+                                     overridden=duration_override is not None or end_date_override is not None, reason=note)
     db.refresh(b)
     if forced:
         _record_force(db, admin, b, plan, force, plan.issues, previous_allocation=None)
@@ -796,6 +849,10 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
     b = lock_booking(db, booking_id)
     if b.status not in BookingStatus.ACTIVE:
         raise conflict("Only pending or approved bookings can be modified.", "invalid_state")
+    if b.extra_resources and (set(changes) & SCHEDULE_FIELDS):
+        raise conflict("This booking holds several resources, so its dates, activity and resources can't be edited "
+                       "in place. Cancel it and create a new multi-resource booking, or edit the booking details only.",
+                       "multi_resource_locked")
     before = audit.booking_snapshot(b)
     old_alloc = {"resource_id": str(b.resource_id) if b.resource_id else None,
                  "resource_code": b.resource.code if b.resource else None,

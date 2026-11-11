@@ -92,7 +92,7 @@ def bookings_spanning_dates(db: Session, dates: set[date], resource_id: uuid.UUI
     lo, hi = min(dates), max(dates)
     q = select(Booking).where(Booking.status.in_(BookingStatus.ACTIVE), Booking.start_date <= hi, Booking.end_date >= lo)
     if resource_id is not None:
-        q = q.where(Booking.resource_id == resource_id)
+        q = q.where(Booking.uses_resource(resource_id))
     return [b for b in db.scalars(q).unique() if any(b.start_date <= d <= b.end_date for d in dates)]
 
 
@@ -136,7 +136,7 @@ def flag_inactive_resource(db: Session, resource, from_date: date, actor: User |
     Bookings are never moved or cancelled; admins reassign/reschedule via the conflict workflow.
     """
     q = select(Booking).where(
-        Booking.resource_id == resource.id, Booking.status.in_(BookingStatus.ACTIVE), Booking.end_date >= from_date
+        Booking.uses_resource(resource.id), Booking.status.in_(BookingStatus.ACTIVE), Booking.end_date >= from_date
     )
     ids = []
     for b in db.scalars(q).unique():

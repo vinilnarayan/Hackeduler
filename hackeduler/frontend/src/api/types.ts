@@ -149,6 +149,7 @@ export interface Booking {
 export interface AdminBooking extends Booking {
   resource_code: string | null
   engineer_name: string | null
+  extra_resources: { id: string; code: string; display_name: string; engineer_name: string }[]
   requester_id: string
   requester_email: string
   source: string

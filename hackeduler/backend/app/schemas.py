@@ -258,7 +258,10 @@ class ForceIn(Strict):
 
 
 class AdminBookingCreate(BookingCreate):
+    # Admin bookings are always confirmed; the field is accepted for older clients but pending is no longer honoured.
     initial_status: Literal["approved", "pending_approval"] = "approved"
+    additional_resource_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10,
+                                                      description="Extra resources blocked for the same booking")
     duration_days: int | None = Field(default=None, gt=0, le=250)
     end_date: date | None = None
     reason: str | None = Field(default=None, max_length=2000)
@@ -373,6 +376,8 @@ class BookingAdminOut(BookingRequesterOut):
     cancelled_at: datetime | None
     version: int
     open_conflicts: int = 0
+    # Additional resources blocked by an admin multi-resource booking (primary is resource_code/engineer_name)
+    extra_resources: list[dict] = Field(default_factory=list)
 
 
 def booking_requester_out(b, pending_cr=None, viewer_id=None) -> BookingRequesterOut:
@@ -404,6 +409,8 @@ def booking_admin_out(b, pending_cr=None, open_conflicts: int = 0) -> BookingAdm
         base_duration_snapshot=b.base_duration_snapshot, approved_by=b.approved_by, approved_at=b.approved_at,
         rejected_by=b.rejected_by, rejected_at=b.rejected_at, cancelled_by=b.cancelled_by, cancelled_at=b.cancelled_at,
         version=b.version, open_conflicts=open_conflicts,
+        extra_resources=[{"id": str(r.id), "code": r.code, "display_name": r.display_name, "engineer_name": r.engineer_name}
+                         for r in b.extra_resources],
     )
 
 

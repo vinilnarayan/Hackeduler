@@ -50,7 +50,7 @@ export default function AdminBookings() {
                   <td className="td text-xs">{b.product_name ?? <span className="text-slate-400">—</span>}{b.implementation_name && <div className="text-slate-500">{b.implementation_name}</div>}</td>
                   <td className="td">{b.activity_name}<div className="text-xs text-slate-500">{b.duration_days ? `${b.duration_days}d` : 'no duration'}</div></td>
                   <td className="td">{b.pci_dss_scope ? 'Yes' : 'No'}</td>
-                  <td className="td">{b.requires_resource ? <>{b.resource_display_name}<div className="text-xs text-slate-500">{b.engineer_name}</div></> : <span className="text-xs text-slate-500">Not required</span>}</td>
+                  <td className="td">{b.requires_resource ? <>{b.resource_display_name}{b.extra_resources?.length > 0 && <span className="ml-1 rounded bg-blue-100 px-1 text-xs text-blue-800" title={b.extra_resources.map((r) => r.display_name).join(', ')}>+{b.extra_resources.length}</span>}<div className="text-xs text-slate-500">{b.engineer_name}</div></> : <span className="text-xs text-slate-500">Not required</span>}</td>
                   <td className="td whitespace-nowrap">{b.start_date ? <>{fmt(b.start_date)}<div className="text-xs text-slate-500">→ {fmt(b.end_date)}</div></> : <span className="text-xs text-slate-500">Date flexible</span>}</td>
                   <td className="td">{b.poc_name}<div className="text-xs text-slate-500">{b.poc_email}</div></td>
                   <td className="td text-xs">{b.requester_name}</td>
