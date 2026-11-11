@@ -25,6 +25,7 @@ export default function ManualAllocation() {
   })
   const [check, setCheck] = useState<AvailabilityResult | null>(null)
   const [extras, setExtras] = useState<string[]>([])
+  const [slice, setSlice] = useState<Record<string, { start_date: string; working_days: string }>>({})
   const [free, setFree] = useState<Record<string, AvailabilityResult>>({})
   const [busy, setBusy] = useState(false)
   const s = (k: keyof typeof f) => (e: React.ChangeEvent<any>) => setF({ ...f, [k]: e.target.type === 'number' ? parseInt(e.target.value || '0', 10) : e.target.value })
@@ -60,7 +61,9 @@ export default function ManualAllocation() {
     resource_id: needsRes ? (f.resource_id || null) : null, activity_type_id: f.activity_type_id, start_date: f.start_date || null, additional_days: f.additional_days,
     product_id: f.product_id || null, implementation_id: f.implementation_id || null,
     duration_days: !f.end_date && f.duration_mode === 'duration' ? f.duration_days : null, end_date: f.end_date || null,
-    additional_resource_ids: needsRes && f.resource_id ? extras : [], application_name: f.application_name, application_version: f.application_version,
+    additional_resources: needsRes && f.resource_id ? extras.map((id) => ({
+      resource_id: id, ...(slice[id]?.start_date ? { start_date: slice[id].start_date } : {}),
+      ...(Number(slice[id]?.working_days) > 0 ? { working_days: Number(slice[id].working_days) } : {}) })) : [], application_name: f.application_name, application_version: f.application_version,
     pci_dss_scope: f.pci === 'yes', poc_name: f.poc_name, poc_email: f.poc_email, additional_comments: f.additional_comments || null,
     reason: f.reason || null, ...(fp ? { force: fp } : {}),
   })
@@ -95,15 +98,31 @@ export default function ManualAllocation() {
                 const busy = !!st && !st.available
                 return (
                   <label key={r.id} className={`flex items-start gap-2 rounded border border-slate-200 p-2 text-sm ${busy ? 'opacity-60' : ''}`} title={busy ? st.message : undefined}>
-                    <input type="checkbox" className="mt-0.5" disabled={busy || !st} checked={extras.includes(r.id)}
+                    <input type="checkbox" className="mt-0.5" checked={extras.includes(r.id)}
                       onChange={(e) => setExtras(e.target.checked ? [...extras, r.id] : extras.filter((x) => x !== r.id))} />
                     <span className="flex-1">{r.display_name} – {r.engineer_name}</span>
-                    <span className={`text-xs font-medium ${!st ? 'text-slate-400' : busy ? 'text-amber-700' : 'text-emerald-700'}`}>{!st ? '…' : busy ? 'Busy' : 'Free'}</span>
+                    <span className={`text-xs font-medium ${!st ? 'text-slate-400' : busy ? 'text-amber-700' : 'text-emerald-700'}`}>{!st ? '…' : busy ? 'Busy in these dates' : 'Free'}</span>
                   </label>
                 )
               })}
             </div>
-            {extras.length > 0 && <p className="mt-2 text-xs text-slate-600">{extras.length + 1} resources will be blocked. Force Allocate is not available for multi-resource bookings.</p>}
+            {extras.length > 0 && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-slate-600">By default every resource is blocked for the same dates. To split the activity, give a resource its own <b>start date</b> and number of <b>working days</b> (for example resource 1 takes the first 5 days and resource 2 takes the other 3 days the following week). Busy days are checked when you book.</p>
+                {extras.map((id) => {
+                  const r = (resources.data ?? []).find((x) => x.id === id)
+                  const v = slice[id] ?? { start_date: '', working_days: '' }
+                  return (
+                    <div key={id} className="grid items-end gap-2 rounded border border-slate-200 p-2 sm:grid-cols-3">
+                      <div className="text-sm font-medium">{r?.display_name} – {r?.engineer_name}</div>
+                      <Field label="Start date (optional)" htmlFor={`x-sd-${id}`}><input id={`x-sd-${id}`} type="date" className="input" min={f.start_date || undefined} value={v.start_date} onChange={(e) => setSlice({ ...slice, [id]: { ...v, start_date: e.target.value } })} /></Field>
+                      <Field label="Working days (optional)" htmlFor={`x-wd-${id}`}><input id={`x-wd-${id}`} type="number" min={1} max={250} className="input" placeholder="same as main" value={v.working_days} onChange={(e) => setSlice({ ...slice, [id]: { ...v, working_days: e.target.value } })} /></Field>
+                    </div>
+                  )
+                })}
+                <p className="text-xs text-slate-600">{extras.length + 1} resources will be blocked in one confirmed booking. Force Allocate is not available for multi-resource bookings.</p>
+              </div>
+            )}
           </fieldset>
         )}
         {check && (

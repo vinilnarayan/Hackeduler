@@ -574,20 +574,42 @@ def _place(db: Session, actor: User, activity, inp: BookingInput, *, duration: i
                    "no_resource_available", {"suggested_start_date": nxt.isoformat() if nxt else None})
 
 
-def _place_multi(db: Session, admin: User, activity, inp: BookingInput, extra_ids: list[uuid.UUID], *, duration: int,
+@dataclass
+class ExtraAllocation:
+    """An additional resource on an admin booking. Anything left empty follows the main allocation, so a plain
+    resource id reserves the same dates; a start date and working days (or an end date) give it its own slice
+    of the activity (e.g. resource 1 takes the first 5 days, resource 2 takes the last 3 days a week later)."""
+    resource_id: uuid.UUID
+    start_date: date | None = None
+    working_days: int | None = None
+    end_date: date | None = None
+
+    @property
+    def custom(self) -> bool:
+        return self.start_date is not None or self.working_days is not None or self.end_date is not None
+
+
+def _place_multi(db: Session, admin: User, activity, inp: BookingInput, extras: list[ExtraAllocation], *, duration: int,
                  product_id, implementation_id, end_date_override: date | None, overridden: bool,
                  reason: str) -> tuple[Booking, SchedulePlan]:
     """Admin booking that blocks several resources for the same activity: ONE confirmed booking, one set of
     locks per resource. All-or-nothing - every chosen resource must be free for the whole period."""
+    extra_ids = [e.resource_id for e in extras]
     all_ids = [inp.resource_id, *extra_ids]
     resources = lock_resources(db, all_ids)  # sorted row locks: concurrent bookings cannot interleave or deadlock
     for r in resources.values():
         expire_stale_pending(db, r.id)
     plans: list[SchedulePlan] = []
-    for rid in all_ids:
+    # (resource, start, working days, explicit end) for the main resource first, then each additional one
+    slices = [(inp.resource_id, inp.start_date, duration, end_date_override)]
+    for e in extras:
+        # No length given: follow the main allocation (same end date when it has one and the dates are the same)
+        inherited_end = end_date_override if (e.start_date is None and e.working_days is None and e.end_date is None) else None
+        slices.append((e.resource_id, e.start_date or inp.start_date, e.working_days or duration, e.end_date or inherited_end))
+    for rid, start, days, end in slices:
         r = resources[rid]
         try:
-            plan = plan_schedule(db, r, inp.start_date, duration, explicit_end_date=end_date_override)
+            plan = plan_schedule(db, r, start, days, explicit_end_date=end)
         except SchedulingError as e:
             raise bad_request(f"{r.display_name}: {e.message}", e.code)
         if plan.issues:
@@ -598,8 +620,11 @@ def _place_multi(db: Session, admin: User, activity, inp: BookingInput, extra_id
         plans.append(plan)
     primary = plans[0]
     end = max(p.end_date for p in plans if p.end_date)
+    # Same dates for everyone: the booking is as long as the main allocation. Split between resources: it covers
+    # the working days of all the slices together.
+    total_days = sum(len(p.work_dates) for p in plans) if any(e.custom for e in extras) else primary.duration_days
     b = _new_booking(db, admin, activity, inp, resource_id=primary.resource.id, start=min(p.start_date for p in plans),
-                     end=end, duration=primary.duration_days, status=BookingStatus.APPROVED, source="admin",
+                     end=end, duration=total_days, status=BookingStatus.APPROVED, source="admin",
                      expires_at=None, product_id=product_id, implementation_id=implementation_id,
                      overridden=overridden, reason=reason)
     b.extra_resources = [resources[i] for i in extra_ids]
@@ -645,11 +670,12 @@ def submit_booking(db: Session, actor: User, inp: BookingInput) -> Booking:
 def admin_create_booking(db: Session, admin: User, inp: BookingInput, *, initial_status: str = BookingStatus.APPROVED,
                          duration_override: int | None = None, end_date_override: date | None = None,
                          force: ForceOptions | None = None, reason: str | None = None,
-                         additional_resource_ids: list[uuid.UUID] | None = None) -> Booking:
+                         additional: list[ExtraAllocation] | None = None) -> Booking:
     if not admin.is_admin:
         raise forbidden()
     ensure_force_allowed(admin, force)
-    extra_ids = list(additional_resource_ids or [])
+    extras = list(additional or [])
+    extra_ids = [e.resource_id for e in extras]
     if initial_status not in (BookingStatus.APPROVED, BookingStatus.PENDING):
         raise bad_request("Initial status must be approved or pending_approval.")
     _validate_input(inp)
@@ -695,7 +721,7 @@ def admin_create_booking(db: Session, admin: User, inp: BookingInput, *, initial
                                   "that are free, or force allocate a single resource.", "force_not_supported")
             if initial_status != BookingStatus.APPROVED:
                 raise bad_request("Multi-resource bookings are always confirmed.")
-            b, plan = _place_multi(db, admin, activity, inp, extra_ids, duration=duration, product_id=product_id,
+            b, plan = _place_multi(db, admin, activity, inp, extras, duration=duration, product_id=product_id,
                                    implementation_id=implementation_id, end_date_override=end_date_override,
                                    overridden=duration_override is not None or end_date_override is not None, reason=note)
             forced = False

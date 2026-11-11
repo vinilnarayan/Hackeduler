@@ -203,12 +203,13 @@ def admin_check(body: AdminAvailabilityQuery, db: Session = Depends(get_db), adm
 
 @router.post("/bookings", status_code=201)
 def admin_create(body: AdminBookingCreate, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    data = body.model_dump(exclude={"initial_status", "duration_days", "end_date", "reason", "force", "additional_resource_ids"})
+    data = body.model_dump(exclude={"initial_status", "duration_days", "end_date", "reason", "force", "additional_resource_ids", "additional_resources"})
     # Admin bookings need no approval: always created as confirmed (body.initial_status is ignored).
     b = booking_service.admin_create_booking(
         db, admin, booking_service.BookingInput(**data), initial_status="approved",
         duration_override=body.duration_days, end_date_override=body.end_date, force=_force(body.force), reason=body.reason,
-        additional_resource_ids=body.additional_resource_ids)
+        additional=[booking_service.ExtraAllocation(i) for i in body.additional_resource_ids]
+        + [booking_service.ExtraAllocation(e.resource_id, e.start_date, e.working_days, e.end_date) for e in body.additional_resources])
     commit(db)
     return _out(db, b)
 

@@ -104,3 +104,33 @@ def test_resource_with_extra_booking_cannot_be_deleted(admin, data):
     r = admin.delete(f"/api/admin/resources/{data['resources'][2].id}")
     assert r.status_code == 409 and r.json()["error"]["code"] == "resource_in_use"
     assert admin.get(f"/api/admin/resources/{data['resources'][2].id}/allocation").json()["bookings"]
+
+
+def test_split_activity_between_resources_with_own_dates(admin, req1, data):
+    """Resource 1 takes the first 5 days, resource 2 (busy on Friday of week 1) takes 3 days the next week."""
+    assert admin.post("/api/admin/bookings", json=booking_payload(data, resource_idx=1, start=date(2027, 3, 5), duration_days=1, application_name="Fri")).status_code == 201
+    p = booking_payload(data, duration_days=5, additional_resources=[
+        {"resource_id": str(data["resources"][1].id), "start_date": "2027-03-08", "working_days": 3}])
+    r = admin.post("/api/admin/bookings", json=p)
+    assert r.status_code == 201, r.text
+    b = r.json()
+    assert b["status"] == "approved" and b["start_date"] == "2027-03-01" and b["end_date"] == "2027-03-10"
+    assert b["duration_days"] == 8
+    by = {}
+    for l in _locks(b["id"]):
+        by.setdefault(l.resource_id, []).append(l.work_date)
+    assert len(by[data["resources"][0].id]) == 5 and len(by[data["resources"][1].id]) == 3
+    assert min(by[data["resources"][1].id]) == date(2027, 3, 8)
+
+
+def test_split_is_rejected_when_the_slice_is_busy(admin, req1, data):
+    assert admin.post("/api/admin/bookings", json=booking_payload(data, resource_idx=1, start=date(2027, 3, 5), duration_days=1, application_name="Fri")).status_code == 201
+    p = booking_payload(data, duration_days=5, additional_resources=[
+        {"resource_id": str(data["resources"][1].id), "start_date": "2027-03-04", "working_days": 3}])
+    r = admin.post("/api/admin/bookings", json=p)
+    assert r.status_code == 409 and r.json()["error"]["code"] == "resource_unavailable"
+
+
+def test_extra_resource_cannot_have_both_days_and_end_date(admin, data):
+    p = booking_payload(data, additional_resources=[{"resource_id": str(data["resources"][1].id), "working_days": 2, "end_date": "2027-03-10"}])
+    assert admin.post("/api/admin/bookings", json=p).status_code == 422

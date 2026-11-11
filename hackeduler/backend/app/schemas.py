@@ -14,7 +14,7 @@ from typing import Any, Literal
 import re
 from typing import Annotated
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .models import BookingStatus
 
@@ -270,11 +270,28 @@ class ForceIn(Strict):
     reason: str = Field(min_length=1, max_length=2000)
 
 
+class ExtraResourceIn(Strict):
+    """An additional resource on an admin booking. Leave the dates empty to reserve the same dates as the main
+    resource, or give it its own slice of the activity: a start date plus working days (or an end date)."""
+    resource_id: uuid.UUID
+    start_date: date | None = None
+    working_days: int | None = Field(default=None, gt=0, le=250, strict=True)
+    end_date: date | None = None
+
+    @model_validator(mode="after")
+    def _one_length(self):
+        if self.working_days is not None and self.end_date is not None:
+            raise ValueError("Give either working_days or end_date for an additional resource, not both.")
+        return self
+
+
 class AdminBookingCreate(BookingCreate):
     # Admin bookings are always confirmed; the field is accepted for older clients but pending is no longer honoured.
     initial_status: Literal["approved", "pending_approval"] = "approved"
     additional_resource_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10,
-                                                      description="Extra resources blocked for the same booking")
+                                                      description="Extra resources blocked for the same dates")
+    additional_resources: list[ExtraResourceIn] = Field(default_factory=list, max_length=10,
+                                                        description="Extra resources, each optionally with its own start date and length")
     duration_days: int | None = Field(default=None, gt=0, le=250)
     end_date: date | None = None
     reason: str | None = Field(default=None, max_length=2000)
