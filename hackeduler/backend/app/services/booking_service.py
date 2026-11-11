@@ -38,6 +38,7 @@ from ..models import (
     SecurityResource,
     User,
 )
+from ..emailutil import split_emails
 from . import audit, conflicts, initiation, notifications, settings_service
 from .availability import (
     UNAVAILABLE_MESSAGE,
@@ -468,7 +469,7 @@ def _validate_input(inp: BookingInput) -> None:
     inp.application_name = _clean_text(inp.application_name, "Application Name")
     inp.application_version = _clean_text(inp.application_version, "Application Version", max_len=100)
     inp.poc_name = _clean_text(inp.poc_name, "POC Name")
-    inp.poc_email = _clean_text(inp.poc_email, "POC Email", max_len=254)
+    inp.poc_email = _clean_text(inp.poc_email, "POC Email", max_len=2000)
     inp.additional_comments = _clean_text(inp.additional_comments, "Additional Comments", required=False, max_len=4000)
 
 
@@ -1043,7 +1044,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                 lines.append(f"- {labels[k]}: {before.get(k)} -> {after.get(k)}")
         notifications.notify_modified(db, b, "\n".join(lines) or "Booking details updated.", reason)
         if "poc_email" in changed and before.get("poc_email"):
-            notifications.enqueue(db, "booking_modified_poc", [before["poc_email"]],
+            notifications.enqueue(db, "booking_modified_poc", split_emails(before["poc_email"]),
                                   notifications.booking_context(b, **{"Change Summary": "\n".join(lines), "Reason": reason}), b.id)
     if b.status == BookingStatus.APPROVED:
         initiation.send_if_due(db, b)  # rescheduled (new start date) and already inside the window => send again now

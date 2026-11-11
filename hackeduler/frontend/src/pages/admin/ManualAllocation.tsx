@@ -9,6 +9,8 @@ import { fmt } from '../../lib/dates'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
 
+import { validPocEmails } from '../../lib/emails'
+
 export default function ManualAllocation() {
   const [sp] = useSearchParams()
   const nav = useNavigate()
@@ -68,7 +70,7 @@ export default function ManualAllocation() {
     reason: f.reason || null, ...(fp ? { force: fp } : {}),
   })
   const prod = products.data?.find((p) => p.id === f.product_id)
-  const valid = f.activity_type_id && (!needsRes || f.start_date) && f.application_name && f.application_version && f.poc_name && f.poc_email
+  const valid = f.activity_type_id && (!needsRes || f.start_date) && f.application_name && f.application_version && f.poc_name && validPocEmails(f.poc_email)
   return (
     <div className="max-w-5xl">
       <PageHeader title="Manual Allocation" subtitle="Create a booking directly, bypassing the requester workflow. If a conflict or restriction is detected you will be asked to confirm a Force Allocate." />
@@ -137,7 +139,7 @@ export default function ManualAllocation() {
           <Field label="Application version *" htmlFor="m-av"><input id="m-av" className="input" value={f.application_version} onChange={s('application_version')} /></Field>
           <Field label="PCI DSS scope *" htmlFor="m-pci"><select id="m-pci" className="input" value={f.pci} onChange={s('pci')}><option value="yes">Yes</option><option value="no">No</option></select></Field>
           <Field label="POC name *" htmlFor="m-pn"><input id="m-pn" className="input" value={f.poc_name} onChange={s('poc_name')} /></Field>
-          <Field label="POC email *" htmlFor="m-pe"><input id="m-pe" type="email" className="input" value={f.poc_email} onChange={s('poc_email')} /></Field>
+          <Field label="POC email(s) *" htmlFor="m-pe" hint="Separate several addresses with commas."><input id="m-pe" type="text" inputMode="email" className="input" placeholder="name@company.com, other@company.com" value={f.poc_email} onChange={s('poc_email')} /></Field>
           <Field label="Comments" htmlFor="m-c"><input id="m-c" className="input" value={f.additional_comments} onChange={s('additional_comments')} /></Field>
           <Field label="Product" htmlFor="m-prod"><select id="m-prod" className="input" value={f.product_id} onChange={(e) => setF({ ...f, product_id: e.target.value, implementation_id: '' })}><option value="">— None —</option>{products.data?.filter((p) => p.is_active).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
           <Field label="Implementation" htmlFor="m-impl"><select id="m-impl" className="input" value={f.implementation_id} disabled={!prod} onChange={s('implementation_id')}><option value="">— None —</option>{prod?.implementations.filter((i) => i.is_active).map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</select></Field>

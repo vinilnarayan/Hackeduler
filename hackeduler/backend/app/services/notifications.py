@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from ..emailutil import split_emails
 from ..models import Booking, BookingStatus, EmailNotificationLog, EmailTemplate
 from . import settings_service
 
@@ -248,7 +249,7 @@ def admin_recipients(db: Session) -> list[str]:
 
 
 def poc_recipients(db: Session, b: Booking) -> list[str]:
-    rec = [b.poc_email]
+    rec = split_emails(b.poc_email)
     if settings_service.get_setting(db, "notify_requester_copy") and b.requester and b.source == "requester":
         rec.append(b.requester.email)
     return rec

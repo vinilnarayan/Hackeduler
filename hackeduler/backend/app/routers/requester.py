@@ -177,7 +177,7 @@ def my_bookings(status: str | None = None, q: str | None = Query(default=None, m
             raise bad_request("Invalid status filter.")
         stmt = stmt.where(Booking.status == status)
     if q:
-        stmt = stmt.where(Booking.application_name.ilike(f"%{q}%"))
+        stmt = stmt.where(or_(Booking.application_name.ilike(f"%{q}%"), Booking.application_version.ilike(f"%{q}%")))
     rows = db.scalars(stmt.order_by(Booking.submitted_at.desc()).limit(500)).unique().all()
     return [booking_requester_out(b, _pending_cr(db, b.id), viewer_id=user.id) for b in rows]
 

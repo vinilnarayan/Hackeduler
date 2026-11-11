@@ -16,6 +16,7 @@ from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .emailutil import normalize_poc_emails
 from .models import BookingStatus
 
 
@@ -259,7 +260,8 @@ class BookingCreate(Strict):
     resource_id: uuid.UUID | None = Field(default=None, description="Optional preferred resource; omit to assign automatically")
     start_date: date | None = Field(default=None, description="Required unless the activity needs no security resource")
     poc_name: str = Field(min_length=1, max_length=255)
-    poc_email: EmailStr
+    poc_email: Annotated[str, Field(max_length=2000), AfterValidator(normalize_poc_emails)] = Field(
+        description="One or more email addresses, separated by commas (max 10)")
     additional_comments: str | None = Field(default=None, max_length=4000)
     additional_days: int = Field(default=0, ge=0, le=250)
     implementation_id: uuid.UUID | None = None
@@ -311,7 +313,7 @@ class BookingModify(Strict):
     application_version: str | None = Field(default=None, min_length=1, max_length=100)
     pci_dss_scope: bool | None = None
     poc_name: str | None = Field(default=None, min_length=1, max_length=255)
-    poc_email: EmailStr | None = None
+    poc_email: Annotated[str, Field(max_length=2000), AfterValidator(normalize_poc_emails)] | None = None
     additional_comments: str | None = Field(default=None, max_length=4000)
     product_id: uuid.UUID | None = None
     implementation_id: uuid.UUID | None = None

@@ -146,7 +146,7 @@ def list_bookings(
         stmt = stmt.where(Booking.pci_dss_scope.is_(pci))
     if q:
         like = f"%{q}%"
-        conds = [Booking.application_name.ilike(like), Booking.poc_name.ilike(like), Booking.poc_email.ilike(like)]
+        conds = [Booking.application_name.ilike(like), Booking.application_version.ilike(like), Booking.poc_name.ilike(like), Booking.poc_email.ilike(like)]
         try:
             conds.append(Booking.id == uuid.UUID(q))
         except ValueError:

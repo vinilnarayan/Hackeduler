@@ -29,7 +29,7 @@ export default function AdminBookings() {
           <Link className="btn-primary" to="/admin/bookings/new"><CalendarPlus className="h-4 w-4" />Manual allocation</Link>
         </>} />
       <div className="card mb-3 grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-5">
-        <label className="relative sm:col-span-2"><span className="sr-only">Search</span><Search className="absolute top-2 left-2 h-4 w-4 text-slate-400" /><input className="input pl-8" placeholder="Booking ID, application, POC…" value={f.q} onChange={(e) => set('q', e.target.value)} /></label>
+        <label className="relative sm:col-span-2"><span className="sr-only">Search</span><Search className="absolute top-2 left-2 h-4 w-4 text-slate-400" /><input className="input pl-8" placeholder="Booking ID, application, version, POC…" value={f.q} onChange={(e) => set('q', e.target.value)} /></label>
         <select className="input" aria-label="Status" value={f.status} onChange={(e) => set('status', e.target.value)}><option value="">All statuses</option>{Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
         <select className="input" aria-label="Resource" value={f.resource_id} onChange={(e) => set('resource_id', e.target.value)}><option value="">All resources</option>{resources.data?.map((r) => <option key={r.id} value={r.id}>{r.display_name} – {r.engineer_name}</option>)}</select>
         <select className="input" aria-label="Product" value={f.product_id} onChange={(e) => set('product_id', e.target.value)}><option value="">All products</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
@@ -41,12 +41,13 @@ export default function AdminBookings() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : !data?.items.length ? <Empty title="No bookings match the filters" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Booking</th><th className="th">Application</th><th className="th">Product</th><th className="th">Activity</th><th className="th">PCI</th><th className="th">Resource / Engineer</th><th className="th">Dates</th><th className="th">POC</th><th className="th">Requester</th><th className="th">Submitted</th><th className="th">Status</th></tr></thead>
+            <thead className="bg-slate-50"><tr><th className="th">Booking</th><th className="th">Application</th><th className="th">Version</th><th className="th">Product</th><th className="th">Activity</th><th className="th">PCI</th><th className="th">Resource / Engineer</th><th className="th">Dates</th><th className="th">POC</th><th className="th">Requester</th><th className="th">Submitted</th><th className="th">Status</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {data.items.map((b) => (
                 <tr key={b.id} tabIndex={0} className="cursor-pointer hover:bg-slate-50" onClick={() => setSel(b.id)} onKeyDown={(e) => e.key === 'Enter' && setSel(b.id)}>
                   <td className="td font-mono text-xs" title={b.id}>{b.id.slice(0, 8)}…</td>
-                  <td className="td"><div className="font-medium">{b.application_name}</div><div className="text-xs text-slate-500">v{b.application_version}</div></td>
+                  <td className="td"><div className="font-medium">{b.application_name}</div></td>
+                  <td className="td whitespace-nowrap">{b.application_version}</td>
                   <td className="td text-xs">{b.product_name ?? <span className="text-slate-400">—</span>}{b.implementation_name && <div className="text-slate-500">{b.implementation_name}</div>}</td>
                   <td className="td">{b.activity_name}<div className="text-xs text-slate-500">{b.duration_days ? `${b.duration_days}d` : 'no duration'}</div></td>
                   <td className="td">{b.pci_dss_scope ? 'Yes' : 'No'}</td>
