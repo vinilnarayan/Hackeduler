@@ -121,3 +121,14 @@ assumes plain HTTP for `--domain` without `--https`.)
 
 `HACKEDULER_APP_BASE_URL`, `HACKEDULER_COOKIE_SECURE`, `HACKEDULER_CADDY_TLS`, `HACKEDULER_HTTPS_PORT_SUFFIX` and
 `COMPOSE_PROFILES` are worked out by `deploy.sh` from the settings above, so you don't need to edit them.
+
+## Using a DNS name as well as the IP address (ERR_SSL_PROTOCOL_ERROR)
+
+The built-in HTTPS front serves its certificate to any name that reaches it (`default_sni` / `fallback_sni` in
+`deploy/Caddyfile`), so `https://<ip>:PORT` and `https://<dns-name>:PORT` both complete the TLS handshake. If the
+certificate does not list the name you type, the browser shows a certificate-name warning (fix: use a certificate
+whose SAN includes that name). Two more things to align when you start using a different name:
+
+* the Microsoft Entra app registration needs the new `https://<name>:PORT/api/auth/sso/callback` redirect URI, and
+  `HACKEDULER_BASE_URL` decides which address SSO returns users to;
+* sessions are per address - signing in on the IP does not sign you in on the DNS name.

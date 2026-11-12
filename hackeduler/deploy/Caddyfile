@@ -2,6 +2,12 @@
 # All values come from .env and are maintained by deploy.sh - you normally never edit this file.
 {
 	auto_https disable_redirects
+	# Serve the configured certificate to clients that send no server name (browsers opening https://<ip>:port) and
+	# to any other name that reaches this server (a DNS alias, a load balancer name). Without these two lines such
+	# connections get a TLS "internal error" (browser: ERR_SSL_PROTOCOL_ERROR). If the certificate does not list the
+	# name being used, the browser shows a normal certificate-name warning instead.
+	default_sni {$HACKEDULER_DOMAIN}
+	fallback_sni {$HACKEDULER_DOMAIN}
 }
 
 {$HACKEDULER_DOMAIN} {
