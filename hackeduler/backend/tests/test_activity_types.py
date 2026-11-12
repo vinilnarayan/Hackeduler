@@ -86,3 +86,18 @@ def test_remove_requires_admin(req1, data):
 
 def test_remove_unknown_type_is_404(admin):
     assert admin.delete(f"/api/admin/activity-types/{uuid.uuid4()}").status_code == 404
+
+
+def test_removed_builtin_type_does_not_come_back_after_reseed(admin, data):
+    """HACKEDULER_SEED=minimal re-runs the seed on every deploy; a removed built-in type must stay removed."""
+    from app.seed import seed_reference
+
+    admin_list = lambda: admin.get("/api/admin/activity-types").json()  # noqa: E731
+    seed_reference(SessionLocal())
+    target = next(a for a in admin_list() if a["name"] == "Web Application PT")   # unused: would be erased outright
+    r = admin.delete(f"/api/admin/activity-types/{target['id']}")
+    assert r.status_code == 200 and r.json()["mode"] == "archived"
+    seed_reference(SessionLocal())
+    seed_reference(SessionLocal())
+    assert target["id"] not in [a["id"] for a in admin_list()]
+    assert not [a for a in admin_list() if a["name"] == "Web Application PT"]

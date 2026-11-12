@@ -285,7 +285,14 @@ def delete_activity(activity_id: uuid.UUID, db: Session = Depends(get_db), admin
         raise not_found("Activity type")
     snap = _snap(a, ACT_FIELDS)
     mode = "removed"
+    from ..seed import is_default_activity
+
+    # Built-in types are always archived: the start-up seed re-creates a built-in type that no longer exists,
+    # but leaves an archived one alone, so an erased default would reappear after every redeploy.
+    keep = is_default_activity(a.name, a.base_duration_days)
     try:
+        if keep:
+            raise IntegrityError("archive built-in", None, Exception("archive built-in"))
         with db.begin_nested():
             db.delete(a)
             db.flush()
