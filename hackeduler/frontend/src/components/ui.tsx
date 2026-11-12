@@ -66,11 +66,15 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()
+  // Callers pass inline handlers that change on every render; keep the latest in a ref so the effect below (which
+  // moves focus into the dialog) runs only when the dialog opens, not on every keystroke.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   useEffect(() => {
     if (!open) return
     const prev = document.activeElement as HTMLElement | null
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') onCloseRef.current()
       if (e.key === 'Tab' && ref.current) {
         const f = ref.current.querySelectorAll<HTMLElement>('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')
         if (!f.length) return
@@ -82,7 +86,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
     document.addEventListener('keydown', onKey)
     setTimeout(() => ref.current?.querySelector<HTMLElement>('input,select,textarea,button:not([aria-label="Close"])')?.focus(), 0)
     return () => { document.removeEventListener('keydown', onKey); prev?.focus() }
-  }, [open, onClose])
+  }, [open])
   if (!open) return null
   const w = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-5xl' }[size]
   return (

@@ -84,6 +84,11 @@ ENGINEERS = [
 ]
 
 
+def is_default_activity(name: str, days: int | None) -> bool:
+    """True for the built-in activity types that seed_reference() (re)creates at start-up when missing."""
+    return any(n == name and d == days for n, d, _ in ACTIVITY_TYPES) or any(n == name for n, _, _ in RESOURCELESS_ACTIVITIES)
+
+
 def seed_reference(db: Session) -> None:
     for i, (name, days, extra) in enumerate(ACTIVITY_TYPES):
         exists = db.scalar(select(ActivityType.id).where(ActivityType.name == name, ActivityType.base_duration_days == days))
