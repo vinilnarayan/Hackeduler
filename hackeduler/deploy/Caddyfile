@@ -10,12 +10,23 @@
 	fallback_sni {$HACKEDULER_DOMAIN}
 }
 
-{$HACKEDULER_DOMAIN} {
-	tls {$HACKEDULER_CADDY_TLS}
+(app) {
 	encode gzip
 	reverse_proxy frontend:8080 {
 		header_up X-Forwarded-Proto https
 	}
+}
+
+{$HACKEDULER_DOMAIN} {
+	tls {$HACKEDULER_CADDY_TLS}
+	import app
+}
+
+# Any other name that reaches this server (a DNS alias, a load balancer name) gets the same application. Without
+# this block Caddy completes the TLS handshake but answers with an empty page for names it was not configured with.
+https:// {
+	tls {$HACKEDULER_CADDY_TLS}
+	import app
 }
 
 # plain HTTP on the same name -> redirect to HTTPS

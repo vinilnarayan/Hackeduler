@@ -124,8 +124,8 @@ assumes plain HTTP for `--domain` without `--https`.)
 
 ## Using a DNS name as well as the IP address (ERR_SSL_PROTOCOL_ERROR)
 
-The built-in HTTPS front serves its certificate to any name that reaches it (`default_sni` / `fallback_sni` in
-`deploy/Caddyfile`), so `https://<ip>:PORT` and `https://<dns-name>:PORT` both complete the TLS handshake. If the
+The built-in HTTPS front serves its certificate and the application to any name that reaches it (`default_sni`,
+`fallback_sni` and the catch-all `https://` block in `deploy/Caddyfile`), so `https://<ip>:PORT` and `https://<dns-name>:PORT` both complete the TLS handshake. If the
 certificate does not list the name you type, the browser shows a certificate-name warning (fix: use a certificate
 whose SAN includes that name). Two more things to align when you start using a different name:
 
