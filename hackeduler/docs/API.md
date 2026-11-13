@@ -192,7 +192,8 @@ completes an approved booking that has no resource. The dashboard accepts `produ
 | GET/POST | `/api/admin/users[?include_deleted=true]`, PATCH `/api/admin/users/{id}` | User management |
 | DELETE | `/api/admin/users/{id}` | Delete. Users with no activity are removed; users with history are archived (can't sign in, hidden, email reusable). Can't delete yourself or the last active admin |
 | POST | `/api/admin/users/{id}/restore` | Restore an archived user (restored disabled) |
-| GET/PUT | `/api/admin/settings` | `{values: {key: value}}`. Secrets are never accepted or returned |
+| GET/PUT | `/api/admin/settings` | `{values: {key: value}}`. Secrets are never accepted or returned. Mail keys: `email_primary` / `email_fallback` (`smtp`\|`ses`\|`none`), `ses_region`, `ses_configuration_set`, `smtp_*`; the GET also returns `email_chain` (the services in use, in order) |
+| POST | `/api/admin/settings/test-email` | `{to, provider?: smtp\|ses}` - sends a test message immediately through one service (or the configured chain) and returns `{ok, provider, error}`. Audited (`email.test_sent`) |
 | GET | `/api/admin/email-templates`, `/api/admin/email-templates/variables` | Templates and allowed variables |
 | PUT | `/api/admin/email-templates/{key}` | Edit (unknown variables are rejected) |
 | POST | `/api/admin/email-templates/{key}/preview` | Render with sample data |

@@ -37,7 +37,7 @@ holidays            audit_logs (append-only)     email_templates     application
 | `audit_logs` | Immutable audit trail (JSONB previous/new values) | trigger blocks UPDATE/DELETE/TRUNCATE; indexes on booking, actor, action, created_at |
 | `booking_conflicts` | Conflict register: type ∈ overlapping_booking, leave, holiday, inactive_resource, manual_override; open/resolved; resolver and timestamp | indexes on (status, created_at), booking |
 | `email_templates` | Editable subject/body templates | unique `key` |
-| `email_notification_logs` | Outbox and delivery log: status, attempts, next_attempt_at, last_error, sent_at | index `(status, next_attempt_at)` |
+| `email_notification_logs` | Outbox and delivery log: status, attempts, next_attempt_at, last_error, `provider` (smtp / ses - the service that delivered it), sent_at | index `(status, next_attempt_at)` |
 | `application_settings` | Key → JSONB admin settings (no secrets) | PK key |
 
 ## How date ranges handle non-working days

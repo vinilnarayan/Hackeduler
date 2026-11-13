@@ -14,7 +14,20 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="HACKEDULER_", extra="ignore")
 
     environment: str = "development"  # development | production | test
+    # Database. Either give one full URL (HACKEDULER_DATABASE_URL) or the separate parts below (RDS / any managed
+    # PostgreSQL). With the parts, the URL is built for you and the password may contain any character.
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/hackeduler"
+    db_host: str = ""
+    db_port: int = 5432
+    db_name: str = "hackeduler"
+    db_user: str = "hackeduler"
+    db_password: str = ""                  # secret - env only
+    db_sslmode: str = "verify-full"        # disable | require | verify-ca | verify-full  (RDS: verify-full)
+    db_sslrootcert: str = "/certs/rds-global-bundle.pem"   # AWS RDS CA bundle (deploy.sh downloads it into ./certs)
+    db_connect_timeout: int = 10
+    db_pool_size: int = 5                  # per backend worker process; keep (web workers x (size+overflow)) well below
+    db_max_overflow: int = 5               # the RDS max_connections of your instance class
+    db_pool_recycle_seconds: int = 1800
 
     secret_key: str = Field(default="dev-insecure-change-me", min_length=16)
     session_hours: int = 8
@@ -38,6 +51,14 @@ class Settings(BaseSettings):
     smtp_ssl: bool = False
     smtp_timeout: int = 15
 
+    # Which service delivers mail when email_backend=smtp ("real delivery"): smtp | ses. The admin Settings page can
+    # override both; an optional fallback is tried when the primary fails. SES uses the standard AWS credential
+    # chain (EC2 instance role - recommended - or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY in the environment).
+    email_primary: str = "smtp"
+    email_fallback: str = ""
+    aws_region: str = ""                   # falls back to AWS_REGION / AWS_DEFAULT_REGION
+    ses_configuration_set: str = ""
+
     # Key used to encrypt secrets stored in the database (SSO client secrets).
     # If unset it is derived from secret_key; set it explicitly so secret_key can be rotated independently.
     encryption_key: str = ""
@@ -48,6 +69,20 @@ class Settings(BaseSettings):
 
     worker_interval_seconds: int = 30
     app_base_url: str = "http://localhost:8080"
+
+    @property
+    def effective_database_url(self) -> str:
+        """The SQLAlchemy URL to use: built from the DB_* parts when HACKEDULER_DB_HOST is set, else database_url."""
+        if not self.db_host:
+            return self.database_url
+        from sqlalchemy.engine import URL
+
+        query = {"connect_timeout": str(self.db_connect_timeout), "sslmode": self.db_sslmode}
+        if self.db_sslmode in ("verify-ca", "verify-full") and self.db_sslrootcert:
+            query["sslrootcert"] = self.db_sslrootcert
+        return URL.create("postgresql+psycopg", username=self.db_user, password=self.db_password or None,
+                          host=self.db_host, port=self.db_port, database=self.db_name,
+                          query=query).render_as_string(hide_password=False)
 
     @property
     def is_production(self) -> bool:

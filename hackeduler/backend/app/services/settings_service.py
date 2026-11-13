@@ -4,6 +4,7 @@ Secrets (SMTP password, JWT key) are intentionally NOT settings - they are env-o
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -31,6 +32,10 @@ DEFAULTS: dict[str, tuple[Any, str]] = {
     "smtp_port": (None, "SMTP port override (null = use HACKEDULER_SMTP_PORT env)"),
     "smtp_username": (None, "SMTP username override (password is env-only: HACKEDULER_SMTP_PASSWORD)"),
     "smtp_starttls": (None, "SMTP STARTTLS override (null = env)"),
+    "email_primary": (None, "Mail service used first: smtp | ses (null = HACKEDULER_EMAIL_PRIMARY env)"),
+    "email_fallback": (None, "Mail service tried when the primary fails: smtp | ses | none (null = HACKEDULER_EMAIL_FALLBACK env)"),
+    "ses_region": (None, "AWS region of Amazon SES, e.g. ap-south-1 (null = HACKEDULER_AWS_REGION / AWS_REGION env)"),
+    "ses_configuration_set": (None, "Optional Amazon SES configuration set name (null = env)"),
 }
 
 VALIDATORS = {
@@ -52,6 +57,10 @@ VALIDATORS = {
     "smtp_port": lambda v: v is None or (isinstance(v, int) and 0 < v < 65536),
     "smtp_username": lambda v: v is None or (isinstance(v, str) and len(v) <= 255),
     "smtp_starttls": lambda v: v is None or isinstance(v, bool),
+    "email_primary": lambda v: v is None or v in ("smtp", "ses"),
+    "email_fallback": lambda v: v is None or v in ("smtp", "ses", "none"),
+    "ses_region": lambda v: v is None or (isinstance(v, str) and re.fullmatch(r"[a-z]{2}(-[a-z]+)+-\d", v) is not None),
+    "ses_configuration_set": lambda v: v is None or (isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", v) is not None),
 }
 
 

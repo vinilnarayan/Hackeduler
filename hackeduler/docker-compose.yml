@@ -1,66 +1,80 @@
-# Local / evaluation deployment. For production: put TLS in front of `frontend`,
-# set strong secrets in .env, HACKEDULER_ENVIRONMENT=production, HACKEDULER_COOKIE_SECURE=true, HACKEDULER_SEED=none.
-services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-hackeduler}
-      POSTGRES_USER: ${POSTGRES_USER:-hackeduler}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hackeduler} -d ${POSTGRES_DB:-hackeduler}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-    restart: unless-stopped
+# AWS deployment (EC2 + RDS + SES). The database is Amazon RDS - there is NO database container and no local
+# database volume here. Set the HACKEDULER_DB_* values in .env (./deploy.sh does the rest).
+#
+# This stack shares the EC2 machine with other applications (for example SPARK), so it:
+#   * has its own fixed project name ("hackeduler") - its containers, network and images never collide with
+#     another compose project, and `docker compose up --remove-orphans` only ever touches this project;
+#   * uses non-standard host ports by default (7080 HTTP, 7443 HTTPS, 7081 redirect) - nothing is published on
+#     80/443/8080 unless you ask for it;
+#   * caps memory/CPU and rotates its logs so it cannot starve or fill the disk for its neighbours.
+name: hackeduler
 
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-backend-env: &backend-env
+  env_file: .env
+  environment:
+    # built into the database URL by the application (password may contain any character)
+    HACKEDULER_DB_HOST: ${HACKEDULER_DB_HOST:?set HACKEDULER_DB_HOST (the RDS endpoint) in .env}
+    HACKEDULER_DB_PASSWORD: ${HACKEDULER_DB_PASSWORD:?set HACKEDULER_DB_PASSWORD in .env}
+
+services:
   backend:
     build: ./backend
     command: ["api"]
-    env_file: .env
-    environment:
-      HACKEDULER_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-hackeduler}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-hackeduler}
-    depends_on:
-      db:
-        condition: service_healthy
+    <<: *backend-env
+    volumes:
+      - ./certs:/certs:ro            # RDS CA bundle (rds-global-bundle.pem) downloaded by deploy.sh
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 10s
       timeout: 5s
       retries: 12
+      start_period: 30s
+    mem_limit: ${HACKEDULER_BACKEND_MEM:-1g}
+    cpus: ${HACKEDULER_BACKEND_CPUS:-1.5}
+    logging: *logging
     restart: unless-stopped
 
   worker:
     build: ./backend
     command: ["worker"]
-    env_file: .env
-    environment:
-      HACKEDULER_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-hackeduler}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-hackeduler}
+    <<: *backend-env
+    volumes:
+      - ./certs:/certs:ro
     depends_on:
       backend:
         condition: service_healthy
+    mem_limit: ${HACKEDULER_WORKER_MEM:-512m}
+    cpus: ${HACKEDULER_WORKER_CPUS:-0.5}
+    logging: *logging
     restart: unless-stopped
 
   frontend:
     build: ./frontend
     ports:
-      # Host port the app is served on (HACKEDULER_HTTP_PORT). HACKEDULER_BIND_ADDRESS=127.0.0.1 keeps it
-      # private to the server, e.g. when an existing nginx/Apache/IIS on the host proxies a DNS name to it.
-      - "${HACKEDULER_BIND_ADDRESS:-0.0.0.0}:${HACKEDULER_HTTP_PORT:-8080}:8080"
+      # Host port the app is served on (HACKEDULER_HTTP_PORT). HACKEDULER_BIND_ADDRESS=127.0.0.1 keeps it private to
+      # the server, e.g. when a reverse proxy on the same host (nginx, Caddy) routes a DNS name to it.
+      - "${HACKEDULER_BIND_ADDRESS:-0.0.0.0}:${HACKEDULER_HTTP_PORT:-7080}:8080"
     depends_on:
       - backend
+    mem_limit: ${HACKEDULER_FRONTEND_MEM:-128m}
+    cpus: ${HACKEDULER_FRONTEND_CPUS:-0.5}
+    logging: *logging
     restart: unless-stopped
 
-  # Optional built-in HTTPS front (profile "https") serving https://HACKEDULER_DOMAIN with automatic
-  # Let's Encrypt, company-provided certificate files (./certs) or an internal self-signed certificate.
+  # Optional built-in HTTPS front (profile "https"): company certificate files (./certs), Let's Encrypt, or an
+  # internal self-signed certificate. Not needed when an AWS load balancer terminates TLS in front of this host.
   https:
     image: caddy:2-alpine
     profiles: ["https"]
     ports:
-      - "${HACKEDULER_HTTPS_PORT:-443}:443"
-      - "${HACKEDULER_HTTP_REDIRECT_PORT:-80}:80"
+      - "${HACKEDULER_HTTPS_PORT:-7443}:443"
+      - "${HACKEDULER_HTTP_REDIRECT_PORT:-7081}:80"
     environment:
       HACKEDULER_DOMAIN: ${HACKEDULER_DOMAIN:-localhost}
       HACKEDULER_CADDY_TLS: ${HACKEDULER_CADDY_TLS:-internal}
@@ -72,28 +86,11 @@ services:
       - caddy_config:/config
     depends_on:
       - frontend
+    mem_limit: ${HACKEDULER_HTTPS_MEM:-128m}
+    logging: *logging
     restart: unless-stopped
 
-  # Automatic database backups: one dump every HACKEDULER_BACKUP_INTERVAL_HOURS (default 24) into
-  # ./backups on the host, keeping HACKEDULER_BACKUP_KEEP_DAYS (default 14) days of backups.
-  backup:
-    image: postgres:16-alpine
-    environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-      DB_USER: ${POSTGRES_USER:-hackeduler}
-      DB_NAME: ${POSTGRES_DB:-hackeduler}
-      INTERVAL_HOURS: ${HACKEDULER_BACKUP_INTERVAL_HOURS:-24}
-      KEEP_DAYS: ${HACKEDULER_BACKUP_KEEP_DAYS:-14}
-    volumes:
-      - ./backups:/backups
-      - ./scripts/auto-backup.sh:/auto-backup.sh:ro
-    entrypoint: ["/bin/sh", "/auto-backup.sh"]
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # Development mail catcher - view sent notifications at http://localhost:8025. Remove in production.
+  # Development mail catcher - view sent notifications at http://localhost:8025. Not for production.
   mailpit:
     image: axllent/mailpit:latest
     ports:
@@ -101,11 +98,5 @@ services:
     profiles: ["dev"]
 
 volumes:
-  # The database volume is EXTERNAL: Docker Compose never creates or deletes it, so no compose
-  # command (not even "docker compose down -v") can wipe your data, and every rebuild/upgrade
-  # reuses it. ./deploy.sh creates it on first install and finds it on upgrades.
-  pgdata:
-    external: true
-    name: ${HACKEDULER_DB_VOLUME:-hackeduler_pgdata}
   caddy_data:     # HTTPS certificates (re-issued automatically if lost)
   caddy_config:

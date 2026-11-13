@@ -7,7 +7,11 @@ At the end of every run `deploy.sh` prints the address to open.
 
 ---
 
-## 1. Change the port (e.g. 8080 is already taken)
+> **AWS / shared EC2 host:** this branch listens on 7080 (HTTP), 7443 (HTTPS) and 7081 (redirect) by default so it can
+> share the machine with other applications. See [`AWS.md`](AWS.md) for the recommended setup; the sections below still
+> apply to the built-in HTTPS front.
+
+## 1. Change the port (e.g. 7080 is already taken)
 
 ```bash
 ./deploy.sh --port 9090
@@ -112,11 +116,12 @@ assumes plain HTTP for `--domain` without `--https`.)
 
 | Setting | Meaning | Default |
 |---|---|---|
-| `HACKEDULER_HTTP_PORT` | Port the app is served on | `8080` |
+| `HACKEDULER_HTTP_PORT` | Port the app is served on | `7080` |
 | `HACKEDULER_BIND_ADDRESS` | `0.0.0.0` all networks, `127.0.0.1` this server only | `0.0.0.0` |
 | `HACKEDULER_DOMAIN` | DNS name | empty |
 | `HACKEDULER_HTTPS` | `off`, `files`, `auto`, `internal` | `off` |
-| `HACKEDULER_HTTPS_PORT` / `HACKEDULER_HTTP_REDIRECT_PORT` | HTTPS port / HTTP→HTTPS redirect port | `443` / `80` |
+| `HACKEDULER_HTTPS_PORT` / `HACKEDULER_HTTP_REDIRECT_PORT` | HTTPS port / HTTP→HTTPS redirect port | `7443` / `7081` |
+| `HACKEDULER_PUBLIC_URL` | Address users open when TLS is handled outside this stack (AWS load balancer, host proxy) | empty |
 | `HACKEDULER_ACME_EMAIL` | Contact email for Let's Encrypt (`auto`) | empty |
 
 `HACKEDULER_APP_BASE_URL`, `HACKEDULER_COOKIE_SECURE`, `HACKEDULER_CADDY_TLS`, `HACKEDULER_HTTPS_PORT_SUFFIX` and

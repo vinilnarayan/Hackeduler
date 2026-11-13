@@ -11,13 +11,13 @@ if config.config_file_name is not None:
 
 
 def run_migrations_offline() -> None:
-    context.configure(url=get_settings().database_url, literal_binds=True)
+    context.configure(url=get_settings().effective_database_url, literal_binds=True)
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    url = config.attributes.get("database_url") or get_settings().database_url
+    url = config.attributes.get("database_url") or get_settings().effective_database_url
     engine = create_engine(url)
     with engine.connect() as connection:
         context.configure(connection=connection)

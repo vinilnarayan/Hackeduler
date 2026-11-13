@@ -515,6 +515,7 @@ class EmailLogOut(ORM):
     max_attempts: int
     next_attempt_at: datetime
     last_error: str | None
+    provider: str | None = None
     sent_at: datetime | None
     created_at: datetime
 

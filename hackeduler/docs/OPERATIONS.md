@@ -6,18 +6,18 @@
    - `HACKEDULER_ENVIRONMENT=production`. Startup refuses a weak `HACKEDULER_SECRET_KEY` (<32 chars or a `dev-` value) or `HACKEDULER_COOKIE_SECURE=false`.
    - `HACKEDULER_SECRET_KEY` – random, ≥48 chars (`python -c "import secrets;print(secrets.token_urlsafe(48))"`).
    - `HACKEDULER_COOKIE_SECURE=true`.
-   - `POSTGRES_PASSWORD`, plus the SMTP settings (`HACKEDULER_SMTP_*`; the password only in `HACKEDULER_SMTP_PASSWORD`).
+   - The Amazon RDS connection (`HACKEDULER_DB_HOST`, `HACKEDULER_DB_NAME`, `HACKEDULER_DB_USER`, `HACKEDULER_DB_PASSWORD`) and the mail settings (`HACKEDULER_EMAIL_PRIMARY`/`FALLBACK`, `HACKEDULER_AWS_REGION`, `HACKEDULER_SMTP_*`; the SMTP password only in `HACKEDULER_SMTP_PASSWORD`). See [`AWS.md`](AWS.md).
    - `HACKEDULER_ENCRYPTION_KEY` – random and stable; encrypts SSO client secrets stored in the database.
    - `HACKEDULER_SEED=minimal`. This loads activity types, templates and settings only, with no demo accounts.
    - `HACKEDULER_APP_BASE_URL=https://<your host>`.
-2. Choose the port, DNS name and HTTPS: `./deploy.sh --domain <name> --https files|auto`, or use your existing web server. See [`NETWORK.md`](NETWORK.md). Don't expose `backend` or `db` directly.
-3. `docker compose up -d --build`. Leave out `--profile dev` in production so Mailpit doesn't start.
+2. Choose the port, DNS name and HTTPS: `./deploy.sh --public-url https://<name>` (AWS load balancer or host proxy terminates TLS), or `./deploy.sh --domain <name> --https files|auto`. See [`AWS.md`](AWS.md) and [`NETWORK.md`](NETWORK.md). Don't expose `backend` directly.
+3. `./deploy.sh` (it runs `docker compose up -d --build`). Leave out `--profile dev` in production so Mailpit doesn't start.
 4. The first admin is created by `./deploy.sh` on the very first install (`admin@hackeduler.local`, or set
    `HACKEDULER_INITIAL_ADMIN_EMAIL`), and the generated password is printed once. To create or reset an admin later:
    `docker compose exec backend python -m app.manage create-admin you@corp.example`
 5. Sign in, configure **Single Sign-On** (see `SSO.md`), then add resources (engineers), holidays (CSV/Excel import) and settings: admin notification recipients and sender.
    With SSO auto-provisioning, users don't need to be created manually.
-6. Database role hardening: give the application a non-superuser role. See `DATABASE.md` → Immutability.
+6. Database role hardening: the application's RDS user needs to own its database but must not be the RDS master user or a superuser. See `DATABASE.md` → Immutability and `AWS.md`.
 
 ### Scaling notes
 
@@ -137,8 +137,8 @@ git pull            # or copy the new version's files over the old ones (keep .e
 
 1. Creates `.env` with random secrets on the very first install only. After that `.env` is yours and is kept.
 2. Renames old `ORP_*` settings to `HACKEDULER_*` (the old file is saved as `.env.bak`).
-3. Finds the database volume that holds your data, including the pre-rename `offsec-resource-planner_pgdata`, and
-   refuses to start if a configured volume is missing instead of silently using an empty database.
+3. Checks the Amazon RDS settings, downloads the RDS CA bundle into `certs/`, and proves the database is reachable
+   (it stops with a plain explanation if not, instead of starting against nothing).
 4. **Backs up the database** to `backups/pre-deploy-<timestamp>.dump` before changing anything, and stops if the
    backup fails.
 5. Rebuilds and restarts the containers. Database migrations run automatically, only add tables and columns, and
@@ -147,12 +147,11 @@ git pull            # or copy the new version's files over the old ones (keep .e
 
 ### Why data can't be lost
 
-- **The database volume is external** (`external: true` in `docker-compose.yml`). Docker Compose never creates or
-  deletes it, so `docker compose down`, `docker compose down -v`, rebuilds, folder renames and new checkouts all
-  leave it alone. Only an explicit `docker volume rm <name>` removes it.
-- **Automatic backups.** The `backup` service writes `backups/auto-<timestamp>.dump` every 24 hours and keeps 14
-  days. Change this with `HACKEDULER_BACKUP_INTERVAL_HOURS` / `HACKEDULER_BACKUP_KEEP_DAYS`. Pre-deploy and manual
-  backups are never pruned. Copy `backups/` to another machine or storage regularly.
+- **The database is Amazon RDS, not a container.** `docker compose down`, rebuilds and new checkouts cannot touch
+  it. Turn on **deletion protection** and **automated backups** (7-14 days, point-in-time recovery) on the RDS instance,
+  and take a manual **snapshot** before major upgrades.
+- **Every deploy backs up first.** `backups/pre-deploy-<timestamp>.dump` is taken from RDS before anything changes and
+  is never pruned. Copy `backups/` to S3 or another machine regularly.
 - **Manual backup at any time:** `./scripts/backup-db.sh`.
 
 Keep `HACKEDULER_SEED=none` (or `minimal`) on a system with real data. `demo` re-creates demo accounts you deleted.
@@ -160,7 +159,7 @@ Keep `HACKEDULER_SEED=none` (or `minimal`) on a system with real data. `demo` re
 ### Restoring a backup
 
 ```bash
-./scripts/restore-db.sh backups/hackeduler-YYYYMMDD-HHMMSS.dump   # asks for confirmation, replaces current data
+./scripts/restore-db.sh backups/hackeduler-YYYYMMDD-HHMMSS.dump   # asks for confirmation, replaces the data in RDS
 ```
 
 New schema changes go in new Alembic revisions under `backend/alembic/versions/`. Never edit an existing one.

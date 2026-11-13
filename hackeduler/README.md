@@ -26,24 +26,27 @@ Documentation:
 
 ---
 
-## Quick start (Docker)
+## Quick start (AWS: EC2 + RDS + SES)
+
+This is the **AWS branch** (`aws/ec2-rds-ses`): the app runs in Docker on an EC2 machine that it shares with other
+applications (for example SPARK), the database is **Amazon RDS (PostgreSQL 16)**, and email goes out through
+**Amazon SES** and/or an SMTP server. The full guide, including the one-time move of the data from the old server, is
+[`docs/AWS.md`](docs/AWS.md).
 
 ```bash
 cd hackeduler
-./deploy.sh                   # first run creates .env with random secrets, then builds and starts everything
-./deploy.sh --port 9090       # optional: another port; add --domain your.dns.name [--https files|auto] for DNS/HTTPS
+./deploy.sh        # first run creates .env with random secrets and stops: enter the RDS details in .env
+./deploy.sh --public-url https://hackeduler.example.com   # an AWS load balancer terminates HTTPS (recommended)
 ```
 
-- App: <http://localhost:8080>
-- API docs: <http://localhost:8080/api/docs>
-- Mailpit (captured notification emails): <http://localhost:8025>
+- The app listens on host port **7080** by default (7443 / 7081 for the built-in HTTPS front), never on 80/443/8080,
+  so it can live next to other apps. Change it with `./deploy.sh --port N`.
+- Mail service, SES region and SMTP are chosen in **Admin → Settings**; secrets stay in `.env` or the EC2 instance role.
+- The backend container runs migrations on start.
 
-The backend container runs migrations on start. With `HACKEDULER_SEED=demo` it also seeds sample data.
-
-> **Install and upgrade with one command: `./deploy.sh`.** It backs up the database before every deployment,
-> reuses your existing data (including installs from before the rename), and never deletes anything. The database
-> volume is external, so no `docker compose` command can remove it, and daily automatic backups go to `./backups`.
-> See [docs/OPERATIONS.md → Upgrading without losing data](docs/OPERATIONS.md#8-upgrading-without-losing-data).
+> **Install and upgrade with one command: `./deploy.sh`.** It checks the RDS connection, backs up the database to
+> `./backups` before every deployment, and never deletes data. RDS keeps its own automated backups and snapshots.
+> See [docs/AWS.md](docs/AWS.md) and [docs/OPERATIONS.md → Upgrading without losing data](docs/OPERATIONS.md#8-upgrading-without-losing-data).
 
 ### Local development test accounts (seeded with `HACKEDULER_SEED=demo`)
 
