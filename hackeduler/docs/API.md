@@ -105,6 +105,7 @@ resources answer 404.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/resource/dashboard` | Counts (assigned, in progress, upcoming, completed, reports shared V1/Met, reports to share, upcoming leaves) and short lists |
+| GET | `/api/resource/calendar?month=YYYY-MM` | Month grid (Monday-first weeks) for the signed-in resource: per day `state` (booked, conflict, leave, holiday, weekend, tentative, free), booking ids, holiday and leave; plus booking details and a summary (working days, booked, leave, free, on hold, holidays, clashes). Defaults to the current month; bad month -> 422 |
 | GET | `/api/resource/bookings?status&report=shared\|pending&q` | Approved / completed bookings that use their resource (as primary or additional) |
 | GET | `/api/resource/bookings/{id}` | One assigned booking |
 | PUT | `/api/resource/bookings/{id}/report` | `{report_shared, report_type: V1\|Met, report_comments?}` - the only thing a resource user can modify on a booking |

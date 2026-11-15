@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { CalendarClock, CheckCircle2, ClipboardList, FileCheck2, FileWarning, Plane, PlayCircle } from 'lucide-react'
 import { get } from '../../api/client'
 import type { Booking } from '../../api/types'
+import { MyMonthCalendar } from '../../components/MyMonthCalendar'
 import { Empty, ErrorState, PageHeader, ReportBadge, Spinner, StatCard } from '../../components/ui'
 import { fmt } from '../../lib/dates'
 import { useAsync } from '../../lib/useAsync'
@@ -41,6 +42,7 @@ export default function ResourceDashboard() {
         <StatCard label="Reports to share" value={c.reports_pending} icon={<FileWarning className="h-5 w-5" />} tone="amber" hint="Finished work, report not yet shared" />
         <StatCard label="Upcoming leaves" value={c.upcoming_leaves} icon={<Plane className="h-5 w-5" />} tone="blue" />
       </div>
+      <MyMonthCalendar />
       <div className="grid gap-4 lg:grid-cols-2">
         <BookingList title="In progress" items={data.in_progress} empty="Nothing in progress today" />
         <BookingList title="Upcoming assignments" items={data.upcoming} empty="No upcoming assignments" />

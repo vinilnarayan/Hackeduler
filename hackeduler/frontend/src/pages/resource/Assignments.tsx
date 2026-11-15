@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Search } from 'lucide-react'
 import { get, qs } from '../../api/client'
 import type { Booking } from '../../api/types'
@@ -13,7 +14,9 @@ export default function Assignments() {
   const [q, setQ] = useState('')
   const [report, setReport] = useState('')
   const [status, setStatus] = useState('')
-  const [sel, setSel] = useState<string | null>(null)
+  const [params, setParams] = useSearchParams()
+  const [sel, setSelState] = useState<string | null>(params.get('booking'))   // opened from the dashboard calendar
+  const setSel = (id: string | null) => { setSelState(id); if (!id && params.has('booking')) setParams({}, { replace: true }) }
   const { data, error, loading, reload } = useAsync<{ total: number; items: Row[] }>(() => get('/api/resource/bookings' + qs({ q, report, status })), [q, report, status])
   const current = data?.items.find((b) => b.id === sel) ?? null
   return (
