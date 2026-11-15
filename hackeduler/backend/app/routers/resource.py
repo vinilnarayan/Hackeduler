@@ -7,7 +7,8 @@ resource id always comes from the signed-in user, never from the request.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+import re
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import Field
@@ -17,9 +18,10 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import require_resource
 from ..errors import bad_request, not_found
-from ..models import Booking, BookingStatus, ResourceLeave, User
+from ..models import Booking, BookingResourceLock, BookingStatus, LockStatus, ResourceLeave, User
 from ..schemas import ReportIn, Strict, booking_requester_out
 from ..services import audit, conflicts, reports
+from ..services import availability
 from ..services.availability import now_utc
 from ..services.calendar_engine import expand_ranges
 from .common import commit
@@ -116,6 +118,88 @@ def set_report(booking_id: uuid.UUID, body: ReportIn, db: Session = Depends(get_
     commit(db)
     db.refresh(b)
     return _out(b)
+
+
+# ------------------------------------------------------------------ month calendar
+@router.get("/calendar")
+def calendar(month: str | None = Query(None, description="YYYY-MM; default: the current month"),
+             db: Session = Depends(get_db), user: User = Depends(require_resource)):
+    """One month, as whole weeks (Monday first), for the signed-in engineer's own resource: which days are
+    booked, on leave, holidays, weekends, tentatively held, or free - with the bookings behind the booked days."""
+    today = date.today()
+    if month is None:
+        first = today.replace(day=1)
+    else:
+        m = re.fullmatch(r"(\d{4})-(\d{2})", month)
+        if not m or not (1 <= int(m.group(2)) <= 12) or not (today.year - 5 <= int(m.group(1)) <= today.year + 5):
+            raise bad_request("month must look like 2026-11 (within five years of today).")
+        first = date(int(m.group(1)), int(m.group(2)), 1)
+    next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+    last = next_first - timedelta(days=1)
+    grid_start = first - timedelta(days=first.weekday())
+    grid_end = last + timedelta(days=6 - last.weekday())
+
+    rid = user.resource_id
+    weekdays = availability.working_weekdays(db)
+    holidays = availability.load_holidays(db, grid_start, grid_end)
+    leaves = db.scalars(select(ResourceLeave).where(
+        ResourceLeave.resource_id == rid, ResourceLeave.status == "active",
+        ResourceLeave.start_date <= grid_end, ResourceLeave.end_date >= grid_start)).all()
+    leave_by_day: dict[date, ResourceLeave] = {}
+    for lv in leaves:
+        for d in expand_ranges([(max(lv.start_date, grid_start), min(lv.end_date, grid_end))]):
+            leave_by_day.setdefault(d, lv)
+    # days actually reserved for this resource (per-resource slices of multi-resource bookings included)
+    locks = db.execute(select(BookingResourceLock.work_date, BookingResourceLock.booking_id, BookingResourceLock.lock_status,
+                              Booking.status).join(Booking, Booking.id == BookingResourceLock.booking_id)
+                       .where(BookingResourceLock.resource_id == rid, availability.active_lock_clause(db),
+                              BookingResourceLock.work_date.between(grid_start, grid_end))).all()
+    booked: dict[date, list[uuid.UUID]] = {}
+    tentative: set[date] = set()
+    for d, bid, lock_status, b_status in locks:
+        if lock_status == LockStatus.CONFIRMED and b_status in VISIBLE:
+            booked.setdefault(d, []).append(bid)
+        else:
+            tentative.add(d)      # held by a request that is not approved yet: no details are shown
+    bookings = {}
+    if booked:
+        ids = {b for v in booked.values() for b in v}
+        for b in db.scalars(select(Booking).where(Booking.id.in_(ids))).unique().all():
+            bookings[str(b.id)] = _out(b)
+
+    days, counts = [], {"working_days": 0, "booked": 0, "leave": 0, "free": 0, "tentative": 0, "holidays": 0, "conflicts": 0}
+    d = grid_start
+    while d <= grid_end:
+        lv, hol = leave_by_day.get(d), holidays.get(d)
+        if d in booked and lv:
+            state = "conflict"
+        elif d in booked:
+            state = "booked"
+        elif hol:
+            state = "holiday"
+        elif d.weekday() not in weekdays:
+            state = "weekend"
+        elif lv:
+            state = "leave"
+        elif d in tentative:
+            state = "tentative"
+        else:
+            state = "free"
+        in_month = first <= d <= last
+        if in_month:
+            if d.weekday() in weekdays and not hol:
+                counts["working_days"] += 1
+            if hol:
+                counts["holidays"] += 1
+            key = {"booked": "booked", "conflict": "conflicts", "leave": "leave", "tentative": "tentative", "free": "free"}.get(state)
+            if key:
+                counts[key] += 1
+        days.append({"date": d.isoformat(), "in_month": in_month, "state": state,
+                     "booking_ids": [str(b) for b in booked.get(d, [])],
+                     "holiday": hol, "leave": ({"id": str(lv.id), "leave_type": lv.leave_type, "reason": lv.reason} if lv else None)})
+        d += timedelta(days=1)
+    return {"month": first.strftime("%Y-%m"), "today": today.isoformat(), "first_day": first.isoformat(), "last_day": last.isoformat(),
+            "days": days, "bookings": bookings, "summary": counts}
 
 
 # ------------------------------------------------------------------ leave (own resource only)
