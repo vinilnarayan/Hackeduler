@@ -48,6 +48,11 @@ class LoginIn(Strict):
     password: str = Field(min_length=1, max_length=256)
 
 
+class ProductRef(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
 class UserOut(ORM):
     id: uuid.UUID
     email: str
@@ -64,6 +69,9 @@ class UserOut(ORM):
     product_name: str | None = None
     implementation_id: uuid.UUID | None = None
     implementation_name: str | None = None
+    # every product the person belongs to (primary first) and the additional ones' ids
+    products: list[ProductRef] = Field(default_factory=list)
+    extra_product_ids: list[uuid.UUID] = Field(default_factory=list)
     resource_id: uuid.UUID | None = None
     resource_name: str | None = None
 
@@ -76,6 +84,7 @@ class UserCreate(Strict):
     role: Literal["admin", "requester", "resource"]
     product_id: uuid.UUID | None = None
     implementation_id: uuid.UUID | None = None
+    extra_product_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50, description="Additional products (needs a primary product)")
     resource_id: uuid.UUID | None = Field(default=None, description="Required for the resource role: the security resource this person is")
 
 
@@ -89,6 +98,7 @@ class UserUpdate(Strict):
     unlink_sso: bool | None = None
     product_id: uuid.UUID | None = Field(default=None, description="null clears the product (and implementation)")
     implementation_id: uuid.UUID | None = None
+    extra_product_ids: list[uuid.UUID] | None = Field(default=None, max_length=50, description="Replaces the additional products; [] clears them")
 
 
 class PasswordChange(Strict):
@@ -277,6 +287,7 @@ class BookingCreate(Strict):
         description="One or more email addresses, separated by commas (max 10)")
     additional_comments: str | None = Field(default=None, max_length=4000)
     additional_days: int = Field(default=0, ge=0, le=250)
+    product_id: uuid.UUID | None = Field(default=None, description="One of your products; omit for your primary product")
     implementation_id: uuid.UUID | None = None
 
 

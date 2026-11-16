@@ -22,7 +22,8 @@ interface AutoResult {
   available_resources: number
 }
 
-interface MyImpls { product: { id: string; name: string } | null; implementations: { id: string; name: string }[]; default_implementation_id: string | null }
+interface MyProduct { id: string; name: string; is_primary: boolean; implementations: { id: string; name: string }[]; default_implementation_id: string | null }
+interface MyImpls { product: { id: string; name: string } | null; implementations: { id: string; name: string }[]; default_implementation_id: string | null; products?: MyProduct[] }
 
 /**
  * Requesters choose WHAT (activity) and WHEN (start date); the server picks the security resource
@@ -40,6 +41,7 @@ export default function NewBooking() {
   const [start, setStart] = useState(sp.get('start') ?? '')
   const [extra, setExtra] = useState(0)
   const [implementationId, setImplementationId] = useState('')
+  const [productId, setProductId] = useState('')
   const [check, setCheck] = useState<AutoResult | null>(null)
   const [checking, setChecking] = useState(false)
   const [checkErr, setCheckErr] = useState<string | null>(null)
@@ -50,6 +52,11 @@ export default function NewBooking() {
   const needsResource = activity?.requires_resource ?? true
 
   useEffect(() => { if (mine.data?.default_implementation_id && !implementationId) setImplementationId(mine.data.default_implementation_id) }, [mine.data])
+  const products = mine.data?.products ?? []
+  const multi = products.length > 1
+  const chosen = products.find((p) => p.id === (productId || mine.data?.product?.id)) ?? null
+  const implOptions = multi ? chosen?.implementations ?? [] : mine.data?.implementations ?? []
+  const pickProduct = (id: string) => { setProductId(id); setImplementationId(products.find((p) => p.id === id)?.default_implementation_id ?? '') }
 
   const runCheck = async () => {
     setChecking(true); setCheckErr(null)
@@ -75,7 +82,7 @@ export default function NewBooking() {
         application_name: form.application_name, application_version: form.application_version, activity_type_id: activityId,
         pci_dss_scope: form.pci_dss_scope === 'yes', start_date: start || null, poc_name: form.poc_name,
         poc_email: form.poc_email, additional_comments: form.additional_comments || null, additional_days: extra,
-        implementation_id: implementationId || null,
+        implementation_id: implementationId || null, ...(multi && chosen ? { product_id: chosen.id } : {}),
       })
       toast('success', `Booking request ${b.id} submitted`)
       nav(`/bookings/${b.id}/confirmation`)
@@ -106,11 +113,18 @@ export default function NewBooking() {
                 onChange={(e) => setExtra(Math.max(0, Math.min(activity.max_additional_days, parseInt(e.target.value || '0', 10))))} />
             </Field>
           )}
+          {multi && (
+            <Field label="Product *" htmlFor="prod" hint="You have access to more than one product.">
+              <select id="prod" className="input" value={chosen?.id ?? ''} onChange={(e) => pickProduct(e.target.value)}>
+                {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </Field>
+          )}
           {mine.data?.product && (
-            <Field label="Implementation" htmlFor="impl" hint={`Product: ${mine.data.product.name}`}>
+            <Field label="Implementation" htmlFor="impl" hint={multi ? undefined : `Product: ${mine.data.product.name}`}>
               <select id="impl" className="input" value={implementationId} onChange={(e) => setImplementationId(e.target.value)}>
                 <option value="">— Not specific —</option>
-                {mine.data.implementations.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                {implOptions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
               </select>
             </Field>
           )}

@@ -207,12 +207,19 @@ def earliest_any_resource(db: Session, duration: int, after: date) -> date | Non
 
 def resolve_product(db: Session, actor: User, product_id: uuid.UUID | None, implementation_id: uuid.UUID | None,
                     *, for_admin: bool) -> tuple[uuid.UUID | None, uuid.UUID | None]:
-    """Requesters always book under their own product; the implementation must belong to it."""
+    """Requesters book under one of their own products (their primary one unless they pick another); the
+    implementation must belong to it."""
     if not for_admin:
-        if product_id and product_id != actor.product_id:
+        allowed = actor.product_ids
+        if product_id and product_id not in allowed:
             raise forbidden("You can only book for your own product.")
-        product_id = actor.product_id
-        implementation_id = implementation_id or actor.implementation_id
+        if not product_id and implementation_id:
+            impl = db.get(Implementation, implementation_id)
+            if impl is not None and impl.product_id in allowed:
+                product_id = impl.product_id
+        product_id = product_id or actor.product_id
+        if product_id == actor.product_id:
+            implementation_id = implementation_id or actor.implementation_id
     if implementation_id and not product_id:
         impl = db.get(Implementation, implementation_id)
         product_id = impl.product_id if impl else None

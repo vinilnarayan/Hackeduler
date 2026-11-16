@@ -46,16 +46,16 @@ router = APIRouter(prefix="/api", tags=["requester"])
 
 
 def _visible(user: User):
-    """Bookings a requester may SEE: their own, plus bookings of their product."""
-    if user.product_id:
-        return or_(Booking.requester_id == user.id, Booking.product_id == user.product_id)
+    """Bookings a requester may SEE: their own, plus bookings of any of their products."""
+    if user.product_ids:
+        return or_(Booking.requester_id == user.id, Booking.product_id.in_(user.product_ids))
     return Booking.requester_id == user.id
 
 
 def _visible_booking(db: Session, user: User, booking_id: uuid.UUID) -> Booking:
     b = db.get(Booking, booking_id)
     # 404 (not 403) so the existence of other bookings is not disclosed (IDOR protection)
-    if b is None or not (b.requester_id == user.id or (user.product_id and b.product_id == user.product_id)):
+    if b is None or not (b.requester_id == user.id or (b.product_id is not None and b.product_id in user.product_ids)):
         raise not_found("Booking")
     return b
 
@@ -122,7 +122,7 @@ def calendar(start: date, end: date, activity_type_id: uuid.UUID | None = None, 
         duration = a.base_duration_days
     try:
         return availability.calendar_grid(db, start, end, viewer_id=user.id, admin=False, activity_duration=duration,
-                                          viewer_product_id=user.product_id)
+                                          viewer_product_ids=user.product_ids)
     except SchedulingError as e:
         raise bad_request(e.message, e.code)
 
@@ -147,14 +147,25 @@ def check_auto_availability(body: AutoAvailabilityQuery, db: Session = Depends(g
 
 @router.get("/me/implementations")
 def my_implementations(db: Session = Depends(get_db), user: User = Depends(get_requester_user)):
-    """The caller's product and its active implementations (for the booking form)."""
+    """The caller's products and their active implementations (for the booking form).
+
+    `product` / `implementations` / `default_implementation_id` describe the primary product (as before);
+    `products` lists every product the caller can book under, primary first."""
+    products = [p for p in user.products if p.is_active or p.id == user.product_id]
+    by_product: dict = {p.id: [] for p in products}
+    if by_product:
+        for i in db.scalars(select(Implementation).where(Implementation.product_id.in_(list(by_product)),
+                                                         Implementation.is_active.is_(True)).order_by(Implementation.name)).unique().all():
+            by_product[i.product_id].append({"id": str(i.id), "name": i.name})
+    listing = [{"id": str(p.id), "name": p.name, "is_primary": p.id == user.product_id, "implementations": by_product[p.id],
+                "default_implementation_id": str(user.implementation_id) if user.implementation_id and p.id == user.product_id else None}
+               for p in products]
     if not user.product_id:
-        return {"product": None, "implementations": [], "default_implementation_id": None}
-    rows = db.scalars(select(Implementation).where(Implementation.product_id == user.product_id,
-                                                   Implementation.is_active.is_(True)).order_by(Implementation.name)).unique().all()
+        return {"product": None, "implementations": [], "default_implementation_id": None, "products": listing}
     return {"product": {"id": str(user.product_id), "name": user.product.name if user.product else None},
-            "implementations": [{"id": str(i.id), "name": i.name} for i in rows],
-            "default_implementation_id": str(user.implementation_id) if user.implementation_id else None}
+            "implementations": by_product.get(user.product_id, []),
+            "default_implementation_id": str(user.implementation_id) if user.implementation_id else None,
+            "products": listing}
 
 
 @router.post("/bookings", status_code=201)
@@ -169,7 +180,7 @@ def my_bookings(status: str | None = None, q: str | None = Query(default=None, m
                 scope: str = Query(default="mine", pattern="^(mine|product)$"),
                 implementation_id: uuid.UUID | None = None,
                 db: Session = Depends(get_db), user: User = Depends(get_requester_user)):
-    """scope=mine: my own bookings. scope=product: every booking of my product (read-only for others' bookings)."""
+    """scope=mine: my own bookings. scope=product: every booking of my products (read-only for others' bookings)."""
     stmt = select(Booking).where(_visible(user) if scope == "product" else Booking.requester_id == user.id)
     if implementation_id:
         stmt = stmt.where(Booking.implementation_id == implementation_id)

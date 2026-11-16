@@ -10,13 +10,13 @@ import uuid
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_admin
 from ..errors import conflict, not_found
-from ..models import Booking, Implementation, Product, User
+from ..models import Booking, Implementation, Product, User, user_products
 from ..services import audit
 from .common import commit
 
@@ -44,6 +44,16 @@ def _counts(db: Session, col, value) -> dict:
     return {"users": users, "bookings": bookings}
 
 
+def _product_counts(db: Session, product_id) -> dict:
+    """Users of a product = those whose primary product it is + those who have it as an additional product."""
+    c = _counts(db, lambda m: m.product_id, product_id)
+    extra = db.scalar(select(func.count()).select_from(user_products).join(User, User.id == user_products.c.user_id)
+                      .where(user_products.c.product_id == product_id, User.deleted_at.is_(None),
+                             or_(User.product_id.is_(None), User.product_id != product_id))) or 0
+    c["users"] += extra
+    return c
+
+
 def _impl_out(db: Session, i: Implementation) -> dict:
     return {"id": str(i.id), "product_id": str(i.product_id), "name": i.name, "description": i.description,
             "is_active": i.is_active, **_counts(db, lambda m: m.implementation_id, i.id)}
@@ -54,7 +64,7 @@ def _product_out(db: Session, p: Product, include_inactive: bool = True) -> dict
     if not include_inactive:
         q = q.where(Implementation.is_active.is_(True))
     return {"id": str(p.id), "name": p.name, "description": p.description, "is_active": p.is_active,
-            **_counts(db, lambda m: m.product_id, p.id),
+            **_product_counts(db, p.id),
             "implementations": [_impl_out(db, i) for i in db.scalars(q).unique().all()]}
 
 
@@ -105,7 +115,7 @@ def delete_product(product_id: uuid.UUID, db: Session = Depends(get_db), admin: 
     p = db.get(Product, product_id)
     if p is None:
         raise not_found("Product")
-    c = _counts(db, lambda m: m.product_id, p.id)
+    c = _product_counts(db, p.id)
     if c["users"] or c["bookings"]:
         raise conflict(f"{p.name} is used by {c['users']} user(s) and {c['bookings']} booking(s). "
                        "Deactivate it instead, or move the users to another product first.", "product_in_use", c)
