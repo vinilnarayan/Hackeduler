@@ -1,7 +1,7 @@
 """Private day notes for resource users (shown on their dashboard calendar).
 
 Revision ID: 0013
-Revises: 0011   (0012 on the aws/ec2-rds-ses branch)
+Revises: 0011
 """
 from alembic import op
 
