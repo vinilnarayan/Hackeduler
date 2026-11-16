@@ -66,11 +66,12 @@ function Logs() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No emails" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Created</th><th className="th">Template</th><th className="th">Recipient</th><th className="th">Subject</th><th className="th">Status</th><th className="th">Attempts</th><th className="th">Error</th><th className="th" /></tr></thead>
+            <thead className="bg-slate-50"><tr><th className="th">Created</th><th className="th">Template</th><th className="th">Recipient</th><th className="th">Subject</th><th className="th">Status</th><th className="th">Attempts</th><th className="th">Sent via</th><th className="th">Error</th><th className="th" /></tr></thead>
             <tbody className="divide-y divide-slate-100">{data.map((e) => (
               <tr key={e.id}><td className="td text-xs whitespace-nowrap">{fmtDateTime(e.created_at)}</td><td className="td text-xs">{e.template_key}</td><td className="td text-xs">{e.recipient}</td><td className="td max-w-xs truncate text-xs">{e.subject}</td>
                 <td className="td"><Pill className={tone[e.status]}>{e.status}</Pill>{e.sent_at && <div className="text-[11px] text-slate-500">{fmtDateTime(e.sent_at)}</div>}</td>
                 <td className="td text-xs">{e.attempts}/{e.max_attempts}{e.status === 'queued' && e.attempts > 0 && <div className="text-slate-500">next {fmtDateTime(e.next_attempt_at)}</div>}</td>
+                <td className="td text-xs uppercase">{e.provider ?? ''}</td>
                 <td className="td max-w-xs text-xs text-red-700">{e.last_error}</td>
                 <td className="td">{e.status !== 'sent' && <button className="btn-ghost px-2" aria-label="Retry delivery" onClick={async () => { try { await post(`/api/admin/email-logs/${e.id}/retry`); toast('success', 'Requeued'); reload() } catch (err) { toast('error', validationMessage(err)) } }}><RotateCcw className="h-4 w-4" /></button>}</td></tr>
             ))}</tbody>
