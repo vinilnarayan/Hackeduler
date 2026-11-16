@@ -13,6 +13,7 @@ const ResourceAssignments = lazy(() => import('./pages/resource/Assignments'))
 const ResourceLeaves = lazy(() => import('./pages/resource/Leaves'))
 const AdminDashboard = lazy(() => import('./pages/admin/Dashboard'))
 const AdminCalendar = lazy(() => import('./pages/admin/AdminCalendar'))
+const TeamCalendar = lazy(() => import('./pages/admin/TeamCalendar'))
 const AdminBookings = lazy(() => import('./pages/admin/Bookings'))
 const ManualAllocation = lazy(() => import('./pages/admin/ManualAllocation'))
 const ChangeRequests = lazy(() => import('./pages/admin/ChangeRequests'))
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="bookings/:id/confirmation" element={<BookingConfirmation />} />
         <Route path="admin" element={<AdminOnly><AdminDashboard /></AdminOnly>} />
         <Route path="admin/calendar" element={<AdminOnly><AdminCalendar /></AdminOnly>} />
+        <Route path="admin/team-calendar" element={<AdminOnly><TeamCalendar /></AdminOnly>} />
         <Route path="admin/bookings" element={<AdminOnly><AdminBookings /></AdminOnly>} />
         <Route path="admin/bookings/new" element={<AdminOnly><ManualAllocation /></AdminOnly>} />
         <Route path="admin/change-requests" element={<AdminOnly><ChangeRequests /></AdminOnly>} />

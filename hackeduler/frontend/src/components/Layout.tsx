@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
-  AlertTriangle, BarChart3, CalendarDays, CalendarPlus, ClipboardList, FileClock, GitPullRequestArrow, LogOut, Mail, Menu,
+  AlertTriangle, BarChart3, CalendarDays, CalendarPlus, CalendarRange, ClipboardList, FileClock, GitPullRequestArrow, LogOut, Mail, Menu,
   PartyPopper, Plane, Settings, ShieldCheck, Fingerprint, Boxes, SlidersHorizontal, Users, UserCog, X, LayoutDashboard, ListChecks,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
@@ -25,6 +25,7 @@ const ADMIN_NAV: { section: string; items: NavItem[] }[] = [
   { section: 'Overview', items: [
     { to: '/admin', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
     { to: '/admin/calendar', label: 'Resource Calendar', icon: <CalendarDays className="h-4 w-4" /> },
+    { to: '/admin/team-calendar', label: 'Team Calendar', icon: <CalendarRange className="h-4 w-4" /> },
   ] },
   { section: 'Bookings', items: [
     { to: '/admin/bookings', label: 'Bookings', icon: <ListChecks className="h-4 w-4" /> },
