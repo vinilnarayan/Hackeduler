@@ -21,16 +21,17 @@ export default function UsersPage() {
   const restore = async (u: User) => { try { await post(`/api/admin/users/${u.id}/restore`); toast('success', `${u.full_name} restored (disabled). Enable the account when ready.`); reload() } catch (e) { toast('error', validationMessage(e)) } }
   const [edit, setEdit] = useState<any>(null)
   const save = async () => {
+    const extraIds: string[] = edit.product_id ? (edit.extra_product_ids ?? []).filter((id: string) => id !== edit.product_id) : []
     try {
       if (edit.id) {
         await patch(`/api/admin/users/${edit.id}`, {
           full_name: edit.full_name, role: edit.role, resource_id: edit.role === 'resource' ? edit.resource_id || null : null, ...(edit.password ? { password: edit.password } : {}),
-          product_id: edit.product_id || null, implementation_id: edit.implementation_id || null,
+          product_id: edit.product_id || null, implementation_id: edit.implementation_id || null, extra_product_ids: extraIds,
           ...(edit.remove_password ? { remove_password: true } : {}), ...(edit.unlink_sso ? { unlink_sso: true } : {}),
         })
       } else {
         await post('/api/admin/users', { email: edit.email, full_name: edit.full_name, role: edit.role, ...(edit.role === 'resource' ? { resource_id: edit.resource_id || null } : {}), ...(edit.sso_only ? {} : { password: edit.password }),
-          product_id: edit.product_id || null, implementation_id: edit.implementation_id || null })
+          product_id: edit.product_id || null, implementation_id: edit.implementation_id || null, extra_product_ids: extraIds })
       }
       toast('success', 'User saved'); setEdit(null); reload()
     } catch (e) { toast('error', validationMessage(e)) }
@@ -50,7 +51,7 @@ export default function UsersPage() {
             <tbody className="divide-y divide-slate-100">{data.map((u) => (
               <tr key={u.id} className={u.deleted_at ? 'bg-slate-50 opacity-70' : ''}><td className="td font-medium">{u.full_name}</td><td className="td text-xs">{u.email}</td>
                 <td className="td"><Pill className={u.role === 'admin' ? 'bg-blue-100 text-blue-800' : u.role === 'resource' ? 'bg-teal-100 text-teal-800' : ''}>{u.role}</Pill>{u.resource_name && <div className="text-xs text-slate-500">{u.resource_name}</div>}</td>
-                <td className="td text-xs">{u.product_name ? <><div className="font-medium">{u.product_name}</div><div className="text-slate-500">{u.implementation_name ?? '—'}</div></> : <span className="text-slate-400">—</span>}</td>
+                <td className="td text-xs">{u.product_name ? <><div className="font-medium">{u.product_name}{(u.extra_product_ids?.length ?? 0) > 0 && <span className="ml-1 font-normal text-slate-600">+ {u.products?.filter((p) => p.id !== u.product_id).map((p) => p.name).join(', ')}</span>}</div><div className="text-slate-500">{u.implementation_name ?? '—'}</div></> : <span className="text-slate-400">—</span>}</td>
                 <td className="td"><div className="flex flex-wrap gap-1">
                   {u.sso_provider_id && <Pill className="bg-violet-100 text-violet-800">SSO · {u.sso_provider_name}</Pill>}
                   {u.has_password && <Pill>Password</Pill>}
@@ -79,12 +80,24 @@ export default function UsersPage() {
               {resources.data?.map((r) => <option key={r.id} value={r.id}>{r.display_name} – {r.engineer_name}</option>)}
             </select>
           </Field>}
-          <Field label="Product" htmlFor="u-prod" hint="Requesters in the same product can see each other's bookings.">
-            <select id="u-prod" className="input" value={edit.product_id ?? ''} onChange={(e) => setEdit({ ...edit, product_id: e.target.value, implementation_id: '' })}>
+          <Field label="Product" htmlFor="u-prod" hint="Primary product. Requesters in the same product can see each other's bookings.">
+            <select id="u-prod" className="input" value={edit.product_id ?? ''} onChange={(e) => setEdit({ ...edit, product_id: e.target.value, implementation_id: '', extra_product_ids: (edit.extra_product_ids ?? []).filter((id: string) => id !== e.target.value) })}>
               <option value="">— None —</option>
               {products.data?.filter((p) => p.is_active || p.id === edit.product_id).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </Field>
+          {edit.role === 'requester' && edit.product_id && (
+            <fieldset className="rounded border border-slate-200 p-2">
+              <legend className="px-1 text-sm font-medium">Also has access to</legend>
+              <p className="mb-1 text-xs text-slate-500">This person can also book for, and see the bookings of, these products.</p>
+              <div className="grid max-h-36 gap-1 overflow-y-auto sm:grid-cols-2">
+                {products.data?.filter((p) => p.id !== edit.product_id && (p.is_active || (edit.extra_product_ids ?? []).includes(p.id))).map((p) => (
+                  <label key={p.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={(edit.extra_product_ids ?? []).includes(p.id)}
+                    onChange={(e) => setEdit({ ...edit, extra_product_ids: e.target.checked ? [...(edit.extra_product_ids ?? []), p.id] : (edit.extra_product_ids ?? []).filter((id: string) => id !== p.id) })} />{p.name}</label>
+                ))}
+              </div>
+            </fieldset>
+          )}
           <Field label="Implementation" htmlFor="u-impl">
             <select id="u-impl" className="input" value={edit.implementation_id ?? ''} disabled={!edit.product_id} onChange={(e) => setEdit({ ...edit, implementation_id: e.target.value })}>
               <option value="">— None —</option>

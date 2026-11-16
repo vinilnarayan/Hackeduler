@@ -9,7 +9,7 @@ from ..db import get_db
 from ..deps import get_current_user
 from ..errors import ServiceError, bad_request
 from ..models import SSOProvider, User
-from ..schemas import LoginIn, PasswordChange, UserOut
+from ..schemas import LoginIn, PasswordChange, ProductRef, UserOut
 from ..security import (
     create_session_token,
     decode_session_token,
@@ -31,6 +31,8 @@ def user_out(u: User, provider_name: str | None = None) -> UserOut:
                    sso_provider_id=u.sso_provider_id, sso_provider_name=provider_name,
                    last_login_method=u.last_login_method, deleted_at=u.deleted_at,
                    product_id=u.product_id, product_name=u.product.name if u.product else None,
+                   products=[ProductRef(id=p.id, name=p.name) for p in u.products],
+                   extra_product_ids=[p.id for p in u.extra_products if p.id != u.product_id],
                    implementation_id=u.implementation_id,
                    implementation_name=u.implementation.name if u.implementation else None,
                    resource_id=u.resource_id, resource_name=u.resource.display_name if u.resource else None)

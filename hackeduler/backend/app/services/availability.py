@@ -287,7 +287,7 @@ def calendar_grid(
     viewer_id: uuid.UUID | None,
     admin: bool,
     activity_duration: int | None = None,
-    viewer_product_id: uuid.UUID | None = None,
+    viewer_product_ids: frozenset | set | None = None,
 ) -> dict:
     """Per-resource, per-day availability states.
 
@@ -343,7 +343,7 @@ def calendar_grid(
                 cell["state"] = "occupied" if confirmed else "reserved"
                 mine = [x for x in rows if viewer_id and x.requester_id == viewer_id]
                 cell["mine"] = bool(mine)
-                team = [x for x in rows if viewer_product_id and x.product_id == viewer_product_id and x not in mine]
+                team = [x for x in rows if viewer_product_ids and x.product_id in viewer_product_ids and x not in mine]
                 if team and not admin:
                     cell["team"] = True
                     mine = mine + team  # product colleagues may see each other's bookings

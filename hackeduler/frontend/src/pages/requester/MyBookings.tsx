@@ -21,13 +21,15 @@ export default function MyBookings() {
   const [sel, setSel] = useState<Booking | null>(null)
   const { user } = useAuth()
   const [scope, setScope] = useState<'mine' | 'product'>('mine')
+  const manyProducts = (user?.products?.length ?? 0) > 1
+  const productLabel = manyProducts ? 'All my products' : user?.product_name ?? ''
   const { data, error, loading, reload } = useAsync<Booking[]>(() => get('/api/bookings/mine' + qs({ status: tab, q, scope })), [tab, q, scope])
   return (
     <div>
-      <PageHeader title="My Bookings" subtitle={user?.product_name ? `Your own requests, or every booking of ${user.product_name}. Only the person who made a booking can change it.` : 'Your own booking requests.'}
+      <PageHeader title="My Bookings" subtitle={user?.product_name ? `Your own requests, or every booking of ${manyProducts ? 'your products' : user.product_name}. Only the person who made a booking can change it.` : 'Your own booking requests.'}
         actions={user?.product_name ? (
           <div className="flex rounded-md border border-slate-300 bg-white p-0.5" role="tablist" aria-label="Scope">
-            {([['mine', 'My bookings'], ['product', `${user.product_name} bookings`]] as const).map(([k, l]) => <button key={k} role="tab" aria-selected={scope === k} onClick={() => setScope(k)} className={`rounded px-3 py-1 text-sm ${scope === k ? 'bg-blue-700 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{l}</button>)}
+            {([['mine', 'My bookings'], ['product', manyProducts ? `${productLabel} bookings` : `${user.product_name} bookings`]] as const).map(([k, l]) => <button key={k} role="tab" aria-selected={scope === k} onClick={() => setScope(k)} className={`rounded px-3 py-1 text-sm ${scope === k ? 'bg-blue-700 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{l}</button>)}
           </div>) : undefined} />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap rounded-md border border-slate-300 bg-white p-0.5" role="tablist">
@@ -38,13 +40,14 @@ export default function MyBookings() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : !data?.length ? <Empty title="No bookings found" hint="Create a new booking request from the calendar." /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Application</th><th className="th">Version</th>{scope === 'product' && <th className="th">Requested by</th>}<th className="th">Implementation</th><th className="th">Activity</th><th className="th">Resource</th><th className="th">Dates</th><th className="th">Status</th><th className="th">Report</th><th className="th">Submitted</th></tr></thead>
+            <thead className="bg-slate-50"><tr><th className="th">Application</th><th className="th">Version</th>{scope === 'product' && <th className="th">Requested by</th>}{manyProducts && <th className="th">Product</th>}<th className="th">Implementation</th><th className="th">Activity</th><th className="th">Resource</th><th className="th">Dates</th><th className="th">Status</th><th className="th">Report</th><th className="th">Submitted</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {data.map((b) => (
                 <tr key={b.id} className="cursor-pointer hover:bg-slate-50" tabIndex={0} onClick={() => setSel(b)} onKeyDown={(e) => e.key === 'Enter' && setSel(b)}>
                   <td className="td"><div className="font-medium">{b.application_name}</div><div className="text-xs text-slate-500"><span className="font-mono">{b.id.slice(0, 8)}</span></div></td>
                   <td className="td whitespace-nowrap">{b.application_version}</td>
                   {scope === 'product' && <td className="td text-xs">{b.is_mine ? 'You' : b.requester_name}</td>}
+                  {manyProducts && <td className="td text-xs">{b.product_name ?? '—'}</td>}
                   <td className="td text-xs">{b.implementation_name ?? '—'}</td>
                   <td className="td">{b.activity_name}{b.duration_days ? <div className="text-xs text-slate-500">{b.duration_days} working days</div> : null}</td>
                   <td className="td">{b.requires_resource ? b.resource_display_name : <span className="text-xs text-slate-500">Not required</span>}</td>

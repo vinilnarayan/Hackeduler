@@ -221,7 +221,7 @@ def test_requester_implementation_choice_is_limited_to_own_product(admin, data):
     assert impls["product"]["name"] == "Payments" and {i["name"] for i in impls["implementations"]} == {"Bank A", "Bank B"}
     assert r1.post("/api/bookings", json=auto_payload(data, implementation_id=i2)).json()["implementation_name"] == "Bank B"
     assert r1.post("/api/bookings", json=auto_payload(data, implementation_id=oi)).status_code == 422
-    assert r1.post("/api/bookings", json={**auto_payload(data), "product_id": _oid}).status_code == 422  # field not accepted
+    assert r1.post("/api/bookings", json={**auto_payload(data), "product_id": _oid}).status_code == 403  # a product the requester does not belong to
 
 
 def test_dashboard_product_breakdown_includes_resourceless(admin, data):

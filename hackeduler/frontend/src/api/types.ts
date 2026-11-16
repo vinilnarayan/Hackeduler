@@ -17,6 +17,8 @@ export interface User {
   product_name?: string | null
   implementation_id?: string | null
   implementation_name?: string | null
+  products?: { id: string; name: string }[]          // every product (primary first)
+  extra_product_ids?: string[]
   resource_id?: string | null
   resource_name?: string | null
 }

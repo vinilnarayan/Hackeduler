@@ -573,6 +573,19 @@ def _product_pair(db: Session, product_id, implementation_id):
     return product_id, implementation_id
 
 
+def _extra_products(db: Session, primary_id, ids) -> list:
+    """Validate the additional products of a user: they exist, are distinct from the primary one, and a primary one is set."""
+    from ..models import Product
+
+    wanted = list(dict.fromkeys(i for i in (ids or []) if i != primary_id))
+    if wanted and primary_id is None:
+        raise bad_request("Choose the primary product before adding more products.")
+    rows = {p.id: p for p in db.scalars(select(Product).where(Product.id.in_(wanted))).all()} if wanted else {}
+    if len(rows) != len(wanted):
+        raise bad_request("Unknown product in the additional products.")
+    return [rows[i] for i in wanted]
+
+
 def _users_out(db: Session, users) -> list:
     from ..models import SSOProvider
 
@@ -670,12 +683,14 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = D
              role_id=_ROLE_IDS[body.role])
     u.resource_id = _resource_for_role(db, body.role, body.resource_id, None)
     u.product_id, u.implementation_id = _product_pair(db, body.product_id, body.implementation_id)
+    u.extra_products = _extra_products(db, u.product_id, body.extra_product_ids)
     db.add(u)
     db.flush()
     db.refresh(u)
     audit.record(db, "user.created", admin, entity_type="user", entity_id=u.id,
                  new={"email": u.email, "full_name": u.full_name, "role": body.role, "resource_id": u.resource_id, "sso_only": not body.password,
-                      "product_id": u.product_id, "implementation_id": u.implementation_id})
+                      "product_id": u.product_id, "implementation_id": u.implementation_id,
+                      "extra_product_ids": [p.id for p in u.extra_products]})
     if not body.password:
         # SSO-only account: tell the person where to sign in. (Never emails a password.)
         notifications.notify_user_welcome(db, u)
@@ -692,13 +707,19 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
     if u.id == admin.id and (data.get("is_active") is False or data.get("role") in ("requester", "resource")):
         raise bad_request("You cannot deactivate or demote your own account.")
     prev = {"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
-            "product_id": audit.jsonable(u.product_id), "implementation_id": audit.jsonable(u.implementation_id)}
+            "product_id": audit.jsonable(u.product_id), "implementation_id": audit.jsonable(u.implementation_id),
+            "extra_product_ids": [audit.jsonable(p.id) for p in u.extra_products]}
     if "full_name" in data:
         u.full_name = data["full_name"]
     if "product_id" in data or "implementation_id" in data:
         pid = data.get("product_id", u.product_id)
         iid = data.get("implementation_id", None if "product_id" in data and pid != u.product_id else u.implementation_id)
         u.product_id, u.implementation_id = _product_pair(db, pid, iid)
+    if data.get("extra_product_ids") is not None or "product_id" in data:
+        wanted = data["extra_product_ids"] if data.get("extra_product_ids") is not None else [p.id for p in u.extra_products]
+        if u.product_id is None and data.get("extra_product_ids") is None:
+            wanted = []          # the primary product was cleared: nothing can hang off it
+        u.extra_products = _extra_products(db, u.product_id, wanted)
     revoke = False
     if "role" in data or "resource_id" in data:
         role_key = data.get("role") or u.role_name
@@ -738,6 +759,7 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
     audit.record(db, "user.updated", admin, entity_type="user", entity_id=u.id, previous=prev,
                  new={"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
                       "product_id": u.product_id, "implementation_id": u.implementation_id,
+                      "extra_product_ids": [p.id for p in u.extra_products],
                       "password_reset": bool(data.get("password")), "password_removed": bool(data.get("remove_password")),
                       "sso_unlinked": bool(data.get("unlink_sso"))})
     commit(db)

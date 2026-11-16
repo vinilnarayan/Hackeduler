@@ -51,6 +51,14 @@ ROLE_REQUESTER_ID = 2
 ROLE_RESOURCE_ID = 3
 
 
+user_products = Table(
+    "user_products", Base.metadata,
+    Column("user_id", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("product_id", UUID(as_uuid=True), ForeignKey("products.id"), primary_key=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+)
+
+
 class User(Base):
     __tablename__ = "users"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -77,6 +85,19 @@ class User(Base):
     implementation: Mapped["Implementation | None"] = relationship(lazy="joined", foreign_keys=[implementation_id])
 
     resource: Mapped["SecurityResource | None"] = relationship(lazy="joined", foreign_keys=[resource_id])
+    # Additional products (besides the primary product_id) a requester can book under and see bookings of.
+    extra_products: Mapped[list["Product"]] = relationship(secondary=user_products, lazy="selectin", order_by="Product.name")
+
+    @property
+    def products(self) -> list["Product"]:
+        """Every product this person belongs to, the primary one first."""
+        out = [self.product] if self.product is not None else []
+        out += [p for p in self.extra_products if self.product is None or p.id != self.product_id]
+        return out
+
+    @property
+    def product_ids(self) -> frozenset:
+        return frozenset(p.id for p in self.products)
 
     @property
     def role_name(self) -> str:
