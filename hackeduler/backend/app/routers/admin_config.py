@@ -6,7 +6,10 @@ import io
 import uuid
 from datetime import date, datetime, timedelta
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from pydantic import EmailStr, Field
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -31,6 +34,7 @@ from ..models import (
 )
 from ..schemas import (
     ActivityCreate,
+    Strict,
     ActivityAdminOut,
     ActivityOut,
     ActivityUpdate,
@@ -52,7 +56,7 @@ from ..schemas import (
     booking_admin_out,
 )
 from ..security import hash_password, validate_password_strength
-from ..services import audit, conflicts, initiation, notifications, settings_service
+from ..services import audit, conflicts, email_sender, initiation, notifications, settings_service
 from ..services.availability import now_utc
 from ..services.calendar_engine import expand_ranges
 from .auth import user_out
@@ -751,7 +755,11 @@ def get_settings_(db: Session = Depends(get_db)):
         "descriptions": {k: d for k, (_, d) in settings_service.DEFAULTS.items()},
         # informational only - secrets are NEVER returned
         "environment": {"email_backend": env.email_backend, "smtp_host": env.smtp_host, "smtp_port": env.smtp_port,
-                        "smtp_password_configured": bool(env.smtp_password)},
+                        "smtp_password_configured": bool(env.smtp_password),
+                        "email_primary": env.email_primary, "email_fallback": env.email_fallback or "none",
+                        "aws_region": env.aws_region or None, "ses_configuration_set": env.ses_configuration_set or None},
+        # what is actually used right now (admin settings win over the environment)
+        "email_chain": email_sender.provider_chain(db),
     }
 
 
@@ -772,6 +780,39 @@ def update_settings(body: SettingsUpdate, db: Session = Depends(get_db), admin: 
                      previous={k: c["old"] for k, c in changes.items()}, new={k: c["new"] for k, c in changes.items()})
     commit(db)
     return {"values": settings_service.get_all(db)}
+
+
+class TestEmailIn(Strict):
+    to: EmailStr
+    provider: Literal["smtp", "ses"] | None = Field(default=None, description="One service, or omit to use the configured primary + fallback")
+
+
+@router.post("/settings/test-email")
+def send_test_email(body: TestEmailIn, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Send a test message immediately (not through the queue) so mail settings can be checked."""
+    from email.message import EmailMessage
+    from email.utils import formataddr, make_msgid
+
+    msg = EmailMessage()
+    msg["Subject"] = "Hackeduler test email"
+    msg["From"] = formataddr((settings_service.get_setting(db, "email_sender_name"),
+                              settings_service.get_setting(db, "email_sender_address")))
+    msg["To"] = str(body.to)
+    msg["Message-ID"] = make_msgid(domain="hackeduler")
+    msg.set_content("This is a test email from Hackeduler. If you can read it, outgoing mail is working.\n")
+    used, error = None, None
+    try:
+        if body.provider:
+            email_sender.send_via(db, body.provider, msg)
+            used = body.provider
+        else:
+            used = email_sender.deliver(db, msg)
+    except email_sender.EmailBackendError as e:
+        error = str(e)[:1000]
+    audit.record(db, "email.test_sent", admin, entity_type="settings", entity_id="email",
+                 new={"to": str(body.to), "requested_provider": body.provider, "provider": used, "ok": error is None, "error": error})
+    commit(db)
+    return {"ok": error is None, "provider": used, "error": error}
 
 
 def _ensure_templates(db: Session) -> None:

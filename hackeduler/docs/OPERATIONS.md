@@ -45,6 +45,14 @@ Environment (`HACKEDULER_*`): see `.env.example`. Runtime settings, editable und
 ## 3. Email
 
 - Backends: `smtp` (default), `console` (writes messages to the worker log), `memory` (tests).
+- **Amazon SES (optional, alongside SMTP).** Admin -> Settings -> Email lets you pick the **primary** service (SMTP or SES), an
+  optional **fallback** tried when the primary fails, the SES region and configuration set, and has **Send test email** buttons
+  for each service. The delivery log shows which service sent each message. Prerequisites: the sender address (or domain) is a
+  verified identity in SES in that region (and the account is out of the SES sandbox, or the recipients are verified), and
+  permission to `ses:SendRawEmail`: with an IAM **role** on the server (e.g. EC2 instance role) nothing needs configuring (the
+  container needs metadata hop limit 2); otherwise put an IAM user's keys in `.env` as `AWS_ACCESS_KEY_ID` and
+  `AWS_SECRET_ACCESS_KEY` (never in the UI or database). Then `./deploy.sh` (or `docker compose up -d --build`) so the backend image gets the AWS library. The same
+  settings can be preset with `HACKEDULER_EMAIL_PRIMARY`, `HACKEDULER_EMAIL_FALLBACK`, `HACKEDULER_AWS_REGION`.
 - Use any SMTP relay or enterprise provider with SMTP submission (Microsoft 365 / Exchange, Google Workspace relay,
   SES SMTP, etc.): set `HACKEDULER_SMTP_HOST`, `HACKEDULER_SMTP_PORT`, `HACKEDULER_SMTP_STARTTLS=true` (or `HACKEDULER_SMTP_SSL=true`), plus the
   username and password.

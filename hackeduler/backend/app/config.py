@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     smtp_ssl: bool = False
     smtp_timeout: int = 15
 
+    # Which service delivers mail when email_backend=smtp ("real delivery"): smtp | ses. The admin Settings page can
+    # override both; an optional fallback is tried when the primary fails. SES uses the standard AWS credential
+    # chain: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in .env (an IAM user allowed ses:SendRawEmail), or an instance role.
+    email_primary: str = "smtp"
+    email_fallback: str = ""
+    aws_region: str = ""                   # falls back to AWS_REGION / AWS_DEFAULT_REGION
+    ses_configuration_set: str = ""
+
     # Key used to encrypt secrets stored in the database (SSO client secrets).
     # If unset it is derived from secret_key; set it explicitly so secret_key can be rotated independently.
     encryption_key: str = ""
