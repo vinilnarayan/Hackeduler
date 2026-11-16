@@ -12,11 +12,12 @@ export default function SettingsPage() {
   const [v, setV] = useState<any>(null)
   const [testTo, setTestTo] = useState('')
   const [testing, setTesting] = useState('')
-  useEffect(() => { if (data) setV({ ...data.values, admin_notification_recipients: (data.values.admin_notification_recipients ?? []).join(', ') }) }, [data])
+  useEffect(() => { if (data) setV({ ...data.values, admin_notification_recipients: (data.values.admin_notification_recipients ?? []).join(', '), email_cc_recipients: (data.values.email_cc_recipients ?? []).join(', ') }) }, [data])
   if (error) return <ErrorState message={error} onRetry={reload} />
   if (loading || !v) return <Spinner />
   const save = async () => {
     const values = { ...v, admin_notification_recipients: v.admin_notification_recipients.split(',').map((s: string) => s.trim()).filter(Boolean),
+      email_cc_recipients: v.email_cc_recipients.split(',').map((s: string) => s.trim()).filter(Boolean),
       pending_expiry_hours: Number(v.pending_expiry_hours), initiation_email_days_before: Number(v.initiation_email_days_before), smtp_port: v.smtp_port === '' || v.smtp_port === null ? null : Number(v.smtp_port),
       smtp_host: v.smtp_host || null, smtp_username: v.smtp_username || null,
       email_primary: v.email_primary || null, email_fallback: v.email_fallback || null,
@@ -59,6 +60,7 @@ export default function SettingsPage() {
           <Field label="Sender address" htmlFor="s-sa"><input id="s-sa" type="email" className="input" value={v.email_sender_address} onChange={(e) => setV({ ...v, email_sender_address: e.target.value })} /></Field>
         </div>
         <Field label="Admin notification recipients" htmlFor="s-ar" hint="Comma-separated. Receive new-request and change-request emails."><input id="s-ar" className="input" value={v.admin_notification_recipients} onChange={(e) => setV({ ...v, admin_notification_recipients: e.target.value })} /></Field>
+        <Field label="Always copy (Cc) on every email" htmlFor="s-cc" hint="Comma-separated, up to 10. Added as Cc to all emails Hackeduler sends - including the activity initiation email - except where that person is already the recipient. Leave empty for none."><input id="s-cc" className="input" placeholder="security-team@example.com" value={v.email_cc_recipients} onChange={(e) => setV({ ...v, email_cc_recipients: e.target.value })} /></Field>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={v.notify_requester_copy} onChange={(e) => setV({ ...v, notify_requester_copy: e.target.checked })} />Copy the requester on POC notifications</label>
         <h3 className="pt-2 text-sm font-semibold">Mail service</h3>
         <p className="text-xs text-slate-500">Choose how email leaves the system. Use Amazon SES (sent through the AWS API, using the server&apos;s IAM role - no password to store) and/or an SMTP server. If a fallback is set, an email that cannot be sent by the first service is tried on the second before it counts as a failed attempt.</p>

@@ -55,6 +55,10 @@ def build_message(db: Session, row: EmailNotificationLog) -> EmailMessage:
     msg["From"] = formataddr((settings_service.get_setting(db, "email_sender_name"),
                               settings_service.get_setting(db, "email_sender_address")))
     msg["To"] = row.recipient
+    # The configured always-Cc addresses (Admin -> Settings), except anyone who is already the recipient.
+    cc = [a for a in dict.fromkeys(settings_service.get_setting(db, "email_cc_recipients") or []) if a.lower() != row.recipient.lower()]
+    if cc:
+        msg["Cc"] = ", ".join(cc)
     msg["Message-ID"] = make_msgid(domain="hackeduler")
     msg.set_content(row.body)  # text/plain only
     return msg
