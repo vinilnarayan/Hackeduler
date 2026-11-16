@@ -18,13 +18,18 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import require_resource
 from ..errors import bad_request, not_found
-from ..models import Booking, BookingResourceLock, BookingStatus, LockStatus, ResourceLeave, User
+from ..models import Booking, BookingResourceLock, BookingStatus, LockStatus, ResourceLeave, ResourceNote, User
 from ..schemas import ReportIn, Strict, booking_requester_out
 from ..services import audit, conflicts, reports
 from ..services import availability
 from ..services.availability import now_utc
 from ..services.calendar_engine import expand_ranges
 from .common import commit
+
+# Leave types a resource can choose (admins' list matches). Personal leave is capped per calendar year.
+LEAVE_TYPES = ["Annual leave", "Casual leave", "Personal leave", "Sick leave", "Training", "Public duty", "Other"]
+PERSONAL_LEAVE = "Personal leave"
+PERSONAL_LEAVE_LIMIT_DAYS = 2
 
 router = APIRouter(prefix="/api/resource", tags=["resource"], dependencies=[Depends(require_resource)])
 
@@ -149,6 +154,11 @@ def calendar(month: str | None = Query(None, description="YYYY-MM; default: the 
     for lv in leaves:
         for d in expand_ranges([(max(lv.start_date, grid_start), min(lv.end_date, grid_end))]):
             leave_by_day.setdefault(d, lv)
+    notes_by_day: dict[date, list] = {}
+    for n in db.scalars(select(ResourceNote).where(ResourceNote.resource_id == rid,
+                                                   ResourceNote.note_date.between(grid_start, grid_end))
+                        .order_by(ResourceNote.created_at)).all():
+        notes_by_day.setdefault(n.note_date, []).append({"id": str(n.id), "note": n.note})
     # days actually reserved for this resource (per-resource slices of multi-resource bookings included)
     locks = db.execute(select(BookingResourceLock.work_date, BookingResourceLock.booking_id, BookingResourceLock.lock_status,
                               Booking.status).join(Booking, Booking.id == BookingResourceLock.booking_id)
@@ -196,10 +206,15 @@ def calendar(month: str | None = Query(None, description="YYYY-MM; default: the 
                 counts[key] += 1
         days.append({"date": d.isoformat(), "in_month": in_month, "state": state,
                      "booking_ids": [str(b) for b in booked.get(d, [])],
-                     "holiday": hol, "leave": ({"id": str(lv.id), "leave_type": lv.leave_type, "reason": lv.reason} if lv else None)})
+                     "holiday": hol, "notes": notes_by_day.get(d, []),
+                     "leave": ({"id": str(lv.id), "leave_type": lv.leave_type, "reason": lv.reason,
+                                "start_date": lv.start_date.isoformat(), "end_date": lv.end_date.isoformat()} if lv else None)})
         d += timedelta(days=1)
     return {"month": first.strftime("%Y-%m"), "today": today.isoformat(), "first_day": first.isoformat(), "last_day": last.isoformat(),
-            "days": days, "bookings": bookings, "summary": counts}
+            "days": days, "bookings": bookings, "summary": counts,
+            "leave_types": LEAVE_TYPES,
+            "personal_leave": {"year": first.year, "limit": PERSONAL_LEAVE_LIMIT_DAYS,
+                               "used": _personal_days_used(db, user, first.year)}}
 
 
 # ------------------------------------------------------------------ leave (own resource only)
@@ -213,6 +228,69 @@ class MyLeaveIn(Strict):
     end_date: date
     leave_type: str | None = Field(default=None, max_length=100)
     reason: str | None = Field(default=None, max_length=2000)
+
+
+def _personal_days_used(db: Session, user: User, year: int, exclude: uuid.UUID | None = None,
+                        extra: tuple[date, date] | None = None) -> int:
+    """Working days of personal leave in a calendar year (active leave of this resource, plus an optional new range)."""
+    y0, y1 = date(year, 1, 1), date(year, 12, 31)
+    q = select(ResourceLeave).where(ResourceLeave.resource_id == user.resource_id, ResourceLeave.status == "active",
+                                    ResourceLeave.leave_type == PERSONAL_LEAVE,
+                                    ResourceLeave.start_date <= y1, ResourceLeave.end_date >= y0)
+    ranges = [(lv.start_date, lv.end_date) for lv in db.scalars(q).all() if lv.id != exclude]
+    if extra:
+        ranges.append(extra)
+    weekdays = availability.working_weekdays(db)
+    days: set[date] = set()
+    for s, e in ranges:
+        days.update(d for d in expand_ranges([(max(s, y0), min(e, y1))]) if d.weekday() in weekdays)
+    holidays = availability.load_holidays(db, y0, y1)
+    return len([d for d in days if d not in holidays])
+
+
+class NoteIn(Strict):
+    note_date: date
+    note: str = Field(min_length=1, max_length=2000)
+
+
+class NoteEdit(Strict):
+    note: str = Field(min_length=1, max_length=2000)
+
+
+def _own_note(db: Session, user: User, note_id: uuid.UUID) -> ResourceNote:
+    n = db.get(ResourceNote, note_id)
+    if n is None or n.resource_id != user.resource_id:
+        raise not_found("Note")
+    return n
+
+
+@router.post("/notes", status_code=201)
+def add_note(body: NoteIn, db: Session = Depends(get_db), user: User = Depends(require_resource)):
+    text = body.note.strip()
+    if not text:
+        raise bad_request("Write something in the note first.")
+    n = ResourceNote(id=uuid.uuid4(), resource_id=user.resource_id, note_date=body.note_date, note=text, created_by=user.id)
+    db.add(n)
+    commit(db)
+    return {"id": str(n.id), "note_date": n.note_date.isoformat(), "note": n.note}
+
+
+@router.put("/notes/{note_id}")
+def edit_note(note_id: uuid.UUID, body: NoteEdit, db: Session = Depends(get_db), user: User = Depends(require_resource)):
+    n = _own_note(db, user, note_id)
+    text = body.note.strip()
+    if not text:
+        raise bad_request("Write something in the note first.")
+    n.note = text
+    commit(db)
+    return {"id": str(n.id), "note_date": n.note_date.isoformat(), "note": n.note}
+
+
+@router.delete("/notes/{note_id}")
+def delete_note(note_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(require_resource)):
+    db.delete(_own_note(db, user, note_id))
+    commit(db)
+    return {"ok": True}
 
 
 @router.get("/leaves")
@@ -231,6 +309,13 @@ def add_leave(body: MyLeaveIn, db: Session = Depends(get_db), user: User = Depen
         raise bad_request("You can only add upcoming leave.")
     if (body.end_date - body.start_date).days > 366:
         raise bad_request("Leave period cannot exceed one year.")
+    if body.leave_type == PERSONAL_LEAVE:
+        for year in sorted({body.start_date.year, body.end_date.year}):
+            used = _personal_days_used(db, user, year)
+            total = _personal_days_used(db, user, year, extra=(body.start_date, body.end_date))
+            if total > PERSONAL_LEAVE_LIMIT_DAYS:
+                raise bad_request(f"Personal leave is limited to {PERSONAL_LEAVE_LIMIT_DAYS} days per calendar year; "
+                                  f"you have used {used} in {year} and this request would make it {total}.")
     r = user.resource
     lv = ResourceLeave(id=uuid.uuid4(), resource_id=user.resource_id, created_by=user.id, **body.model_dump())
     db.add(lv)

@@ -8,7 +8,7 @@ import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
 
 interface MyLeave { id: string; start_date: string; end_date: string; leave_type: string | null; reason: string | null }
-const TYPES = ['Annual leave', 'Sick leave', 'Training', 'Public duty', 'Other']
+const TYPES = ['Annual leave', 'Casual leave', 'Personal leave', 'Sick leave', 'Training', 'Public duty', 'Other']
 
 export default function ResourceLeaves() {
   const toast = useToast()
