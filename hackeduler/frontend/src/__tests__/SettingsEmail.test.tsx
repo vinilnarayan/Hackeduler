@@ -11,7 +11,7 @@ const settings = {
   values: {
     timezone: 'Asia/Kolkata', working_weekdays: [0, 1, 2, 3, 4], pending_expiry_enabled: true, pending_expiry_hours: 72,
     requester_direct_cancel_pending: true, email_sender_name: 'Hackeduler', email_sender_address: 'noreply@example.com',
-    admin_notification_recipients: ['a@example.com'], notify_requester_copy: true, initiation_email_enabled: true,
+    admin_notification_recipients: ['a@example.com'], email_cc_recipients: ['cc@example.com'], notify_requester_copy: true, initiation_email_enabled: true,
     initiation_email_days_before: 7, smtp_host: null, smtp_port: null, smtp_username: null, smtp_starttls: null,
     email_primary: null, email_fallback: null, ses_region: null, ses_configuration_set: null,
   },
