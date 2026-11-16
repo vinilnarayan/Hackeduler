@@ -230,6 +230,18 @@ class ResourceLeave(Base):
     resource: Mapped[SecurityResource] = relationship(lazy="joined")
 
 
+class ResourceNote(Base):
+    """A private note a resource user keeps against a calendar day."""
+    __tablename__ = "resource_notes"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    resource_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("security_resources.id"))
+    note_date: Mapped[date] = mapped_column(Date)
+    note: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 booking_extra_resources = Table(
     "booking_extra_resources", Base.metadata,
     Column("booking_id", UUID(as_uuid=True), ForeignKey("bookings.id", ondelete="CASCADE"), primary_key=True),

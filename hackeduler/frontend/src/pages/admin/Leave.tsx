@@ -8,7 +8,7 @@ import { fmt } from '../../lib/dates'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
 
-const TYPES = ['Annual leave', 'Sick leave', 'Training', 'Public duty', 'Other']
+const TYPES = ['Annual leave', 'Casual leave', 'Personal leave', 'Sick leave', 'Training', 'Public duty', 'Other']
 
 export default function LeavePage() {
   const toast = useToast()

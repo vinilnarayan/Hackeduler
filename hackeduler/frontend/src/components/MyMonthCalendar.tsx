@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { get } from '../api/client'
+import { CalendarDayDialog, type DayInfo, type DayNote } from './CalendarDayDialog'
 import { ErrorState, Spinner } from './ui'
 import { useAsync } from '../lib/useAsync'
 
 type State = 'booked' | 'conflict' | 'leave' | 'holiday' | 'weekend' | 'tentative' | 'free'
-interface Day { date: string; in_month: boolean; state: State; booking_ids: string[]; holiday: string | null; leave: { id: string; leave_type: string | null; reason: string | null } | null }
+interface Day extends DayInfo { in_month: boolean; state: State; notes: DayNote[] }
 interface CalBooking { id: string; application_name: string; application_version: string; activity_name: string; start_date: string; end_date: string; report_shared: boolean; report_type: string | null }
-interface Cal { month: string; today: string; days: Day[]; bookings: Record<string, CalBooking>; summary: { working_days: number; booked: number; leave: number; free: number; tentative: number; holidays: number; conflicts: number } }
+interface Cal { month: string; today: string; days: Day[]; bookings: Record<string, CalBooking>; leave_types: string[]; personal_leave: { year: number; limit: number; used: number }; summary: { working_days: number; booked: number; leave: number; free: number; tentative: number; holidays: number; conflicts: number } }
 
 // One colour per booking (fill + text), so the days of the same activity read as one block.
 const PALETTE = [
@@ -27,13 +28,14 @@ const monthLabel = (month: string) => new Date(`${month}-01T00:00:00Z`).toLocale
 function Legend() {
   const items: [string, string][] = [['bg-blue-100 ring-1 ring-blue-300', 'Assigned activity'], ['bg-emerald-50 ring-1 ring-emerald-300', 'Free'], ['bg-sky-100 ring-1 ring-sky-300', 'My leave'],
     ['bg-amber-50 ring-1 ring-amber-300', 'Holiday'], ['bg-slate-100 ring-1 ring-slate-300', 'Weekend'], ['bg-white ring-1 ring-slate-300 [background-image:repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0_3px,transparent_3px,transparent_7px)]', 'On hold (request pending approval)'],
-    ['bg-red-50 ring-2 ring-red-400', 'Leave clashes with an activity']]
+    ['bg-red-50 ring-2 ring-red-400', 'Leave clashes with an activity'], ['bg-yellow-100 ring-1 ring-yellow-300', 'Has a note']]
   return <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">{items.map(([c, l]) => <span key={l} className="inline-flex items-center gap-1.5"><span className={`inline-block h-3 w-3 rounded-sm ${c}`} />{l}</span>)}</div>
 }
 
 export function MyMonthCalendar() {
   const [month, setMonth] = useState<string | undefined>(undefined)
   const nav = useNavigate()
+  const [picked, setPicked] = useState<string | null>(null)
   const { data, error, loading, reload } = useAsync<Cal>(() => get('/api/resource/calendar' + (month ? `?month=${month}` : '')), [month])
   if (error) return <ErrorState message={error} onRetry={reload} />
   const cur = data?.month ?? month
@@ -75,14 +77,16 @@ export function MyMonthCalendar() {
               const names = d.booking_ids.map((id) => data.bookings[id]?.application_name).filter(Boolean).join(', ')
               const label = `${d.date}: ${d.state === 'free' ? 'free' : d.state}${names ? ` - ${names}` : ''}${d.holiday ? ` - ${d.holiday}` : ''}${d.leave ? ' - on leave' : ''}`
               return (
-                <div key={d.date} role="gridcell" aria-label={label} data-state={d.state} className={base + tone[d.state] + (d.in_month ? '' : ' opacity-40') + (isToday ? ' outline outline-2 outline-offset-1 outline-blue-600' : '')}>
+                <div key={d.date} role="gridcell" tabIndex={0} aria-label={label} data-state={d.state} onClick={() => setPicked(d.date)}
+                  onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setPicked(d.date) } }}
+                  className={'cursor-pointer hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ' + base + tone[d.state] + (d.in_month ? '' : ' opacity-40') + (isToday ? ' outline outline-2 outline-offset-1 outline-blue-600' : '')}>
                   <div className="flex items-center justify-between"><span className={`font-semibold ${isToday ? 'text-blue-700' : ''}`}>{num}</span>{d.state === 'free' && d.in_month && <span className="text-[10px] font-medium text-emerald-700">Free</span>}</div>
                   {d.booking_ids.map((id) => {
                     const b = data.bookings[id]
                     if (!b) return null
                     return (
                       <button key={id} type="button" title={`${b.application_name} v${b.application_version} - ${b.activity_name}\n${b.start_date} to ${b.end_date}${b.report_shared ? `\nReport shared (${b.report_type})` : ''}`}
-                        onClick={() => nav(`/assignments?booking=${id}`)} className={`truncate rounded px-1 py-0.5 text-left font-medium ring-1 hover:brightness-95 ${colour(id)}`}>
+                        onClick={(e) => { e.stopPropagation(); nav(`/assignments?booking=${id}`) }} className={`truncate rounded px-1 py-0.5 text-left font-medium ring-1 hover:brightness-95 ${colour(id)}`}>
                         {b.application_name}
                       </button>
                     )
@@ -91,13 +95,17 @@ export function MyMonthCalendar() {
                   {d.state === 'conflict' && <span className="font-semibold text-red-700">Leave clash</span>}
                   {d.holiday && <span className="truncate font-medium text-amber-800" title={d.holiday}>{d.holiday}</span>}
                   {d.state === 'tentative' && <span className="text-slate-600">On hold</span>}
+                  {d.notes.length > 0 && <span className="truncate rounded bg-yellow-100 px-1 py-0.5 text-yellow-900 ring-1 ring-yellow-300" title={d.notes.map((n) => n.note).join('\n')}>📝 {d.notes.length > 1 ? `${d.notes.length} notes` : d.notes[0].note}</span>}
                 </div>
               )
             })}
           </div>
         </div>
       )}
-      <div className="mt-3"><Legend /></div>
+      <p className="mt-2 text-xs text-slate-500">Click a day to add notes or mark leave.</p>
+      <div className="mt-2"><Legend /></div>
+      <CalendarDayDialog day={data?.days.find((d) => d.date === picked) ?? null} leaveTypes={data?.leave_types ?? []} personal={data?.personal_leave ?? null}
+        onClose={() => setPicked(null)} onChanged={reload} />
     </section>
   )
 }

@@ -109,7 +109,9 @@ resources answer 404.
 | GET | `/api/resource/bookings?status&report=shared\|pending&q` | Approved / completed bookings that use their resource (as primary or additional) |
 | GET | `/api/resource/bookings/{id}` | One assigned booking |
 | PUT | `/api/resource/bookings/{id}/report` | `{report_shared, report_type: V1\|Met, report_comments?}` - the only thing a resource user can modify on a booking |
-| GET / POST | `/api/resource/leaves` | Own upcoming leave; `{start_date, end_date, leave_type?, reason?}` (upcoming dates only). Overlapping bookings are flagged for admins like admin-entered leave |
+| POST | `/api/resource/notes` | `{note_date, note}` - private note on a calendar day (any date, up to 2000 characters). Notes come back inside `/calendar` (`days[].notes`) |
+| PUT / DELETE | `/api/resource/notes/{id}` | Edit `{note}` / delete one of your own notes (404 for anyone else's) |
+| GET / POST | `/api/resource/leaves` | Own upcoming leave; `{start_date, end_date, leave_type?, reason?}` (upcoming dates only). Overlapping bookings are flagged for admins like admin-entered leave. Leave types offered: Annual, Casual, Personal, Sick leave, Training, Public duty, Other. **Personal leave is limited to 2 working days per calendar year** (weekends and holidays don't count; cancelling frees the quota); over the limit -> 422. `/calendar` also returns `leave_types` and `personal_leave {year, limit, used}` |
 | DELETE | `/api/resource/leaves/{id}` | Cancel own leave |
 
 Every booking payload (requester, admin and resource views) carries `report_shared`, `report_type`, `report_comments`
