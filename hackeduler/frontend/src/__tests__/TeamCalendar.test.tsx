@@ -12,8 +12,10 @@ const cal = {
   resources: [{ id: 'r1', display_name: 'Resource 01', engineer_name: 'Eng 1', is_active: true }, { id: 'r2', display_name: 'Resource 02', engineer_name: 'Eng 2', is_active: true }],
   summary: { working_days: 20, booked_days: 2, leave_days: 1, holidays: 1 },
   days: [
-    { date: '2099-03-01', in_month: true, weekend: false, holiday: 'Spring Fest', entries: [], leaves: [] },
-    { date: '2099-03-02', in_month: true, weekend: false, holiday: null, entries: [entry(1), entry(2, { tentative: true, status: 'pending_approval' })], leaves: [{ leave_id: 'l1', resource_id: 'r2', resource_name: 'Resource 02', engineer_name: 'Eng 2', leave_type: 'Casual leave' }] },
+    { date: '2099-03-01', in_month: true, weekend: false, holiday: 'Spring Fest', entries: [], leaves: [], free: [] },
+    { date: '2099-03-02', in_month: true, weekend: false, holiday: null, entries: [entry(1), entry(2, { tentative: true, status: 'pending_approval' })], leaves: [{ leave_id: 'l1', resource_id: 'r2', resource_name: 'Resource 02', engineer_name: 'Eng 2', leave_type: 'Casual leave' }],
+      free: [{ resource_id: 'r3', resource_name: 'Resource 03', engineer_name: 'Eng 3' }] },
+    { date: '2099-03-06', in_month: true, weekend: true, holiday: null, entries: [], leaves: [], free: [] },
   ],
 }
 
@@ -34,6 +36,14 @@ describe('Team Calendar', () => {
     expect(await screen.findByText('App1 v1')).toBeInTheDocument()
     expect(screen.getByText('pending approval')).toBeInTheDocument()
     expect(screen.getByText('Casual leave')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Free (1)' })).toBeInTheDocument()
+    expect(screen.getByText('Resource 03', { selector: 'span.rounded' })).toBeInTheDocument()
+  })
+
+  it('says nobody is scheduled on a non-working day instead of listing free resources', async () => {
+    render(<TeamCalendar />)
+    fireEvent.click(await screen.findByLabelText(/2099-03-06/))
+    expect(await screen.findByText(/Non-working day – nobody is scheduled/)).toBeInTheDocument()
   })
 
   it('filters by resource and moves between months', async () => {
