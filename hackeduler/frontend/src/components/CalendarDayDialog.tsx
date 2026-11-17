@@ -32,7 +32,7 @@ export function CalendarDayDialog({ day, leaveTypes, personal, onClose, onChange
   const saveLeave = () => run(async () => {
     const r = await post<any>('/api/resource/leaves', { start_date: from, end_date: to, leave_type: type || null, reason: reason.trim() || null })
     toast('success', 'Leave added')
-    if (r.flagged_bookings) toast('info', `${r.flagged_bookings} booking(s) overlap this leave and were flagged for the administrators to review`)
+    if (r.overlapping_bookings) toast('info', `Leave saved. ${r.overlapping_bookings} existing booking(s) overlap these dates; their start and end dates are unchanged.`)
     setReason('')
   })
   const cancelLeave = () => run(async () => { await del(`/api/resource/leaves/${day.leave!.id}`); toast('success', 'Leave cancelled') })

@@ -19,7 +19,7 @@ export default function ResourceLeaves() {
   const save = async () => {
     try {
       const r = await post<any>('/api/resource/leaves', { start_date: edit!.start_date, end_date: edit!.end_date, leave_type: edit!.leave_type || null, reason: edit!.reason || null })
-      toast('success', 'Leave added'); if (r.flagged_bookings) toast('info', `${r.flagged_bookings} booking(s) overlap this leave and were flagged for the administrators to review`)
+      toast('success', 'Leave added'); if (r.overlapping_bookings) toast('info', `Leave saved. ${r.overlapping_bookings} existing booking(s) overlap these dates; their start and end dates are unchanged.`)
       setEdit(null); reload()
     } catch (e) { toast('error', validationMessage(e)) }
   }
