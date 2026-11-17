@@ -295,6 +295,9 @@ def calendar_grid(
     occupied (red, approved/completed), non_working (grey: weekend|holiday|leave),
     inactive (grey). When ``activity_duration`` is supplied, an otherwise free day
     on which a booking of that length could NOT start is marked ``limited``.
+
+    Days before today (organisation time zone) are flagged ``past``: they can never start a booking, so the fit
+    check is not evaluated for them (they stay plain ``available``) and the UI refuses to book from them.
     """
     if (end - start).days > 186:
         raise SchedulingError("range_too_large", "Calendar range is limited to ~6 months.")
@@ -307,6 +310,7 @@ def calendar_grid(
     holidays = load_holidays(db, start, look_ahead)
     leaves = load_leave_dates(db, rids, start, look_ahead) if rids else {}
     wk = working_weekdays(db)
+    today = settings_service.org_today(db)
 
     lock_rows = db.execute(
         select(
@@ -336,6 +340,8 @@ def calendar_grid(
         d = start
         while d <= end:
             cell: dict = {"date": d.isoformat()}
+            if d < today:
+                cell["past"] = True
             rows = occ.get((r.id, d), [])
             reason = cal.non_working_reason(d)
             if rows:
@@ -366,7 +372,7 @@ def calendar_grid(
                     cell["label"] = holidays.get(d)
             else:
                 cell["state"] = "available"
-                if activity_duration:
+                if activity_duration and d >= today:      # past days can't start a booking: no fit check for them
                     try:
                         wd = compute_work_dates(cal, d, activity_duration)
                         if occupied_dates.intersection(wd) or (r.inactive_from and wd[-1] >= r.inactive_from):

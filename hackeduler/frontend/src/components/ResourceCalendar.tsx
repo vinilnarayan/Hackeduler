@@ -6,7 +6,7 @@ import type { ActivityType, BookingStatus, CalendarCell, CalendarGrid, CalendarR
 import { iso, parse, rangeTitle, shift, viewRange, type View } from '../lib/dates'
 import { CELL_STYLE, STATUS_LABELS, cellExplanation } from '../lib/status'
 import { useAsync } from '../lib/useAsync'
-import { ErrorState, Spinner } from './ui'
+import { ErrorState, Modal, Spinner } from './ui'
 
 export function Legend({ compact, showMine = true }: { compact?: boolean; showMine?: boolean }) {
   const order = ['available', 'limited', 'reserved', 'occupied', 'non_working', 'inactive'] as const
@@ -18,6 +18,7 @@ export function Legend({ compact, showMine = true }: { compact?: boolean; showMi
           <span><span className="font-medium">{CELL_STYLE[s].label}</span> – {CELL_STYLE[s].meaning}</span>
         </span>
       ))}
+      <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-emerald-500 opacity-40" aria-hidden /><span><span className="font-medium">Faded</span> – past day, cannot be booked</span></span>
       {showMine && <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-emerald-500 ring-2 ring-offset-1 ring-slate-900" aria-hidden /> Your booking</span>}
       {showMine && <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-emerald-500 ring-2 ring-offset-1 ring-violet-600" aria-hidden /> Your product's booking</span>}
     </div>
@@ -38,13 +39,14 @@ export function ResourceCalendar({ mode, activityTypes = [], onCellClick, refres
   const [activityId, setActivityId] = useState('')
   const [statusFilter, setStatusFilter] = useState<'' | BookingStatus>('')
   const [onlyAvailable, setOnlyAvailable] = useState(false)
+  const [pastDate, setPastDate] = useState<string | null>(null)
   const [s, e] = viewRange(anchor, view)
   const url = (mode === 'admin' ? '/api/admin/calendar' : '/api/calendar') + qs({ start: iso(s), end: iso(e), activity_type_id: activityId })
   const { data, error, loading, reload } = useAsync<CalendarGrid>(() => get(url), [url, refreshKey])
 
   const resources = useMemo(() => {
     let rs = data?.resources ?? []
-    if (onlyAvailable) rs = rs.filter((r) => r.days.some((d) => d.state === 'available'))
+    if (onlyAvailable) rs = rs.filter((r) => r.days.some((d) => d.state === 'available' && !d.past))
     return rs
   }, [data, onlyAvailable])
   const days = data?.resources[0]?.days.map((d) => d.date) ?? []
@@ -61,8 +63,15 @@ export function ResourceCalendar({ mode, activityTypes = [], onCellClick, refres
   const clickable = (c: CalendarCell) =>
     !!onCellClick && (mode === 'admin' ? true : c.state === 'available' || c.state === 'limited' || !!c.mine)
 
+  // A day before today can never start a booking: tell the user instead of opening the booking form.
+  const handleCell = (r: CalendarResource, c: CalendarCell) => {
+    if (c.past && !c.bookings?.length && !c.mine) { setPastDate(c.date); return }
+    onCellClick?.(r, c)
+  }
+
   const cellTitle = (r: CalendarResource, c: CalendarCell) => {
     const parts = [`${r.display_name}${r.engineer_name ? ` (${r.engineer_name})` : ''}`, format(parse(c.date), 'EEE dd MMM yyyy'), cellExplanation(c.state, c.reason, c.label)]
+    if (c.past && (c.state === 'available' || c.state === 'limited')) parts.push('Past date – cannot be booked')
     if (c.team) parts.push("Your product's booking")
     else if (c.mine) parts.push('Your booking')
     c.bookings?.forEach((b) => parts.push(`${b.application_name} – ${STATUS_LABELS[b.status]}${b.forced ? ' (FORCED)' : ''}`))
@@ -121,7 +130,7 @@ export function ResourceCalendar({ mode, activityTypes = [], onCellClick, refres
       {error ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : (
         <div className="card overflow-x-auto">
           {view === 'day' ? (
-            <DayList resources={resources} mode={mode} onClick={onCellClick} clickable={clickable} visibleCell={visibleCell} />
+            <DayList resources={resources} mode={mode} onClick={onCellClick ? handleCell : undefined} clickable={clickable} visibleCell={visibleCell} />
           ) : (
             <table className="min-w-full border-separate border-spacing-0 text-xs" aria-label="Resource availability calendar">
               <thead>
@@ -158,9 +167,9 @@ export function ResourceCalendar({ mode, activityTypes = [], onCellClick, refres
                       return (
                         <td key={c.date} className={`border-b border-slate-100 p-0.5 ${isToday(parse(c.date)) ? 'bg-blue-50/60' : ''}`}>
                           <Tag
-                            {...(can ? { type: 'button', onClick: () => onCellClick!(r, raw) } : {})}
+                            {...(can ? { type: 'button', onClick: () => handleCell(r, raw) } : {})}
                             title={cellTitle(r, c)} aria-label={cellTitle(r, c)}
-                            className={`relative block w-full rounded-sm text-left text-[10px] leading-tight text-white ${view === 'week' ? 'h-14 px-1 py-0.5' : 'h-8 min-w-6'} ${style.cls} ${dim ? 'opacity-30' : ''} ${c.team ? 'ring-2 ring-violet-600 ring-offset-1' : c.mine ? 'ring-2 ring-slate-900 ring-offset-1' : ''} ${can ? 'cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-700' : 'cursor-default'}`}>
+                            className={`relative block w-full rounded-sm text-left text-[10px] leading-tight text-white ${view === 'week' ? 'h-14 px-1 py-0.5' : 'h-8 min-w-6'} ${style.cls} ${dim ? 'opacity-30' : ''} ${c.past && (c.state === 'available' || c.state === 'limited') ? 'opacity-40' : ''} ${c.team ? 'ring-2 ring-violet-600 ring-offset-1' : c.mine ? 'ring-2 ring-slate-900 ring-offset-1' : ''} ${can ? 'cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-700' : 'cursor-default'}`}>
                             {view === 'week' && (
                               <span className="line-clamp-3 font-medium drop-shadow-sm">
                                 {c.bookings?.length ? c.bookings.map((b) => b.application_name).join(', ')
@@ -184,6 +193,9 @@ export function ResourceCalendar({ mode, activityTypes = [], onCellClick, refres
           )}
         </div>
       )}
+      <Modal open={!!pastDate} onClose={() => setPastDate(null)} title="Past date" size="sm" footer={<button className="btn-primary" onClick={() => setPastDate(null)}>OK</button>}>
+        <p className="text-sm">{pastDate ? `${format(parse(pastDate), 'EEE dd MMM yyyy')} has already passed.` : ''} A booking cannot be made for a past day – pick today or a later date.</p>
+      </Modal>
     </div>
   )
 }
