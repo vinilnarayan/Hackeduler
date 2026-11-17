@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertCircle, CheckCircle2 } from 'lucide-react'
 import { get, post, validationMessage } from '../../api/client'
-import type { ActivityType, AdminBooking, AvailabilityResult, ForcePayload, Product, ResourceAdmin } from '../../api/types'
+import type { ActivityType, AdminBooking, AvailabilityResult, ForcePayload, Product, RangeResult, ResourceAdmin } from '../../api/types'
 import { useForceFlow } from '../../components/useForceFlow'
 import { Field, PageHeader } from '../../components/ui'
 import { fmt } from '../../lib/dates'
@@ -26,6 +26,7 @@ export default function ManualAllocation() {
     product_id: '', implementation_id: '',
   })
   const [check, setCheck] = useState<AvailabilityResult | null>(null)
+  const [range, setRange] = useState<RangeResult | null>(null)
   const [extras, setExtras] = useState<string[]>([])
   const [slice, setSlice] = useState<Record<string, { start_date: string; working_days: string }>>({})
   const [free, setFree] = useState<Record<string, AvailabilityResult>>({})
@@ -44,6 +45,15 @@ export default function ManualAllocation() {
     ).then(setCheck).catch((e) => toast('error', validationMessage(e))), 250)
     return () => clearTimeout(t)
   }, [f.resource_id, f.activity_type_id, f.start_date, f.additional_days, needsRes])
+
+  // Actual working days of the typed start-end range (weekends, holidays and the resource's leave excluded).
+  useEffect(() => {
+    setRange(null)
+    if (!f.start_date || !f.end_date || f.end_date < f.start_date) return
+    const t = setTimeout(() => post<RangeResult>('/api/admin/availability/range', { resource_id: f.resource_id || null, start_date: f.start_date, end_date: f.end_date })
+      .then(setRange).catch((e) => toast('error', validationMessage(e))), 250)
+    return () => clearTimeout(t)
+  }, [f.resource_id, f.start_date, f.end_date])
 
   // Free / busy status of every other resource for the chosen activity and start date (multi-resource booking).
   useEffect(() => {
@@ -130,8 +140,21 @@ export default function ManualAllocation() {
         {check && (
           <div className={`rounded-md border p-3 text-sm ${check.available ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`} aria-live="polite">
             <div className="flex items-center gap-2 font-semibold">{check.available ? <CheckCircle2 className="h-4 w-4 text-emerald-700" /> : <AlertCircle className="h-4 w-4 text-amber-700" />}{check.available ? 'Available' : check.message}</div>
-            <div className="mt-1 text-xs">Standard calculation: {fmt(check.start_date)} – {fmt(check.end_date)} ({check.duration_days} working days){f.duration_mode !== 'activity' && ' · your override will be applied on save'}</div>
+            <div className="mt-1 text-xs">Standard calculation: {fmt(check.start_date)} – {fmt(check.end_date)} ({check.duration_days} working {check.duration_days === 1 ? 'day' : 'days'}){f.duration_mode !== 'activity' && ' · your override will be applied on save'}</div>
             {check.issues.map((i, n) => <div key={n} className="text-xs text-slate-700">• {i.message}{i.booking_ids?.length ? ` (bookings ${i.booking_ids.map((x) => x.slice(0, 8)).join(', ')})` : ''}</div>)}
+          </div>
+        )}
+        {f.end_date && f.end_date < f.start_date && <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm" role="alert">End date must be on or after the start date.</div>}
+        {range && (
+          <div className={`rounded-md border p-3 text-sm ${range.available && range.working_days > 0 ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`} aria-live="polite" data-testid="actual-range">
+            <div className="font-semibold">Actual calculation: {fmt(range.start_date)} – {fmt(range.end_date)} ({range.working_days} working {range.working_days === 1 ? 'day' : 'days'} of {range.calendar_days} calendar {range.calendar_days === 1 ? 'day' : 'days'})</div>
+            <div className="mt-1 text-xs">
+              Excluded: {range.skipped.weekend} weekend {range.skipped.weekend === 1 ? 'day' : 'days'}, {range.skipped.holiday} {range.skipped.holiday === 1 ? 'holiday' : 'holidays'}
+              {range.leave_considered ? `, ${range.skipped.leave} leave ${range.skipped.leave === 1 ? 'day' : 'days'}` : ' (leave is checked once a resource is assigned)'}
+            </div>
+            {range.skipped_dates.filter((d) => d.reason !== 'weekend').map((d) => <div key={d.date} className="text-xs text-slate-700">• {fmt(d.date)} – {d.reason === 'holiday' ? `Holiday${d.label ? ` (${d.label})` : ''}` : 'Leave'}</div>)}
+            {range.working_days === 0 && <div className="text-xs font-medium text-amber-800">No working days fall in this range.</div>}
+            {range.issues.map((i, n) => <div key={n} className="text-xs text-slate-700">• {i.message}</div>)}
           </div>
         )}
         <div className="grid gap-3 md:grid-cols-3">

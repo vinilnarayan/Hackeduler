@@ -267,6 +267,14 @@ class AdminAvailabilityQuery(AvailabilityQuery):
     exclude_booking_id: uuid.UUID | None = None
 
 
+class AdminRangeQuery(Strict):
+    """Preview of an explicit start-end allocation (the admin typed an end date)."""
+    resource_id: uuid.UUID | None = None
+    start_date: date
+    end_date: date
+    exclude_booking_id: uuid.UUID | None = None
+
+
 class AutoAvailabilityQuery(Strict):
     """Requester preview without choosing a resource; the system assigns one."""
     activity_type_id: uuid.UUID
