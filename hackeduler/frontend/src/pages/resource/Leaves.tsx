@@ -6,6 +6,7 @@ import { Empty, ErrorState, Field, Modal, PageHeader, Spinner } from '../../comp
 import { fmt, iso } from '../../lib/dates'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 interface MyLeave { id: string; start_date: string; end_date: string; leave_type: string | null; reason: string | null }
 const TYPES = ['Annual leave', 'Casual leave', 'Personal leave', 'Sick leave', 'Training', 'Public duty', 'Other']
@@ -13,6 +14,7 @@ const TYPES = ['Annual leave', 'Casual leave', 'Personal leave', 'Sick leave', '
 export default function ResourceLeaves() {
   const toast = useToast()
   const { data, error, loading, reload } = useAsync<MyLeave[]>(() => get('/api/resource/leaves'))
+  const tbl = useSort(data, { from: (l) => l.start_date, to: (l) => l.end_date, type: (l) => l.leave_type, reason: (l) => l.reason })
   const [edit, setEdit] = useState<Partial<MyLeave> | null>(null)
   const [cancel, setCancel] = useState<MyLeave | null>(null)
   const today = iso(new Date())
@@ -30,8 +32,8 @@ export default function ResourceLeaves() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No upcoming leave" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">From</th><th className="th">To</th><th className="th">Type</th><th className="th">Reason</th><th className="th" /></tr></thead>
-            <tbody className="divide-y divide-slate-100">{data.map((l) => (
+            <thead className="bg-slate-50"><tr><SortTh label="From" k="from" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="To" k="to" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Type" k="type" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Reason" k="reason" sort={tbl.sort} onToggle={tbl.toggle} /><th className="th" /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tbl.sorted.map((l) => (
               <tr key={l.id}><td className="td">{fmt(l.start_date)}</td><td className="td">{fmt(l.end_date)}</td><td className="td">{l.leave_type ?? '—'}</td><td className="td max-w-xs text-xs">{l.reason}</td>
                 <td className="td"><button className="btn-secondary" onClick={() => setCancel(l)}>Cancel</button></td></tr>
             ))}</tbody>

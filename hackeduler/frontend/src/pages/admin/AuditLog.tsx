@@ -6,6 +6,7 @@ import { AuditChanges } from '../../components/AdminBookingModal'
 import { Empty, ErrorState, PageHeader, Pill, Spinner } from '../../components/ui'
 import { fmtDateTime } from '../../lib/dates'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 export default function AuditLog() {
   const [f, setF] = useState({ booking_id: '', actor: '', action: '', start: '', end: '' })
@@ -15,6 +16,7 @@ export default function AuditLog() {
   const validBid = !f.booking_id || /^[0-9a-f-]{36}$/i.test(f.booking_id)
   const { data, error, loading, reload } = useAsync<{ total: number; items: AuditEntry[] }>(
     () => get('/api/admin/audit' + qs({ ...f, booking_id: validBid ? f.booking_id : '', limit: PAGE, offset: page * PAGE })), [JSON.stringify(f), page])
+  const tbl = useSort(data?.items, { time: (a) => a.created_at, action: (a) => a.action, actor: (a) => a.actor_email, entity: (a) => a.entity_type, reason: (a) => a.reason, request: (a) => a.request_id })
   const s = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => { setPage(0); setF({ ...f, [k]: e.target.value }) }
   return (
     <div>
@@ -29,8 +31,8 @@ export default function AuditLog() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : !data?.items.length ? <Empty title="No audit events match" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Timestamp</th><th className="th">Action</th><th className="th">Actor</th><th className="th">Entity / Booking</th><th className="th">Reason</th><th className="th">Request ID</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">{data.items.map((a) => (
+            <thead className="bg-slate-50"><tr><SortTh label="Timestamp" k="time" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Action" k="action" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Actor" k="actor" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Entity / Booking" k="entity" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Reason" k="reason" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Request ID" k="request" sort={tbl.sort} onToggle={tbl.toggle} /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tbl.sorted.map((a) => (
               <Fragment key={a.id}>
                 <tr className="cursor-pointer hover:bg-slate-50" tabIndex={0} onClick={() => setOpen(open === a.id ? null : a.id)} onKeyDown={(e) => e.key === 'Enter' && setOpen(open === a.id ? null : a.id)}>
                   <td className="td text-xs whitespace-nowrap">{fmtDateTime(a.created_at)}</td>

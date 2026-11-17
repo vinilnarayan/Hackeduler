@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Boxes, CalendarClock, CheckCircle2, Clock, Download, Gauge, Plane, Server, Table2, UserCheck, XCircle } from 'lucide-react'
+import { AlertTriangle, Boxes, CalendarClock, CheckCircle2, Clock, Download, Gauge, Plane, Server, ShieldCheck, FileCheck2, Table2, UserCheck, XCircle } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { get, qs } from '../../api/client'
 import type { AdminBooking, BookingStatus, Product } from '../../api/types'
@@ -9,12 +9,14 @@ import { Empty, ErrorState, PageHeader, Spinner, StatCard, StatusBadge } from '.
 import { fmt } from '../../lib/dates'
 import { STATUS_CHART } from '../../lib/status'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 const SERIES = '#2a78d6'
 const AXIS = { fontSize: 11, fill: '#64748b' }
 
 function ChartCard({ title, children, table }: { title: string; children: ReactNode; table: { cols: string[]; rows: (string | number)[][] } }) {
   const [showTable, setShowTable] = useState(false)
+  const tsort = useSort(table.rows, Object.fromEntries(table.cols.map((_, i) => [String(i), (r: (string | number)[]) => r[i]])))
   return (
     <div className="card p-4">
       <div className="mb-2 flex items-center justify-between">
@@ -22,8 +24,8 @@ function ChartCard({ title, children, table }: { title: string; children: ReactN
         <button className="btn-ghost px-2 py-1 text-xs" aria-pressed={showTable} onClick={() => setShowTable(!showTable)}><Table2 className="h-3.5 w-3.5" />{showTable ? 'Chart' : 'Table'}</button>
       </div>
       {showTable ? (
-        <div className="max-h-64 overflow-auto"><table className="min-w-full text-xs"><thead><tr>{table.cols.map((c) => <th key={c} className="th">{c}</th>)}</tr></thead>
-          <tbody>{table.rows.map((r, i) => <tr key={i} className="border-t border-slate-100">{r.map((v, j) => <td key={j} className="td tabular-nums">{v}</td>)}</tr>)}</tbody></table></div>
+        <div className="max-h-64 overflow-auto"><table className="min-w-full text-xs"><thead><tr>{table.cols.map((c, i) => <SortTh key={c} label={c} k={String(i)} sort={tsort.sort} onToggle={tsort.toggle} />)}</tr></thead>
+          <tbody>{tsort.sorted.map((r, i) => <tr key={i} className="border-t border-slate-100">{r.map((v, j) => <td key={j} className="td tabular-nums">{v}</td>)}</tr>)}</tbody></table></div>
       ) : <div className="h-64">{children}</div>}
     </div>
   )
@@ -66,6 +68,9 @@ export default function AdminDashboard() {
         <StatCard label="Rejected / cancelled" value={`${k.rejected} / ${k.cancelled}`} icon={<XCircle className="h-5 w-5" />} tone="red" />
         <StatCard label="Expired" value={k.expired} icon={<Clock className="h-5 w-5" />} tone="amber" />
         <StatCard label="Bookings in range" value={k.bookings_in_range} hint={`${k.bookings_without_resource} without a resource`} icon={<Boxes className="h-5 w-5" />} tone="blue" />
+        <StatCard label="PCI bookings (range)" value={k.pci_bookings} icon={<ShieldCheck className="h-5 w-5" />} tone="amber" />
+        <StatCard label="Non-PCI bookings (range)" value={k.non_pci_bookings} icon={<Boxes className="h-5 w-5" />} tone="slate" />
+        <StatCard label="Reports shared (range)" value={k.reports_shared} hint={`${Math.max(0, k.bookings_in_range - k.reports_shared)} not shared`} icon={<FileCheck2 className="h-5 w-5" />} tone="green" />
         <Link to="/admin/conflicts"><StatCard label="Unresolved conflicts" value={k.unresolved_conflicts} icon={<AlertTriangle className="h-5 w-5" />} tone={k.unresolved_conflicts ? 'red' : 'slate'} /></Link>
       </div>
 
@@ -146,6 +151,7 @@ export default function AdminDashboard() {
 
 /** Product x month matrix: counts with a single-hue sequential tint; numbers always shown for accessibility. */
 function ProductMatrix({ m }: { m: { months: string[]; rows: { product: string; counts: number[]; total: number }[] } }) {
+  const msort = useSort(m.rows, { product: (r) => r.product, total: (r) => r.total, ...Object.fromEntries(m.months.map((_, i) => ['m' + i, (r: { counts: number[] }) => r.counts[i]])) })
   const max = Math.max(1, ...m.rows.flatMap((r) => r.counts))
   const RAMP = ['#ffffff', '#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf']
   const shade = (v: number) => (v === 0 ? RAMP[0] : RAMP[Math.min(RAMP.length - 1, 1 + Math.floor(((v - 1) / max) * (RAMP.length - 1)))])
@@ -156,9 +162,9 @@ function ProductMatrix({ m }: { m: { months: string[]; rows: { product: string; 
       <p className="mb-2 text-xs text-slate-500">Includes activities without a security resource; undated ones are counted in their submission month.</p>
       {m.rows.length === 0 ? <Empty title="No bookings in range" /> : (
         <div className="overflow-x-auto"><table className="min-w-full border-separate border-spacing-0.5 text-xs">
-          <thead><tr><th className="th">Product</th>{m.months.map((mm) => <th key={mm} className="px-1 py-1 text-center font-medium text-slate-500">{mm.slice(2)}</th>)}<th className="th text-right">Total</th></tr></thead>
+          <thead><tr><SortTh label="Product" k="product" sort={msort.sort} onToggle={msort.toggle} />{m.months.map((mm, i) => <SortTh key={mm} label={mm.slice(2)} k={'m' + i} sort={msort.sort} onToggle={msort.toggle} className="px-1 py-1 text-center text-xs font-medium text-slate-500" />)}<SortTh label="Total" k="total" sort={msort.sort} onToggle={msort.toggle} className="th text-right" /></tr></thead>
           <tbody>
-            {m.rows.map((r) => (
+            {msort.sorted.map((r) => (
               <tr key={r.product}><th scope="row" className="pr-3 text-left font-medium whitespace-nowrap">{r.product}</th>
                 {r.counts.map((v, i) => <td key={i} title={`${r.product} · ${m.months[i]}: ${v}`} className={`min-w-9 rounded px-1 py-1.5 text-center tabular-nums ${v / max > 0.6 ? 'text-white' : 'text-slate-800'}`} style={{ background: shade(v) }}>{v || ''}</td>)}
                 <td className="pl-2 text-right font-semibold tabular-nums">{r.total}</td></tr>

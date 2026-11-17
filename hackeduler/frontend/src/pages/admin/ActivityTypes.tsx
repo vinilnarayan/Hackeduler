@@ -6,10 +6,12 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner } from '../../components/ui'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 export default function ActivityTypes() {
   const toast = useToast()
   const { data, error, loading, reload } = useAsync<ActivityType[]>(() => get('/api/admin/activity-types'))
+  const tbl = useSort(data, { name: (a) => a.name, duration: (a) => a.base_duration_days, resource: (a) => (a.requires_resource ? 'Security resource' : 'No resource'), extra: (a) => (a.allow_additional_days ? a.max_additional_days : 0), status: (a) => (a.is_active ? 'Active' : 'Inactive') })
   const [edit, setEdit] = useState<Partial<ActivityType> | null>(null)
   const [remove, setRemove] = useState<ActivityType | null>(null)
   const durOk = (v: number | null | undefined) => v == null || (Number.isInteger(v) && v > 0)
@@ -34,8 +36,8 @@ export default function ActivityTypes() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No activity types" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Activity type</th><th className="th">Duration</th><th className="th">Resource</th><th className="th">Additional days</th><th className="th">Status</th><th className="th" /></tr></thead>
-            <tbody className="divide-y divide-slate-100">{data.map((a) => (
+            <thead className="bg-slate-50"><tr><SortTh label="Activity type" k="name" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Duration" k="duration" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Resource" k="resource" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Additional days" k="extra" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><th className="th" /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tbl.sorted.map((a) => (
               <tr key={a.id} className={a.is_active ? '' : 'opacity-60'}>
                 <td className="td"><div className="font-medium">{a.name}</div>{a.description && <div className="text-xs text-slate-500">{a.description}</div>}</td>
                 <td className="td tabular-nums">{a.base_duration_days ? `${a.base_duration_days} working days` : <span className="text-slate-400">Not set</span>}</td>

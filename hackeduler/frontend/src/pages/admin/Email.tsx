@@ -5,6 +5,7 @@ import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner } from '../.
 import { fmtDateTime } from '../../lib/dates'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 export default function EmailPage() {
   const [tab, setTab] = useState<'templates' | 'logs'>('templates')
@@ -55,6 +56,7 @@ function Logs() {
   const [status, setStatus] = useState('')
   const [recipient, setRecipient] = useState('')
   const { data, error, loading, reload } = useAsync<any[]>(() => get('/api/admin/email-logs' + qs({ status, recipient })), [status, recipient])
+  const tbl = useSort(data, { created: (e) => e.created_at, template: (e) => e.template_key, recipient: (e) => e.recipient, subject: (e) => e.subject, status: (e) => e.status, attempts: (e) => e.attempts, via: (e) => e.provider, error: (e) => e.last_error })
   const tone: Record<string, string> = { sent: 'bg-emerald-100 text-emerald-800', queued: 'bg-blue-100 text-blue-800', failed: 'bg-red-100 text-red-800' }
   return (
     <>
@@ -66,8 +68,8 @@ function Logs() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No emails" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Created</th><th className="th">Template</th><th className="th">Recipient</th><th className="th">Subject</th><th className="th">Status</th><th className="th">Attempts</th><th className="th">Sent via</th><th className="th">Error</th><th className="th" /></tr></thead>
-            <tbody className="divide-y divide-slate-100">{data.map((e) => (
+            <thead className="bg-slate-50"><tr><SortTh label="Created" k="created" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Template" k="template" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Recipient" k="recipient" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Subject" k="subject" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Attempts" k="attempts" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Sent via" k="via" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Error" k="error" sort={tbl.sort} onToggle={tbl.toggle} /><th className="th" /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tbl.sorted.map((e) => (
               <tr key={e.id}><td className="td text-xs whitespace-nowrap">{fmtDateTime(e.created_at)}</td><td className="td text-xs">{e.template_key}</td><td className="td text-xs">{e.recipient}</td><td className="td max-w-xs truncate text-xs">{e.subject}</td>
                 <td className="td"><Pill className={tone[e.status]}>{e.status}</Pill>{e.sent_at && <div className="text-[11px] text-slate-500">{fmtDateTime(e.sent_at)}</div>}</td>
                 <td className="td text-xs">{e.attempts}/{e.max_attempts}{e.status === 'queued' && e.attempts > 0 && <div className="text-slate-500">next {fmtDateTime(e.next_attempt_at)}</div>}</td>

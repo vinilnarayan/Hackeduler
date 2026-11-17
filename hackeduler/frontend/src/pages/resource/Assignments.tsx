@@ -7,6 +7,7 @@ import { ReportEditor } from '../../components/ReportEditor'
 import { Empty, ErrorState, KV, Modal, PageHeader, ReportBadge, Spinner, StatusBadge } from '../../components/ui'
 import { fmt, fmtDateTime } from '../../lib/dates'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 type Row = Booking & { requester_email?: string | null; extra_resources?: string[] }
 
@@ -18,6 +19,7 @@ export default function Assignments() {
   const [sel, setSelState] = useState<string | null>(params.get('booking'))   // opened from the dashboard calendar
   const setSel = (id: string | null) => { setSelState(id); if (!id && params.has('booking')) setParams({}, { replace: true }) }
   const { data, error, loading, reload } = useAsync<{ total: number; items: Row[] }>(() => get('/api/resource/bookings' + qs({ q, report, status })), [q, report, status])
+  const tbl = useSort(data?.items, { app: (b) => b.application_name, version: (b) => b.application_version, activity: (b) => b.activity_name, dates: (b) => b.start_date, poc: (b) => b.poc_name, status: (b) => b.status, report: (b) => (b.report_shared ? (b.report_type ?? 'Shared') : '') })
   const current = data?.items.find((b) => b.id === sel) ?? null
   return (
     <div>
@@ -30,8 +32,8 @@ export default function Assignments() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : !data?.items.length ? <Empty title="No assignments" hint="Approved bookings for your resource appear here." /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Application</th><th className="th">Version</th><th className="th">Activity</th><th className="th">Dates</th><th className="th">POC</th><th className="th">Status</th><th className="th">Report</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">{data.items.map((b) => (
+            <thead className="bg-slate-50"><tr><SortTh label="Application" k="app" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Version" k="version" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Activity" k="activity" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Dates" k="dates" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="POC" k="poc" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Report" k="report" sort={tbl.sort} onToggle={tbl.toggle} /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tbl.sorted.map((b) => (
               <tr key={b.id} tabIndex={0} className="cursor-pointer hover:bg-slate-50" onClick={() => setSel(b.id)} onKeyDown={(e) => e.key === 'Enter' && setSel(b.id)}>
                 <td className="td font-medium">{b.application_name}</td><td className="td whitespace-nowrap">{b.application_version}</td><td className="td">{b.activity_name}</td>
                 <td className="td whitespace-nowrap">{fmt(b.start_date)} – {fmt(b.end_date)}</td><td className="td text-xs">{b.poc_name}<div className="text-slate-500">{b.poc_email}</div></td>

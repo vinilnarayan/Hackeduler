@@ -4,6 +4,7 @@ import type { ForcePayload, OverrideDetails } from '../api/types'
 import { useAuth } from '../lib/auth'
 import { fmt } from '../lib/dates'
 import { Modal, StatusBadge } from './ui'
+import { SortTh, useSort } from './SortTh'
 
 /**
  * Admin-only Force Allocate confirmation. Renders nothing for non-admins (the backend
@@ -18,6 +19,7 @@ export function ForceAllocateDialog({ open, details, onClose, onConfirm }: {
   const [ack, setAck] = useState(false)
   const [busy, setBusy] = useState(false)
   useEffect(() => { if (open) { setReason(''); setAck(false) } }, [open])
+  const tbl = useSort(details?.conflicting_bookings, { booking: (b) => b.id, app: (b) => b.application_name, dates: (b) => b.start_date, poc: (b) => b.poc_name, status: (b) => b.status })
   if (user?.role !== 'admin' || !details) return null
   return (
     <Modal open={open} onClose={onClose} size="lg" title={<span className="flex items-center gap-2 text-red-700"><ShieldAlert className="h-5 w-5" /> Force Allocate – conflict detected</span>}
@@ -43,9 +45,9 @@ export function ForceAllocateDialog({ open, details, onClose, onConfirm }: {
             <div className="label">Affected bookings (will NOT be modified)</div>
             <div className="overflow-x-auto rounded border border-slate-200">
               <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50"><tr><th className="th">Booking</th><th className="th">Application</th><th className="th">Dates</th><th className="th">POC</th><th className="th">Status</th></tr></thead>
+                <thead className="bg-slate-50"><tr><SortTh label="Booking" k="booking" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Application" k="app" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Dates" k="dates" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="POC" k="poc" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /></tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {details.conflicting_bookings.map((b) => (
+                  {tbl.sorted.map((b) => (
                     <tr key={b.id}><td className="td font-mono text-xs">{b.id.slice(0, 8)}…</td><td className="td">{b.application_name}</td>
                       <td className="td whitespace-nowrap">{fmt(b.start_date)} – {fmt(b.end_date)}</td><td className="td">{b.poc_name}<div className="text-xs text-slate-500">{b.poc_email}</div></td>
                       <td className="td"><StatusBadge status={b.status as any} /></td></tr>
