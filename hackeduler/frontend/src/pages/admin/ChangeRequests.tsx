@@ -7,11 +7,13 @@ import { Empty, ErrorState, PageHeader, Pill, Spinner, StatusBadge } from '../..
 import { fmt, fmtDateTime } from '../../lib/dates'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 export default function ChangeRequests() {
   const toast = useToast()
   const [status, setStatus] = useState('pending')
   const { data, error, loading, reload } = useAsync<any[]>(() => get(`/api/admin/change-requests?status=${status}`), [status])
+  const tbl = useSort(data, { type: (r) => r.request_type, booking: (r) => r.booking.application_name, current: (r) => r.booking.start_date, proposed: (r) => r.proposed_start_date, reason: (r) => r.reason, requested: (r) => r.created_at, status: (r) => r.status })
   const [act, setAct] = useState<{ cr: any; approve: boolean } | null>(null)
   const [sel, setSel] = useState<string | null>(null)
   const force = useForceFlow()
@@ -22,8 +24,8 @@ export default function ChangeRequests() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No change requests" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Type</th><th className="th">Booking</th><th className="th">Current schedule</th><th className="th">Proposed</th><th className="th">Reason</th><th className="th">Requested</th><th className="th">Status</th><th className="th" /></tr></thead>
-            <tbody className="divide-y divide-slate-100">{data.map((cr) => (
+            <thead className="bg-slate-50"><tr><SortTh label="Type" k="type" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Booking" k="booking" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Current schedule" k="current" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Proposed" k="proposed" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Reason" k="reason" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Requested" k="requested" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><th className="th" /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tbl.sorted.map((cr) => (
               <tr key={cr.id}>
                 <td className="td"><Pill className={cr.request_type === 'cancel' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}>{cr.request_type}</Pill></td>
                 <td className="td"><button className="text-left font-medium text-blue-800 hover:underline" onClick={() => setSel(cr.booking_id)}>{cr.booking.application_name}</button><div className="text-xs text-slate-500">{cr.booking.requester_name}</div><StatusBadge status={cr.booking.status} /></td>

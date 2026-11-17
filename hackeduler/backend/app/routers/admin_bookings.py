@@ -10,7 +10,7 @@ import uuid
 from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -25,7 +25,9 @@ from ..models import (
     BookingStatus,
     BookingStatusHistory,
     EmailNotificationLog,
+    Product,
     ResourceLeave,
+    SecurityResource,
     User,
 )
 from ..schemas import (
@@ -115,12 +117,26 @@ def admin_calendar(start: date, end: date, activity_type_id: uuid.UUID | None = 
 
 
 # =============================================================== bookings
+# Sortable columns of the bookings list (applied before paging, so the whole result set is ordered).
+_SORTS = {
+    "id": lambda: Booking.id, "application": lambda: func.lower(Booking.application_name),
+    "version": lambda: Booking.application_version, "activity": lambda: func.lower(Booking.activity_name_snapshot),
+    "pci": lambda: Booking.pci_dss_scope, "dates": lambda: Booking.start_date, "poc": lambda: func.lower(Booking.poc_name),
+    "submitted": lambda: Booking.submitted_at, "status": lambda: Booking.status,
+    "report": lambda: case((Booking.report_shared.is_(True), func.coalesce(Booking.report_type, "Shared")), else_=None),
+    "product": lambda: select(func.lower(Product.name)).where(Product.id == Booking.product_id).scalar_subquery(),
+    "resource": lambda: select(func.lower(SecurityResource.display_name)).where(SecurityResource.id == Booking.resource_id).scalar_subquery(),
+    "requester": lambda: select(func.lower(User.full_name)).where(User.id == Booking.requester_id).scalar_subquery(),
+}
+
+
 @router.get("/bookings")
 def list_bookings(
     status: str | None = None, resource_id: uuid.UUID | None = None, activity_type_id: uuid.UUID | None = None,
     q: str | None = Query(None, max_length=100), start: date | None = None, end: date | None = None,
     needs_review: bool | None = None, pci: bool | None = None, report_shared: bool | None = None,
-    report_type: str | None = Query(None, max_length=10), limit: int = Query(200, le=1000), offset: int = 0,
+    report_type: str | None = Query(None, max_length=10),
+    sort_by: str | None = Query(None, max_length=20), sort_dir: str = Query("asc", pattern="^(asc|desc)$"), limit: int = Query(200, le=1000), offset: int = 0,
     product_id: uuid.UUID | None = None, implementation_id: uuid.UUID | None = None, requires_resource: bool | None = None,
     db: Session = Depends(get_db),
 ):
@@ -161,9 +177,21 @@ def list_bookings(
         except ValueError:
             pass
         stmt = stmt.where(or_(*conds))
-    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = db.scalars(stmt.order_by(Booking.submitted_at.desc()).limit(limit).offset(offset)).unique().all()
-    return {"total": total, "items": [_out(db, b) for b in rows]}
+    sub = stmt.subquery()
+    total, pci_n, shared_n = db.execute(select(
+        func.count(), func.count().filter(sub.c.pci_dss_scope.is_(True)), func.count().filter(sub.c.report_shared.is_(True)))
+        .select_from(sub)).one()
+    order = [Booking.submitted_at.desc()]                                  # default: newest first
+    if sort_by:
+        if sort_by not in _SORTS:
+            raise bad_request("Invalid sort column.")
+        col = _SORTS[sort_by]()
+        col = col.asc() if sort_dir == "asc" else col.desc()
+        order = [col.nulls_last(), Booking.submitted_at.desc(), Booking.id]
+    rows = db.scalars(stmt.order_by(*order).limit(limit).offset(offset)).unique().all()
+    # Counts cover EVERYTHING that matches the filters (not just this page).
+    return {"total": total, "items": [_out(db, b) for b in rows],
+            "summary": {"total": total, "pci": pci_n, "non_pci": total - pci_n, "report_shared": shared_n, "report_not_shared": total - shared_n}}
 
 
 @router.get("/bookings/{booking_id}")

@@ -32,4 +32,23 @@ describe('Admin bookings: PCI and report filters', () => {
     fireEvent.change(await screen.findByLabelText('Report'), { target: { value: choice } })
     await vi.waitFor(() => expect(listCalls().some((u) => u.includes(expected) && u.includes('report_type=V1') === withType)).toBe(true))
   })
+
+  it('shows counts for the current filters', async () => {
+    api.get.mockImplementation((u: string) => Promise.resolve(u.startsWith('/api/admin/bookings?')
+      ? { total: 3, items: [], summary: { total: 3, pci: 2, non_pci: 1, report_shared: 1, report_not_shared: 2 } } : []))
+    render(<MemoryRouter><Bookings /></MemoryRouter>)
+    await vi.waitFor(() => expect(screen.getByTestId('booking-counts').textContent).toMatch(/3\s*bookings/))
+    expect(screen.getByTestId('booking-counts').textContent).toMatch(/PCI\s*2.*Non-PCI\s*1/)
+    expect(screen.getByTestId('booking-counts').textContent).toMatch(/Report shared\s*1.*Not shared\s*2/)
+  })
+
+  it('sorts on the server when a column header is clicked', async () => {
+    api.get.mockImplementation((u: string) => Promise.resolve(u.startsWith('/api/admin/bookings?')
+      ? { total: 1, items: [{ id: 'b1', application_name: 'App', status: 'approved', open_conflicts: 0 }], summary: { total: 1, pci: 0, non_pci: 1, report_shared: 0, report_not_shared: 1 } } : []))
+    render(<MemoryRouter><Bookings /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Sort by Application' }))
+    await vi.waitFor(() => expect(listCalls().some((u) => u.includes('sort_by=application') && u.includes('sort_dir=asc'))).toBe(true))
+    fireEvent.click(screen.getByRole('button', { name: 'Sort by Application' }))
+    await vi.waitFor(() => expect(listCalls().some((u) => u.includes('sort_dir=desc'))).toBe(true))
+  })
 })

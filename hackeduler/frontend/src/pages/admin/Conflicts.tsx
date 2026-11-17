@@ -8,12 +8,14 @@ import { fmt, fmtDateTime } from '../../lib/dates'
 import { CONFLICT_TYPE_LABELS } from '../../lib/status'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 export default function Conflicts() {
   const toast = useToast()
   const [status, setStatus] = useState('open')
   const [type, setType] = useState('')
   const { data, error, loading, reload } = useAsync<Conflict[]>(() => get('/api/admin/conflicts' + qs({ status, conflict_type: type })), [status, type])
+  const tbl = useSort(data, { conflict: (c) => c.created_at, type: (c) => CONFLICT_TYPE_LABELS[c.conflict_type], booking: (c) => c.application_name, other: (c) => c.conflicting_application_name, resource: (c) => c.resource_display_name, dates: (c) => c.conflict_start_date, description: (c) => c.description, resolution: (c) => c.status })
   const [resolve, setResolve] = useState<Conflict | null>(null)
   const [sel, setSel] = useState<string | null>(null)
   return (
@@ -34,8 +36,8 @@ export default function Conflicts() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No conflicts" hint={status === 'open' ? 'Everything is consistent.' : undefined} /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Conflict</th><th className="th">Type</th><th className="th">Booking</th><th className="th">Conflicting booking</th><th className="th">Resource</th><th className="th">Dates</th><th className="th">Description</th><th className="th">Resolution</th><th className="th" /></tr></thead>
-            <tbody className="divide-y divide-slate-100">{data.map((c) => (
+            <thead className="bg-slate-50"><tr><SortTh label="Conflict" k="conflict" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Type" k="type" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Booking" k="booking" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Conflicting booking" k="other" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Resource" k="resource" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Dates" k="dates" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Description" k="description" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Resolution" k="resolution" sort={tbl.sort} onToggle={tbl.toggle} /><th className="th" /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tbl.sorted.map((c) => (
               <tr key={c.id}>
                 <td className="td font-mono text-xs" title={c.id}>{c.id.slice(0, 8)}<div className="text-[11px] font-sans text-slate-500">{fmtDateTime(c.created_at)}</div></td>
                 <td className="td"><Pill className="bg-amber-100 text-amber-900">{CONFLICT_TYPE_LABELS[c.conflict_type]}</Pill></td>

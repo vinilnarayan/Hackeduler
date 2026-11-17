@@ -7,11 +7,13 @@ import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner, StatusBadge
 import { fmt, fmtDateTime } from '../../lib/dates'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 export default function Resources() {
   const toast = useToast()
   const [showDeleted, setShowDeleted] = useState(false)
   const { data, error, loading, reload } = useAsync<ResourceAdmin[]>(() => get(`/api/admin/resources${showDeleted ? '?include_deleted=true' : ''}`), [showDeleted])
+  const tbl = useSort(data, { id: (r) => r.display_name, engineer: (r) => r.engineer_name, email: (r) => r.engineer_email, notes: (r) => r.notes, status: (r) => (r.deleted_at ? 'Deleted' : !r.is_active ? 'Inactive' : 'Active') })
   const [remove, setRemove] = useState<ResourceAdmin | null>(null)
   const [inUse, setInUse] = useState<{ r: ResourceAdmin; bookings: any[] } | null>(null)
   const restore = async (r: ResourceAdmin) => { try { await post(`/api/admin/resources/${r.id}/restore`); toast('success', `${r.display_name} restored (inactive). Activate it when ready.`); reload() } catch (e) { toast('error', validationMessage(e)) } }
@@ -36,8 +38,8 @@ export default function Resources() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No resources yet" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Identifier</th><th className="th">Engineer (admin only)</th><th className="th">Email</th><th className="th">Notes</th><th className="th">Status</th><th className="th" /></tr></thead>
-            <tbody className="divide-y divide-slate-100">{data.map((r) => (
+            <thead className="bg-slate-50"><tr><SortTh label="Identifier" k="id" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Engineer (admin only)" k="engineer" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Email" k="email" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Notes" k="notes" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><th className="th" /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tbl.sorted.map((r) => (
               <tr key={r.id} className={r.deleted_at ? 'bg-slate-50 opacity-70' : ''}>
                 <td className="td"><div className="font-semibold">{r.display_name}</div><div className="font-mono text-xs text-slate-500">{r.code}</div></td>
                 <td className="td">{r.engineer_name}</td><td className="td text-xs">{r.engineer_email ?? '—'}</td><td className="td max-w-xs text-xs">{r.notes ?? ''}</td>

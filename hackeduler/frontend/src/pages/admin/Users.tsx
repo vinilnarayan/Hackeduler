@@ -8,12 +8,14 @@ import { useAuth } from '../../lib/auth'
 import { fmtDateTime } from '../../lib/dates'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 export default function UsersPage() {
   const toast = useToast()
   const { user: me } = useAuth()
   const [showDeleted, setShowDeleted] = useState(false)
   const { data, error, loading, reload } = useAsync<User[]>(() => get(`/api/admin/users${showDeleted ? '?include_deleted=true' : ''}`), [showDeleted])
+  const tbl = useSort(data, { name: (u) => u.full_name, email: (u) => u.email, role: (u) => u.role, product: (u) => u.product_name, signin: (u) => (u.sso_provider_id ? 'SSO' : u.has_password ? 'Password' : 'SSO (pending)'), status: (u) => (u.deleted_at ? 'Deleted' : u.is_active ? 'Active' : 'Disabled'), last: (u) => u.last_login_at })
   const [remove, setRemove] = useState<User | null>(null)
   const products = useAsync<Product[]>(() => get('/api/admin/products'))
   const resources = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))
@@ -47,8 +49,8 @@ export default function UsersPage() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No users" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Name</th><th className="th">Email</th><th className="th">Role</th><th className="th">Product / implementation</th><th className="th">Sign-in</th><th className="th">Status</th><th className="th">Last login</th><th className="th" /></tr></thead>
-            <tbody className="divide-y divide-slate-100">{data.map((u) => (
+            <thead className="bg-slate-50"><tr><SortTh label="Name" k="name" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Email" k="email" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Role" k="role" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Product / implementation" k="product" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Sign-in" k="signin" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Last login" k="last" sort={tbl.sort} onToggle={tbl.toggle} /><th className="th" /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tbl.sorted.map((u) => (
               <tr key={u.id} className={u.deleted_at ? 'bg-slate-50 opacity-70' : ''}><td className="td font-medium">{u.full_name}</td><td className="td text-xs">{u.email}</td>
                 <td className="td"><Pill className={u.role === 'admin' ? 'bg-blue-100 text-blue-800' : u.role === 'resource' ? 'bg-teal-100 text-teal-800' : ''}>{u.role}</Pill>{u.resource_name && <div className="text-xs text-slate-500">{u.resource_name}</div>}</td>
                 <td className="td text-xs">{u.product_name ? <><div className="font-medium">{u.product_name}{(u.extra_product_ids?.length ?? 0) > 0 && <span className="ml-1 font-normal text-slate-600">+ {u.products?.filter((p) => p.id !== u.product_id).map((p) => p.name).join(', ')}</span>}</div><div className="text-slate-500">{u.implementation_name ?? '—'}</div></> : <span className="text-slate-400">—</span>}</td>

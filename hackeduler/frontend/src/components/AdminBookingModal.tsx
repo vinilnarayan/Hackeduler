@@ -10,6 +10,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { useForceFlow } from './useForceFlow'
 import { ErrorState, Field, KV, Modal, Pill, Spinner, StatusBadge } from './ui'
 import { ReportEditor } from './ReportEditor'
+import { SortTh, useSort } from './SortTh'
 
 export function AuditChanges({ a }: { a: AuditEntry }) {
   const prev = a.previous_value ?? {}
@@ -127,8 +128,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
         ))}</ul>
       ))}
       {tab === 'emails' && (
-        <table className="min-w-full text-sm"><thead><tr><th className="th">Template</th><th className="th">Recipient</th><th className="th">Status</th><th className="th">Created</th></tr></thead>
-          <tbody>{data.emails.map((e: any) => <tr key={e.id}><td className="td">{e.template_key}</td><td className="td">{e.recipient}{e.cc && <div className="text-xs text-slate-500">Cc: {e.cc}</div>}</td><td className="td">{e.status}{e.last_error && <div className="text-xs text-red-700">{e.last_error}</div>}</td><td className="td text-xs">{fmtDateTime(e.created_at)}</td></tr>)}</tbody></table>
+        <EmailsTable emails={data.emails} />
       )}
 
       <ConfirmDialog open={dlg === 'approve'} title="Approve booking" tone="success" confirmLabel="Approve" onClose={() => setDlg(null)}
@@ -243,5 +243,13 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
       <Field label="Reason for change *" htmlFor="e-r"><textarea id="e-r" className="input min-h-16" maxLength={2000} value={f.reason} onChange={s('reason')} /></Field>
       <div className="flex justify-end"><button className="btn-primary" disabled={busy || !f.reason.trim()}>{busy ? 'Saving…' : 'Save changes'}</button></div>
     </form>
+  )
+}
+
+function EmailsTable({ emails }: { emails: any[] }) {
+  const tbl = useSort(emails, { template: (e) => e.template_key, recipient: (e) => e.recipient, status: (e) => e.status, created: (e) => e.created_at })
+  return (
+    <table className="min-w-full text-sm"><thead><tr><SortTh label="Template" k="template" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Recipient" k="recipient" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Created" k="created" sort={tbl.sort} onToggle={tbl.toggle} /></tr></thead>
+      <tbody>{tbl.sorted.map((e: any) => <tr key={e.id}><td className="td">{e.template_key}</td><td className="td">{e.recipient}{e.cc && <div className="text-xs text-slate-500">Cc: {e.cc}</div>}</td><td className="td">{e.status}{e.last_error && <div className="text-xs text-red-700">{e.last_error}</div>}</td><td className="td text-xs">{fmtDateTime(e.created_at)}</td></tr>)}</tbody></table>
   )
 }

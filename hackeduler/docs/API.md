@@ -124,7 +124,7 @@ and `report_shared_at`, so the report state is visible to all roles; requesters 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/admin/calendar?start&end[&activity_type_id]` | Grid with engineer names, booking details, overlap flags, leave and booking list; same `limited` fit check and `past: true` flag as the requester grid |
-| GET | `/api/admin/bookings?status&resource_id&activity_type_id&q&start&end&needs_review&pci&report_shared&report_type (V1|Met)&limit&offset` | Search / filter |
+| GET | `/api/admin/bookings?status&resource_id&activity_type_id&q&start&end&needs_review&pci&report_shared&report_type&sort_by&sort_dir&limit&offset` | Search / filter. `report_type` is V1 or Met. `sort_by` (id, application, version, product, activity, pci, resource, dates, poc, requester, submitted, status, report) with `sort_dir` asc or desc orders the whole result before paging. The response also has `summary` `{total, pci, non_pci, report_shared, report_not_shared}` counting everything that matches the filters |
 | GET | `/api/admin/bookings/{id}` | Booking, status history, locks, audit, conflicts, change requests, emails |
 | POST | `/api/admin/availability/check` | Like the requester check plus `exclude_booking_id`, booking ids and inactive resources |
 | POST | `/api/admin/availability/range` | Actual working days of a typed start–end range (weekends, holidays and the resource's leave excluded); `resource_id` optional (no leave check without one) |

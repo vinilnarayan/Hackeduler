@@ -7,6 +7,7 @@ import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner } from '../.
 import { fmt } from '../../lib/dates'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 const TYPES = ['Annual leave', 'Casual leave', 'Personal leave', 'Sick leave', 'Training', 'Public duty', 'Other']
 
@@ -16,6 +17,7 @@ export default function LeavePage() {
   const [showCancelled, setShowCancelled] = useState(false)
   const resources = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))
   const { data, error, loading, reload } = useAsync<Leave[]>(() => get('/api/admin/leaves' + qs({ resource_id: resource, include_cancelled: showCancelled })), [resource, showCancelled])
+  const tbl = useSort(data, { resource: (l) => l.resource_display_name, engineer: (l) => l.engineer_name, from: (l) => l.start_date, to: (l) => l.end_date, type: (l) => l.leave_type, reason: (l) => l.reason, status: (l) => l.status })
   const [edit, setEdit] = useState<Partial<Leave> | null>(null)
   const [cancel, setCancel] = useState<Leave | null>(null)
   const flagged = (r: any) => r.flagged_bookings?.length ? toast('info', `${r.flagged_bookings.length} booking(s) flagged for review – see Conflicts`) : null
@@ -37,8 +39,8 @@ export default function LeavePage() {
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No leave recorded" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Resource</th><th className="th">Engineer</th><th className="th">From</th><th className="th">To</th><th className="th">Type</th><th className="th">Reason</th><th className="th">Status</th><th className="th" /></tr></thead>
-            <tbody className="divide-y divide-slate-100">{data.map((l) => (
+            <thead className="bg-slate-50"><tr><SortTh label="Resource" k="resource" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Engineer" k="engineer" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="From" k="from" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="To" k="to" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Type" k="type" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Reason" k="reason" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><th className="th" /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{tbl.sorted.map((l) => (
               <tr key={l.id} className={l.status === 'cancelled' ? 'opacity-60' : ''}>
                 <td className="td font-medium">{l.resource_display_name}</td><td className="td">{l.engineer_name}</td><td className="td">{fmt(l.start_date)}</td><td className="td">{fmt(l.end_date)}</td>
                 <td className="td">{l.leave_type ?? '—'}</td><td className="td max-w-xs text-xs">{l.reason}</td><td className="td"><Pill>{l.status}</Pill></td>

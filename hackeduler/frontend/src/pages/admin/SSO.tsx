@@ -7,6 +7,7 @@ import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner } from '../.
 import { fmtDateTime } from '../../lib/dates'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
+import { SortTh, useSort } from '../../components/SortTh'
 
 type Preset = { label: string; display_name: string; issuer: string; scopes: string; email_claim: string; name_claim: string
   groups_claim: string; token_auth_method: string; rp_initiated_logout: boolean; extra_auth_params?: Record<string, string>; help: string }
@@ -33,6 +34,8 @@ export default function SSOPage() {
   const [test, setTest] = useState<{ p: SSOProvider; result: any } | null>(null)
   const [remove, setRemove] = useState<SSOProvider | null>(null)
   const [logins, setLogins] = useState<{ p: SSOProvider; rows: any[] } | null>(null)
+  const provSort = useSort(providers.data, { name: (p) => p.display_name, type: (p) => p.provider_type, issuer: (p) => p.issuer, status: (p) => (p.enabled ? 'Enabled' : 'Disabled'), test: (p) => (p.last_test_ok === null ? '' : p.last_test_ok ? 'Passed' : 'Failed'), users: (p) => p.linked_users })
+  const loginSort = useSort(logins?.rows, { when: (l) => l.at, user: (l) => l.email, result: (l) => (l.ok ? 'Signed in' : l.error_code), claim: (l) => (l.groups_claim_present == null ? '' : l.groups_claim_present ? 'present' : 'missing'), groups: (l) => (l.groups_received ?? []).join(','), role: (l) => l.role })
   const showLogins = async (p: SSOProvider) => { try { setLogins({ p, rows: await get(`/api/admin/sso/providers/${p.id}/recent-logins`) }) } catch (e) { toast('error', validationMessage(e)) } }
   const reloadAll = () => { settings.reload(); providers.reload() }
 
@@ -67,8 +70,8 @@ export default function SSOPage() {
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2"><h2 className="text-sm font-semibold">Identity providers</h2><span className="text-xs text-slate-500">{settings.data.enabled_providers} enabled</span></div>
         {providers.data.length === 0 ? <Empty title="No identity providers configured" hint="Add a provider, test the connection, then enable it." /> : (
           <div className="overflow-x-auto"><table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><th className="th">Provider</th><th className="th">Type</th><th className="th">Issuer</th><th className="th">Status</th><th className="th">Last test</th><th className="th">Linked users</th><th className="th" /></tr></thead>
-            <tbody className="divide-y divide-slate-100">{providers.data.map((p) => (
+            <thead className="bg-slate-50"><tr><SortTh label="Provider" k="name" sort={provSort.sort} onToggle={provSort.toggle} /><SortTh label="Type" k="type" sort={provSort.sort} onToggle={provSort.toggle} /><SortTh label="Issuer" k="issuer" sort={provSort.sort} onToggle={provSort.toggle} /><SortTh label="Status" k="status" sort={provSort.sort} onToggle={provSort.toggle} /><SortTh label="Last test" k="test" sort={provSort.sort} onToggle={provSort.toggle} /><SortTh label="Linked users" k="users" sort={provSort.sort} onToggle={provSort.toggle} /><th className="th" /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{provSort.sorted.map((p) => (
               <tr key={p.id}>
                 <td className="td"><div className="font-medium">{p.display_name}</div><div className="font-mono text-xs text-slate-500">{p.slug}</div></td>
                 <td className="td text-xs">{TYPE_LABEL[p.provider_type]}</td>
@@ -119,8 +122,8 @@ export default function SSOPage() {
         <p className="mb-3 text-xs text-slate-600">Shows what the identity provider sent at each sign-in. To grant Admin via SSO, copy a value from <b>Groups received</b> (Entra ID: group Object IDs or app-role values) into the provider's <b>Admin groups</b>. If "Groups claim" says <b>missing</b>, configure a groups claim at the IdP (Entra: Token configuration → Add groups claim) – until then roles are taken from the Users page.</p>
         {!logins?.rows.length ? <Empty title="No SSO sign-ins yet" /> : (
           <div className="overflow-x-auto"><table className="min-w-full divide-y divide-slate-200 text-xs">
-            <thead className="bg-slate-50"><tr><th className="th">When</th><th className="th">User</th><th className="th">Result</th><th className="th">Groups claim</th><th className="th">Groups received</th><th className="th">Role</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">{logins.rows.map((l, i) => (
+            <thead className="bg-slate-50"><tr><SortTh label="When" k="when" sort={loginSort.sort} onToggle={loginSort.toggle} /><SortTh label="User" k="user" sort={loginSort.sort} onToggle={loginSort.toggle} /><SortTh label="Result" k="result" sort={loginSort.sort} onToggle={loginSort.toggle} /><SortTh label="Groups claim" k="claim" sort={loginSort.sort} onToggle={loginSort.toggle} /><SortTh label="Groups received" k="groups" sort={loginSort.sort} onToggle={loginSort.toggle} /><SortTh label="Role" k="role" sort={loginSort.sort} onToggle={loginSort.toggle} /></tr></thead>
+            <tbody className="divide-y divide-slate-100">{loginSort.sorted.map((l, i) => (
               <tr key={i} className="align-top"><td className="td whitespace-nowrap">{fmtDateTime(l.at)}</td><td className="td">{l.email ?? '—'}</td>
                 <td className="td">{l.ok ? <span className="text-emerald-700">✓ Signed in{l.provisioned ? ' (new account)' : ''}</span> : <span className="text-red-700">✗ {l.error_code}<div className="max-w-xs break-words text-slate-500">{l.error_detail}</div></span>}</td>
                 <td className="td">{!l.ok || l.groups_claim_present == null ? '—' : l.groups_claim_present ? 'present' : <span className="font-medium text-amber-700">missing</span>}</td>

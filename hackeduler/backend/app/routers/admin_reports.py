@@ -162,6 +162,10 @@ def dashboard(start: date | None = None, end: date | None = None, product_id: uu
             "utilization_pct": round(100 * total_used / total_cap, 1) if total_cap else 0.0,
             "bookings_without_resource": sum(1 for b in live_in_range if not b.requires_resource),
             "bookings_in_range": len(live_in_range),
+            # same population and filters (date range, product) as "bookings in range"
+            "pci_bookings": sum(1 for b in live_in_range if b.pci_dss_scope),
+            "non_pci_bookings": sum(1 for b in live_in_range if not b.pci_dss_scope),
+            "reports_shared": sum(1 for b in live_in_range if b.report_shared),
         },
         "engineers_on_leave_today": [{"resource": r.display_name, "engineer_name": r.engineer_name} for r in on_leave],
         "charts": {
