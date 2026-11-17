@@ -8,7 +8,8 @@ import { useAsync } from '../../lib/useAsync'
 
 interface Entry { booking_id: string; resource_id: string; resource_name: string; engineer_name: string; application_name: string; application_version: string; activity_name: string; status: string; tentative: boolean; start_date: string | null; end_date: string | null }
 interface LeaveE { leave_id: string; resource_id: string; resource_name: string; engineer_name: string; leave_type: string | null }
-interface Day { date: string; in_month: boolean; weekend: boolean; holiday: string | null; entries: Entry[]; leaves: LeaveE[] }
+interface FreeE { resource_id: string; resource_name: string; engineer_name: string }
+interface Day { date: string; in_month: boolean; weekend: boolean; holiday: string | null; entries: Entry[]; leaves: LeaveE[]; free: FreeE[] }
 interface Res { id: string; display_name: string; engineer_name: string; is_active: boolean }
 interface Cal { month: string; today: string; days: Day[]; resources: Res[]; summary: { working_days: number; booked_days: number; leave_days: number; holidays: number } }
 
@@ -108,6 +109,15 @@ export default function TeamCalendar() {
                 ))}
               </ul>
             )}
+          </section>
+          <section aria-label="Free">
+            <h3 className="mb-1 font-semibold">Free{day.free.length > 0 ? ` (${day.free.length})` : ''}</h3>
+            {day.weekend || day.holiday ? <p className="text-slate-500">Non-working day – nobody is scheduled.</p>
+              : day.free.length === 0 ? <p className="text-slate-500">Nobody is free on this day.</p> : (
+                <ul className="divide-y divide-slate-100 rounded border border-slate-200">
+                  {day.free.map((f) => <li key={f.resource_id} className="flex flex-wrap items-center gap-x-3 px-3 py-2"><span className={`rounded px-1.5 py-0.5 text-xs font-semibold ring-1 ${colour(f.resource_id)}`}>{f.resource_name}</span><span className="text-xs text-slate-500">{f.engineer_name}</span><span className="text-emerald-700">Free</span></li>)}
+                </ul>
+              )}
           </section>
           <section aria-label="Leave">
             <h3 className="mb-1 font-semibold">On leave</h3>

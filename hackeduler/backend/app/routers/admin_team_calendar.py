@@ -86,8 +86,14 @@ def team_calendar(month: str | None = Query(None, description="YYYY-MM; default:
             counts["holidays"] += 1 if hol else 0
             counts["booked_days"] += len(day_entries)
             counts["leave_days"] += len(day_leaves) if working and not hol else 0
+        # Free = a working day on which the resource is active and has no booking (confirmed or on hold) and no leave.
+        taken = {e["resource_id"] for e in day_entries} | {lv["resource_id"] for lv in day_leaves}
+        free = [] if (not working or hol) else [
+            {"resource_id": str(r.id), "resource_name": r.display_name, "engineer_name": r.engineer_name}
+            for r in resources
+            if (resource_id is None or r.id == resource_id) and str(r.id) not in taken and not r.inactive_on(d)]
         days.append({"date": d.isoformat(), "in_month": first <= d <= last, "weekend": not working, "holiday": hol,
-                     "entries": day_entries, "leaves": day_leaves})
+                     "entries": day_entries, "leaves": day_leaves, "free": free})
         d += timedelta(days=1)
     return {"month": first.strftime("%Y-%m"), "today": date.today().isoformat(), "days": days, "summary": counts,
             "resources": [{"id": str(r.id), "display_name": r.display_name, "engineer_name": r.engineer_name,

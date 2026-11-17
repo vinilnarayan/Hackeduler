@@ -50,3 +50,35 @@ def test_bad_month_and_access(admin, req1, data):
     for bad in ("2027-13", "2027-3", "x", "1990-01"):
         assert admin.get(f"/api/admin/team-calendar?month={bad}").status_code == 422
     assert req1.get("/api/admin/team-calendar?month=2027-03").status_code == 403
+
+
+def _free(cal, d):
+    return [f["resource_name"] for f in _days(cal)[d]["free"]]
+
+
+def test_free_resources_are_listed_per_day(admin, data):
+    admin.post("/api/admin/holidays", json={"name": "Spring Fest", "holiday_date": "2027-03-26"})
+    assert admin.post("/api/admin/bookings", json=booking_payload(data, 0, start=MON, duration_days=2)).status_code == 201      # R1: 1st-2nd
+    admin.post("/api/admin/leaves", json={"resource_id": str(data["resources"][1].id), "start_date": "2027-03-02", "end_date": "2027-03-02", "leave_type": "Annual leave"})
+    cal = admin.get("/api/admin/team-calendar?month=2027-03").json()
+    assert _free(cal, "2027-03-01") == ["Resource 02", "Resource 03"]           # R1 booked
+    assert _free(cal, "2027-03-02") == ["Resource 03"]                          # R1 booked, R2 on leave
+    assert _free(cal, "2027-03-04") == ["Resource 01", "Resource 02", "Resource 03"]
+    assert _free(cal, "2027-03-06") == [] and _free(cal, "2027-03-26") == []    # weekend / holiday: nobody is "free", it's a day off
+    assert all(set(f) == {"resource_id", "resource_name", "engineer_name"} for f in _days(cal)["2027-03-04"]["free"])
+
+
+def test_a_pending_hold_is_not_free_and_filter_limits_the_free_list(admin, req1, data):
+    pending = req1.post("/api/bookings", json=booking_payload(data, 2, start=MON)).json()
+    assert pending["id"]
+    cal = admin.get("/api/admin/team-calendar?month=2027-03").json()
+    assert "Resource 03" not in _free(cal, "2027-03-01")                         # on hold for a pending request
+    one = admin.get(f"/api/admin/team-calendar?month=2027-03&resource_id={data['resources'][0].id}").json()
+    assert _free(one, "2027-03-04") == ["Resource 01"]
+
+
+def test_inactive_resources_are_not_free_from_their_inactive_date(admin, data):
+    r = admin.patch(f"/api/admin/resources/{data['resources'][2].id}", json={"inactive_from": "2027-03-10", "reason": "Left"})
+    assert r.status_code == 200, r.text
+    cal = admin.get("/api/admin/team-calendar?month=2027-03").json()
+    assert "Resource 03" in _free(cal, "2027-03-09") and "Resource 03" not in _free(cal, "2027-03-10")
