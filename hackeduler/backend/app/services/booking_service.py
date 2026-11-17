@@ -43,6 +43,7 @@ from . import audit, conflicts, initiation, notifications, settings_service
 from .availability import (
     UNAVAILABLE_MESSAGE,
     horizon_end,
+    build_calendar,
     load_holidays,
     working_weekdays,
     SchedulePlan,
@@ -53,7 +54,7 @@ from .availability import (
     suggest_next_start,
     total_duration,
 )
-from .calendar_engine import SchedulingError, WorkCalendar, compute_work_dates
+from .calendar_engine import SchedulingError, WorkCalendar, compute_work_dates, eligible_dates_between
 
 FORCE_WARNING = (
     "Warning: This allocation conflicts with an existing booking or resource restriction. "
@@ -481,6 +482,49 @@ def _validate_input(inp: BookingInput) -> None:
     inp.poc_name = _clean_text(inp.poc_name, "POC Name")
     inp.poc_email = _clean_text(inp.poc_email, "POC Email", max_len=2000)
     inp.additional_comments = _clean_text(inp.additional_comments, "Additional Comments", required=False, max_len=4000)
+
+
+MAX_RANGE_DAYS = 400
+
+
+def preview_range(db: Session, resource_id: uuid.UUID | None, start: date, end: date,
+                  exclude_booking_id: uuid.UUID | None = None) -> dict[str, Any]:
+    """What an explicit start-end allocation would really reserve: every day in the range except weekends,
+    organisation holidays and (for a chosen resource) that resource's leave - exactly what saving will reserve.
+
+    Without a resource only weekends and holidays are known; leave is applied once a resource is assigned."""
+    if end < start:
+        raise bad_request("End date must be on or after the start date.", "invalid_range")
+    if (end - start).days > MAX_RANGE_DAYS:
+        raise bad_request(f"The range cannot be longer than {MAX_RANGE_DAYS} days.", "invalid_range")
+    issues: list[ScheduleIssue] = []
+    if resource_id is not None:
+        resource = db.get(SecurityResource, resource_id)
+        if resource is None or resource.deleted_at is not None:
+            raise not_found("Resource")
+        cal = build_calendar(db, resource.id, start, end)
+        try:
+            plan = plan_schedule(db, resource, start, 1, exclude_booking_id=exclude_booking_id, explicit_end_date=end)
+        except SchedulingError as e:
+            raise bad_request(e.message, e.code)
+        work = [d for d in plan.work_dates if cal.is_eligible(d)]
+        issues = list(plan.issues)
+    else:
+        cal = WorkCalendar(holidays=load_holidays(db, start, end), working_weekdays=working_weekdays(db))
+        work = eligible_dates_between(cal, start, end)
+    skipped, counts = [], {"weekend": 0, "holiday": 0, "leave": 0}
+    d = start
+    while d <= end:
+        why = cal.non_working_reason(d)
+        if why:
+            counts[why] += 1
+            skipped.append({"date": d.isoformat(), "reason": why, "label": cal.holidays.get(d) if why == "holiday" else None})
+        d += timedelta(days=1)
+    return {"start_date": start.isoformat(), "end_date": end.isoformat(), "calendar_days": (end - start).days + 1,
+            "working_days": len(work), "work_dates": [x.isoformat() for x in work], "skipped": counts, "skipped_dates": skipped,
+            "leave_considered": resource_id is not None, "available": not issues,
+            "issues": _issues_json(issues, include_booking_ids=True),
+            "message": issues[0].message if issues else ("No working days fall in this range." if not work else "")}
 
 
 def preview_auto(db: Session, actor: User, activity_type_id: uuid.UUID, start: date | None,

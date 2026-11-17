@@ -239,6 +239,20 @@ export interface AvailabilityResult {
   alternative_resources: { id: string; display_name: string }[]
 }
 
+export interface RangeResult {
+  start_date: string
+  end_date: string
+  calendar_days: number
+  working_days: number
+  work_dates: string[]
+  skipped: { weekend: number; holiday: number; leave: number }
+  skipped_dates: { date: string; reason: 'weekend' | 'holiday' | 'leave'; label: string | null }[]
+  leave_considered: boolean
+  available: boolean
+  issues: Issue[]
+  message: string
+}
+
 export interface ForcePayload {
   confirm: boolean
   reason: string

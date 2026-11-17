@@ -30,6 +30,7 @@ from ..models import (
 )
 from ..schemas import (
     AdminAvailabilityQuery,
+    AdminRangeQuery,
     AdminBookingCreate,
     ApproveIn,
     AuditOut,
@@ -200,6 +201,12 @@ def admin_check(body: AdminAvailabilityQuery, db: Session = Depends(get_db), adm
                                        body.additional_days, exclude_booking_id=body.exclude_booking_id)
     except SchedulingError as e:
         raise bad_request(e.message, e.code)
+
+
+@router.post("/availability/range")
+def admin_range(body: AdminRangeQuery, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Working days an explicit start-end allocation would reserve (weekends, holidays and leave excluded)."""
+    return booking_service.preview_range(db, body.resource_id, body.start_date, body.end_date, body.exclude_booking_id)
 
 
 @router.post("/bookings", status_code=201)
