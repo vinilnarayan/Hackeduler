@@ -58,7 +58,7 @@ def test_initiation_email_is_copied(admin, data, monkeypatch):
     email_sender.process_outbox(db)
     db.close()
     ini = [m for m in email_sender.SENT_MESSAGES if m["Subject"] in subjects]
-    assert ini and all(m["Cc"] == "pm@example.com" for m in ini)
+    assert ini and all(m["Cc"] == "eng1@offsec.local, pm@example.com" for m in ini)     # assigned engineer, then the settings Cc
 
 
 def test_cc_setting_is_validated(admin):

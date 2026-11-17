@@ -194,13 +194,16 @@ def send(db: Session, b: Booking, actor: User | None = None, *, manual: bool = F
     if b.status != BookingStatus.APPROVED or not b.start_date:
         return False
     ctx = notifications.booking_context(b, **{"Required Details": required_details(b), "Days Until Start": _days_text(db, b)})
-    rows = notifications.enqueue(db, "activity_initiation_poc", notifications.poc_recipients(db, b), ctx, b.id)
+    # One email: To the POC(s) (and the requester per the copy setting), with the assigned engineer(s) in Cc.
+    row = notifications.enqueue_combined(db, "activity_initiation_poc", notifications.poc_recipients(db, b),
+                                         notifications.engineer_emails(b), ctx, b.id)
+    rows = [row] if row else []
     prev = {"sent_at": audit.jsonable(b.initiation_email_sent_at), "for_start": audit.jsonable(b.initiation_email_for_start)}
     b.initiation_email_sent_at = now_utc()
     b.initiation_email_for_start = b.start_date
     audit.record(db, "booking.initiation_email_sent", actor, entity_type="booking", entity_id=b.id, booking_id=b.id,
                  previous=prev, new={"for_start": audit.jsonable(b.start_date), "manual": manual,
-                                     "recipients": [r.recipient for r in rows]})
+                                     "recipients": [r.recipient for r in rows], "cc": [r.cc for r in rows if r.cc]})
     return True
 
 

@@ -57,7 +57,9 @@ def test_approved_late_inside_window_goes_out_immediately(admin, req1, data, mon
     b = req1.post("/api/bookings", json=booking_payload(data)).json()
     assert _mails() == []                                                  # pending: nothing
     admin.post(f"/api/admin/bookings/{b['id']}/approve")
-    assert len(_mails()) == 2                                              # POC + requester copy
+    m = _mails()
+    assert len(m) == 1                                                     # ONE email: POC + requester in To, engineer in Cc
+    assert set(m[0].recipient.split(", ")) == {"jane.poc@example.com", "req1@example.com"} or "jane.poc@example.com" in m[0].recipient
 
 
 def test_pending_and_rejected_bookings_get_nothing(admin, req1, data, monkeypatch):
@@ -161,3 +163,44 @@ def test_template_is_editable_and_requester_copy_follows_setting(admin, req1, da
     admin.post(f"/api/admin/bookings/{b['id']}/approve")
     (m,) = _mails()
     assert m.subject == "Prep Customer Portal" and m.recipient == "jane.poc@example.com"
+
+
+def test_assignee_is_cc_on_the_same_email(admin, data, monkeypatch):
+    from app.services import email_sender
+    _today(monkeypatch, date(2027, 2, 26))
+    _approved(admin, data)
+    (m,) = _mails()
+    assert m.recipient == "jane.poc@example.com" and m.cc == "eng1@offsec.local"
+    db = SessionLocal()
+    try:
+        row = db.get(EmailNotificationLog, m.id)
+        msg = email_sender.build_message(db, row)
+    finally:
+        db.close()
+    assert msg["To"] == "jane.poc@example.com" and msg["Cc"] == "eng1@offsec.local"
+
+
+def test_cc_merges_settings_cc_without_duplicates(admin, data, monkeypatch):
+    from app.services import email_sender
+    admin.put("/api/admin/settings", json={"values": {"email_cc_recipients": ["boss@example.com", "ENG1@offsec.local", "jane.poc@example.com"]}})
+    _today(monkeypatch, date(2027, 2, 26))
+    _approved(admin, data)
+    (m,) = _mails()
+    db = SessionLocal()
+    try:
+        msg = email_sender.build_message(db, db.get(EmailNotificationLog, m.id))
+    finally:
+        db.close()
+    assert msg["Cc"] == "eng1@offsec.local, boss@example.com"          # engineer once, POC (already in To) dropped
+
+
+def test_no_engineer_email_means_no_cc(admin, data, monkeypatch):
+    from app.models import SecurityResource
+    db = SessionLocal()
+    db.get(SecurityResource, data["resources"][0].id).engineer_email = None
+    db.commit()
+    db.close()
+    _today(monkeypatch, date(2027, 2, 26))
+    _approved(admin, data)
+    (m,) = _mails()
+    assert m.cc is None
