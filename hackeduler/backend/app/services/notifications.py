@@ -28,7 +28,7 @@ ALLOWED_VARIABLES = {
     "Booking ID", "Application Name", "Application Version", "Activity Type", "PCI DSS Scope", "Yes/No",
     "Resource ID", "Resource Name", "Start Date", "End Date", "Duration", "POC Name", "POC Email", "Rejection Reason",
     "Booking Status", "Change Summary", "Reason", "Requester", "App URL", "Product", "Implementation",
-    "User Name", "User Email", "Role", "Engineer Name", "Additional Comments", "Required Details", "Days Until Start",
+    "User Name", "User Email", "Role", "Engineer Name", "Engineer Names", "Additional Comments", "Required Details", "Days Until Start",
 }
 
 SIGNATURE = "\n\nRegards,\nOffensive Security Team\n"
@@ -138,7 +138,7 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             "us the details below before testing begins.\n\n"
             "- Booking ID: {{Booking ID}}\n- Application Name: {{Application Name}}\n"
             "- Application Version: {{Application Version}}\n- Activity Type: {{Activity Type}}\n"
-            "- Start Date: {{Start Date}}\n- Expected End Date: {{End Date}}\n\n"
+            "- Security engineer(s): {{Engineer Names}}\n- Start Date: {{Start Date}}\n- Expected End Date: {{End Date}}\n\n"
             "What we need from you:\n\n{{Required Details}}\n\n"
             "Please reply to this email or contact the Offensive Security team. Never send passwords or secrets in "
             "plain email; we will agree a secure way to share them." + SIGNATURE
@@ -185,6 +185,12 @@ def render(text: str, ctx: dict[str, Any]) -> str:
     return PLACEHOLDER_RE.sub(lambda m: str(ctx.get(m.group(1), "")), text)
 
 
+def engineer_names(b: Booking) -> str:
+    """Names of every security engineer on the booking (primary first), comma-separated; one resource per person."""
+    names = [r.engineer_name or r.display_name for r in engineer_resources(b)]
+    return ", ".join(dict.fromkeys(names)) or "Not required"
+
+
 def booking_context(b: Booking, **extra: Any) -> dict[str, Any]:
     from ..config import get_settings
 
@@ -198,6 +204,7 @@ def booking_context(b: Booking, **extra: Any) -> dict[str, Any]:
         "Yes/No": yes_no,
         "Resource ID": b.resource.display_name if b.resource else "Not required",
         "Resource Name": b.resource.display_name if b.resource else "Not required",
+        "Engineer Names": engineer_names(b),
         "Start Date": b.start_date.isoformat() if b.start_date else "To be scheduled",
         "End Date": b.end_date.isoformat() if b.end_date else "To be scheduled",
         "Duration": f"{b.duration_days} working days" if b.duration_days else "Not applicable",
