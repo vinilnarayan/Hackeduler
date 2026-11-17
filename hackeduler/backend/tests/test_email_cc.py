@@ -75,3 +75,17 @@ def test_ses_recipients_include_cc(admin, req1, data):
     m = _drain()[0]
     addrs = [a for _, a in email.utils.getaddresses(m.get_all("To", []) + m.get_all("Cc", []))]
     assert "pm@example.com" in addrs and m["To"] in addrs
+
+
+def test_resource_name_variable_is_available_and_rendered(admin, data):
+    assert "Resource Name" in admin.get("/api/admin/email-templates/variables").json()
+    b = admin.post("/api/admin/bookings", json=booking_payload(data)).json()
+    db = SessionLocal()
+    try:
+        from app.models import Booking
+        from app.services import notifications
+        ctx = notifications.booking_context(db.get(Booking, b["id"]))
+        assert ctx["Resource Name"] == "Resource 01" == ctx["Resource ID"]
+        assert notifications.render("Resource: {{Resource Name}}", ctx) == "Resource: Resource 01"
+    finally:
+        db.close()
