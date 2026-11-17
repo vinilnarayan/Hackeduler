@@ -53,7 +53,7 @@ describe('MyMonthCalendar', () => {
   })
 
   it('saves a note and a leave for the clicked day, then reloads', async () => {
-    api.post.mockResolvedValue({ flagged_bookings: 0 })
+    api.post.mockResolvedValue({ overlapping_bookings: 0 })
     render(<MemoryRouter><MyMonthCalendar /></MemoryRouter>)
     fireEvent.click(await screen.findByLabelText(/-03: free/))
     fireEvent.change(await screen.findByLabelText('Add a note'), { target: { value: 'Prep demo' } })

@@ -320,16 +320,17 @@ def add_leave(body: MyLeaveIn, db: Session = Depends(get_db), user: User = Depen
     lv = ResourceLeave(id=uuid.uuid4(), resource_id=user.resource_id, created_by=user.id, **body.model_dump())
     db.add(lv)
     db.flush()
-    flagged = conflicts.flag_new_non_working(db, set(expand_ranges([(lv.start_date, lv.end_date)])), "leave",
-                                             f"Leave for {r.display_name} ({r.engineer_name})",
-                                             f"leave:{lv.id}:{lv.start_date}:{lv.end_date}", user, resource_id=r.id)
+    # Leave the resource marks themselves is just recorded. Existing bookings are NOT touched: their dates, status
+    # and review flag stay as they are, and no conflict is opened or POC emailed. The overlap is only reported back
+    # (and kept in the audit trail); the days show as leave + booked on the calendars.
+    overlapping = conflicts.bookings_locking_dates(db, set(expand_ranges([(lv.start_date, lv.end_date)])), r.id)
     audit.record(db, "leave.created", user, entity_type="leave", entity_id=lv.id,
                  new={"resource_id": lv.resource_id, "start_date": lv.start_date, "end_date": lv.end_date,
-                      "leave_type": lv.leave_type, "reason": lv.reason, "flagged_bookings": flagged,
+                      "leave_type": lv.leave_type, "reason": lv.reason, "overlapping_bookings": list(overlapping),
                       "by_resource_user": True})
     commit(db)
     db.refresh(lv)
-    return {"leave": _leave_out(lv), "flagged_bookings": len(flagged)}
+    return {"leave": _leave_out(lv), "overlapping_bookings": len(overlapping)}
 
 
 @router.delete("/leaves/{leave_id}")
@@ -339,12 +340,7 @@ def cancel_leave(leave_id: uuid.UUID, db: Session = Depends(get_db), user: User 
         raise not_found("Leave")
     lv.status = "cancelled"
     db.flush()
-    flagged = conflicts.flag_removed_non_working(
-        db, set(expand_ranges([(lv.start_date, lv.end_date)])), "leave",
-        f"Leave for {lv.resource.display_name} ({lv.resource.engineer_name})", f"leave-removed:{lv.id}", user,
-        resource_id=lv.resource_id)
     audit.record(db, "leave.cancelled", user, entity_type="leave", entity_id=lv.id,
-                 previous={"status": "active"}, new={"status": "cancelled", "flagged_bookings": flagged,
-                                                     "by_resource_user": True})
+                 previous={"status": "active"}, new={"status": "cancelled", "by_resource_user": True})
     commit(db)
     return {"ok": True}

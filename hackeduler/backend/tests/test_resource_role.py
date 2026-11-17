@@ -185,15 +185,16 @@ def test_resource_leave_add_list_cancel_only_own(admin, data):
     assert eng.get("/api/resource/leaves").json() == []
 
 
-def test_leave_over_a_booking_raises_a_conflict_for_admin(admin, data):
+def test_leave_over_a_booking_leaves_the_booking_untouched(admin, data):
     b = _booking(admin, data, 0)
     _make_resource_user(admin, data["resources"][0])
     eng = Api("eng1@test.local")
     d = date.fromisoformat(b["start_date"])
     # test data is in 2027; use the booking's own dates (future relative to today)
     r = eng.post("/api/resource/leaves", json={"start_date": d.isoformat(), "end_date": d.isoformat()})
-    assert r.status_code == 201 and r.json()["flagged_bookings"] >= 1
-    assert admin.get("/api/admin/bookings").json()["items"][0]["open_conflicts"] >= 1
+    assert r.status_code == 201 and r.json()["overlapping_bookings"] == 1
+    item = admin.get("/api/admin/bookings").json()["items"][0]
+    assert item["open_conflicts"] == 0 and not item["needs_review"]
 
 
 def test_dashboard_counts(admin, data):
