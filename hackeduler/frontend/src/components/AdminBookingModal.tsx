@@ -128,7 +128,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
       ))}
       {tab === 'emails' && (
         <table className="min-w-full text-sm"><thead><tr><th className="th">Template</th><th className="th">Recipient</th><th className="th">Status</th><th className="th">Created</th></tr></thead>
-          <tbody>{data.emails.map((e: any) => <tr key={e.id}><td className="td">{e.template_key}</td><td className="td">{e.recipient}</td><td className="td">{e.status}{e.last_error && <div className="text-xs text-red-700">{e.last_error}</div>}</td><td className="td text-xs">{fmtDateTime(e.created_at)}</td></tr>)}</tbody></table>
+          <tbody>{data.emails.map((e: any) => <tr key={e.id}><td className="td">{e.template_key}</td><td className="td">{e.recipient}{e.cc && <div className="text-xs text-slate-500">Cc: {e.cc}</div>}</td><td className="td">{e.status}{e.last_error && <div className="text-xs text-red-700">{e.last_error}</div>}</td><td className="td text-xs">{fmtDateTime(e.created_at)}</td></tr>)}</tbody></table>
       )}
 
       <ConfirmDialog open={dlg === 'approve'} title="Approve booking" tone="success" confirmLabel="Approve" onClose={() => setDlg(null)}

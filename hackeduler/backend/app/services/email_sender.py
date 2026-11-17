@@ -55,8 +55,14 @@ def build_message(db: Session, row: EmailNotificationLog) -> EmailMessage:
     msg["From"] = formataddr((settings_service.get_setting(db, "email_sender_name"),
                               settings_service.get_setting(db, "email_sender_address")))
     msg["To"] = row.recipient
-    # The configured always-Cc addresses (Admin -> Settings), except anyone who is already the recipient.
-    cc = [a for a in dict.fromkeys(settings_service.get_setting(db, "email_cc_recipients") or []) if a.lower() != row.recipient.lower()]
+    # This email's own Cc (e.g. the assigned engineer), then the always-Cc addresses (Admin -> Settings);
+    # anyone who is already a recipient is not repeated.
+    taken = {a.lower() for _, a in getaddresses([row.recipient])}
+    cc = []
+    for a in [x.strip() for x in (row.cc or "").split(",")] + list(settings_service.get_setting(db, "email_cc_recipients") or []):
+        if a and a.lower() not in taken:
+            taken.add(a.lower())
+            cc.append(a)
     if cc:
         msg["Cc"] = ", ".join(cc)
     msg["Message-ID"] = make_msgid(domain="hackeduler")

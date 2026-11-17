@@ -188,7 +188,7 @@ def booking_detail(booking_id: uuid.UUID, db: Session = Depends(get_db)):
         "audit": [AuditOut.model_validate(a) for a in audits],
         "conflicts": [_conflict_out(c) for c in confs],
         "change_requests": [_cr_out(c) for c in crs],
-        "emails": [{"id": str(e.id), "template_key": e.template_key, "recipient": e.recipient, "status": e.status,
+        "emails": [{"id": str(e.id), "template_key": e.template_key, "recipient": e.recipient, "cc": e.cc, "status": e.status,
                     "attempts": e.attempts, "last_error": e.last_error, "created_at": e.created_at.isoformat()} for e in emails],
     }
 

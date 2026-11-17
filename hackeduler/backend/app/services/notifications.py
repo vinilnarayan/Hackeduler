@@ -244,6 +244,35 @@ def enqueue(db: Session, key: str, recipients: list[str], ctx: dict[str, Any], b
     return rows
 
 
+def enqueue_combined(db: Session, key: str, to: list[str], cc: list[str], ctx: dict[str, Any],
+                     booking_id: uuid.UUID | None = None) -> EmailNotificationLog | None:
+    """ONE email addressed To everyone in ``to`` with ``cc`` copied - the same message, not a copy per person.
+    Addresses are de-duplicated; anyone in To is dropped from Cc."""
+    tpl = _get_template(db, key)
+    if tpl is None:
+        return None
+    to_l = list(dict.fromkeys(a.strip() for a in to if a and a.strip()))
+    seen = {a.lower() for a in to_l}
+    cc_l = []
+    for a in cc:
+        a = (a or "").strip()
+        if a and a.lower() not in seen:
+            seen.add(a.lower())
+            cc_l.append(a)
+    if not to_l:
+        return None
+    subject = render(tpl[0], ctx).replace("\r", " ").replace("\n", " ")[:300]
+    row = EmailNotificationLog(id=uuid.uuid4(), template_key=key, booking_id=booking_id, recipient=", ".join(to_l),
+                               cc=", ".join(cc_l) or None, subject=subject, body=render(tpl[1], ctx))
+    db.add(row)
+    return row
+
+
+def engineer_emails(b: Booking) -> list[str]:
+    """Email addresses of every assigned security engineer (primary first); engineers without an email are skipped."""
+    return [r.engineer_email for r in engineer_resources(b) if r.engineer_email]
+
+
 def admin_recipients(db: Session) -> list[str]:
     return list(settings_service.get_setting(db, "admin_notification_recipients") or [])
 

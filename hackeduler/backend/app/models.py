@@ -439,7 +439,8 @@ class EmailNotificationLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     template_key: Mapped[str] = mapped_column(Text)
     booking_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("bookings.id"))
-    recipient: Mapped[str] = mapped_column(Text)
+    recipient: Mapped[str] = mapped_column(Text)  # the To address(es); several are comma-separated
+    cc: Mapped[str | None] = mapped_column(Text)  # extra Cc address(es) for this email (comma-separated)
     subject: Mapped[str] = mapped_column(Text)
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="queued")
