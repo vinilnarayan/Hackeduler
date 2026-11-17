@@ -26,7 +26,7 @@ PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z][A-Za-z0-9 _/\-]*?)\s*\}\}")
 
 ALLOWED_VARIABLES = {
     "Booking ID", "Application Name", "Application Version", "Activity Type", "PCI DSS Scope", "Yes/No",
-    "Resource ID", "Start Date", "End Date", "Duration", "POC Name", "POC Email", "Rejection Reason",
+    "Resource ID", "Resource Name", "Start Date", "End Date", "Duration", "POC Name", "POC Email", "Rejection Reason",
     "Booking Status", "Change Summary", "Reason", "Requester", "App URL", "Product", "Implementation",
     "User Name", "User Email", "Role", "Engineer Name", "Additional Comments", "Required Details", "Days Until Start",
 }
@@ -197,6 +197,7 @@ def booking_context(b: Booking, **extra: Any) -> dict[str, Any]:
         "PCI DSS Scope": yes_no,
         "Yes/No": yes_no,
         "Resource ID": b.resource.display_name if b.resource else "Not required",
+        "Resource Name": b.resource.display_name if b.resource else "Not required",
         "Start Date": b.start_date.isoformat() if b.start_date else "To be scheduled",
         "End Date": b.end_date.isoformat() if b.end_date else "To be scheduled",
         "Duration": f"{b.duration_days} working days" if b.duration_days else "Not applicable",
