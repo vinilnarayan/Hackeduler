@@ -2,9 +2,10 @@ import { useState, type ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import {
   AlertTriangle, BarChart3, CalendarDays, CalendarPlus, CalendarRange, ClipboardList, FileClock, GitPullRequestArrow, LogOut, Mail, Menu,
-  PartyPopper, Plane, Settings, ShieldCheck, Fingerprint, Boxes, SlidersHorizontal, Users, UserCog, X, LayoutDashboard, ListChecks,
+  Info, PartyPopper, Plane, Settings, Fingerprint, Boxes, SlidersHorizontal, Users, UserCog, X, LayoutDashboard, ListChecks,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { AboutDialog, CONTACT_EMAIL, CREDIT, Logo } from './Brand'
 
 interface NavItem { to: string; label: string; icon: ReactNode }
 
@@ -61,11 +62,12 @@ function Link({ item, onNav }: { item: NavItem; onNav: () => void }) {
 export function Layout() {
   const { user, logout } = useAuth()
   const [open, setOpen] = useState(false)
+  const [about, setAbout] = useState(false)
   const isAdmin = user?.role === 'admin'
   const sidebar = (
     <nav aria-label="Main navigation" className="flex h-full flex-col gap-4 overflow-y-auto bg-slate-900 p-3">
       <div className="flex items-center gap-2 px-2 py-1 text-white">
-        <ShieldCheck className="h-6 w-6 text-sky-400" />
+        <Logo className="h-9 w-9" tile />
         <div><div className="text-sm font-semibold leading-tight">Hackeduler</div><div className="text-[11px] text-slate-400">{isAdmin ? 'Administrator' : user?.role === 'resource' ? 'Security Engineer' : 'Requester'}</div></div>
       </div>
       {isAdmin ? ADMIN_NAV.map((s) => (
@@ -82,6 +84,10 @@ export function Layout() {
           <Link item={{ to: '/calendar', label: 'Anonymous Calendar', icon: <CalendarDays className="h-4 w-4" /> }} onNav={() => setOpen(false)} />
         </div>
       )}
+      <button type="button" onClick={() => { setAbout(true); setOpen(false) }}
+        className="mt-auto flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white">
+        <Info className="h-4 w-4" aria-hidden /><span>About<span className="block text-[10px] text-slate-500">Designed &amp; developed by {CREDIT}</span></span>
+      </button>
     </nav>
   )
   return (
@@ -105,7 +111,9 @@ export function Layout() {
           <button className="btn-secondary" onClick={() => logout()} aria-label="Sign out"><LogOut className="h-4 w-4" /><span className="hidden sm:inline">Sign out</span></button>
         </header>
         <main id="main" className="mx-auto w-full max-w-[1600px] flex-1 p-4 sm:p-6"><Outlet /></main>
+        <footer className="border-t border-slate-200 px-4 py-2 text-center text-xs text-slate-500">Designed and developed by {CREDIT} · <a className="text-blue-700 underline" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a></footer>
       </div>
+      <AboutDialog open={about} onClose={() => setAbout(false)} />
     </div>
   )
 }

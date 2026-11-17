@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { KeyRound, ShieldCheck } from 'lucide-react'
+import { KeyRound } from 'lucide-react'
+import { CONTACT_EMAIL, CREDIT, Logo } from '../components/Brand'
 import { get, validationMessage } from '../api/client'
 import { useAuth } from '../lib/auth'
 
@@ -58,7 +59,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 p-4">
       <div className="card w-full max-w-sm space-y-4 p-6">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="h-8 w-8 text-blue-700" />
+          <Logo className="h-12 w-12" />
           <div><h1 className="text-lg font-semibold">Hackeduler</h1><p className="text-xs text-slate-500">Sign in to continue</p></div>
         </div>
         {error && <div className="rounded border border-red-200 bg-red-50 p-2 text-sm text-red-800" role="alert">{error}</div>}
@@ -94,6 +95,7 @@ export default function Login() {
           <p className="text-sm text-slate-600">No sign-in method is currently available. Contact the OffSec team.</p>
         )}
         <p className="text-center text-[11px] text-slate-400">Internal use only. All activity is audited.</p>
+        <p className="text-center text-[11px] text-slate-500">Designed and developed by {CREDIT}<br /><a className="underline" href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a></p>
       </div>
     </div>
   )
