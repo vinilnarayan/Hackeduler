@@ -89,3 +89,21 @@ def test_resource_name_variable_is_available_and_rendered(admin, data):
         assert notifications.render("Resource: {{Resource Name}}", ctx) == "Resource: Resource 01"
     finally:
         db.close()
+
+
+def test_engineer_names_variable_lists_every_assigned_engineer(admin, data):
+    from app.models import Booking
+    from app.services import notifications
+    assert "Engineer Names" in admin.get("/api/admin/email-templates/variables").json()
+    b = admin.post("/api/admin/bookings", json=booking_payload(data)).json()
+    db = SessionLocal()
+    try:
+        bk = db.get(Booking, b["id"])
+        assert notifications.booking_context(bk)["Engineer Names"] == "Secret Engineer 1"
+        bk.extra_resources = [db.get(type(bk.resource), data["resources"][1].id)]
+        assert notifications.booking_context(bk)["Engineer Names"] == "Secret Engineer 1, Secret Engineer 2"
+        body = notifications.render(notifications.DEFAULT_TEMPLATES["activity_initiation_poc"]["body"], notifications.booking_context(bk, **{"Required Details": "x", "Days Until Start": "soon"}))
+        assert "Security engineer(s): Secret Engineer 1, Secret Engineer 2" in body
+        db.rollback()
+    finally:
+        db.close()
