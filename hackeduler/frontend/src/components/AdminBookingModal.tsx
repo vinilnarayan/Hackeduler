@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Check, Pencil, Trash2, X } from 'lucide-react'
 import { get, patch, post, validationMessage } from '../api/client'
-import type { ActivityType, AdminBooking, AuditEntry, ForcePayload, Product, ResourceAdmin } from '../api/types'
+import type { ActivityType, AdminBooking, AuditEntry, ForcePayload, Product, RangeResult, ResourceAdmin } from '../api/types'
 import { fmt, fmtDateTime } from '../lib/dates'
 import { CONFLICT_TYPE_LABELS, STATUS_LABELS } from '../lib/status'
 import { useToast } from '../lib/toast'
@@ -160,6 +160,15 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
     poc_email: b.poc_email, additional_comments: b.additional_comments ?? '', reason: '',
   })
   const [busy, setBusy] = useState(false)
+  const [range, setRange] = useState<RangeResult | null>(null)
+  const rid = f.resource_id || b.resource_id || ''
+  // Preview of the typed end date: working days actually reserved (this booking's own days are not counted as conflicts).
+  useEffect(() => {
+    setRange(null)
+    if (f.duration_mode !== 'end_date' || !f.start_date || !f.end_date || f.end_date < f.start_date || b.extra_resources?.length) return
+    const t = setTimeout(() => post<RangeResult>('/api/admin/availability/range', { resource_id: rid || null, start_date: f.start_date, end_date: f.end_date, exclude_booking_id: b.id }).then(setRange).catch(() => setRange(null)), 250)
+    return () => clearTimeout(t)
+  }, [rid, f.start_date, f.end_date, f.duration_mode])
   useEffect(() => { if (f.activity_type_id !== b.activity_type_id && f.duration_mode === 'keep') setF((x) => ({ ...x, duration_mode: 'recalculate' })) }, [f.activity_type_id])
   const s = (k: keyof typeof f) => (e: React.ChangeEvent<any>) => setF({ ...f, [k]: e.target.type === 'number' ? parseInt(e.target.value || '0', 10) : e.target.value })
 
@@ -197,7 +206,7 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
         ) : <Field label="Resource" htmlFor="e-res"><input id="e-res" className="input" disabled value="Not required" /></Field>}
         <Field label={needsRes ? 'Start date' : 'Date (optional)'} htmlFor="e-start"><input id="e-start" type="date" className="input" value={f.start_date} onChange={s('start_date')} /></Field>
         <Field label="Duration" htmlFor="e-dm">
-          <select id="e-dm" className="input" value={f.duration_mode} onChange={s('duration_mode')}>
+          <select id="e-dm" className="input" value={f.duration_mode} onChange={(e) => setF({ ...f, duration_mode: e.target.value as typeof f.duration_mode, end_date: e.target.value === 'end_date' ? f.end_date : (b.end_date ?? '') })}>
             <option value="keep">Keep current ({b.duration_days ? `${b.duration_days} working days` : 'none'})</option>
             <option value="recalculate">Recalculate from activity{act?.base_duration_days ? ` (${act.base_duration_days + (f.additional_days || 0)}d)` : ''}</option>
             <option value="duration">Override working days</option>
@@ -205,9 +214,22 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
           </select>
         </Field>
         {f.duration_mode === 'duration' && <Field label="Working days" htmlFor="e-dd"><input id="e-dd" type="number" min={1} max={250} className="input" value={f.duration_days} onChange={s('duration_days')} /></Field>}
-        {f.duration_mode === 'end_date' && <Field label="End date" htmlFor="e-ed"><input id="e-ed" type="date" className="input" value={f.end_date} onChange={s('end_date')} /></Field>}
+        <Field label="End date" htmlFor="e-ed" hint="Change it to extend or shorten the booking; weekends, holidays and leave are skipped.">
+          <input id="e-ed" type="date" className="input" min={f.start_date || undefined} value={f.end_date}
+            onChange={(e) => setF({ ...f, end_date: e.target.value, duration_mode: e.target.value && e.target.value !== (b.end_date ?? '') ? 'end_date' : f.duration_mode })} />
+        </Field>
         {act?.allow_additional_days && <Field label="Additional days" htmlFor="e-ad"><input id="e-ad" type="number" min={0} max={act.max_additional_days} className="input" value={f.additional_days} onChange={s('additional_days')} /></Field>}
       </div>
+      {f.duration_mode === 'end_date' && f.end_date && f.start_date && f.end_date < f.start_date && <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm" role="alert">End date must be on or after the start date.</div>}
+      {range && (
+        <div className={`rounded-md border p-3 text-sm ${range.available && range.working_days > 0 ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`} aria-live="polite" data-testid="edit-range">
+          <div className="font-semibold">Actual calculation: {fmt(range.start_date)} – {fmt(range.end_date)} ({range.working_days} working {range.working_days === 1 ? 'day' : 'days'} of {range.calendar_days} calendar {range.calendar_days === 1 ? 'day' : 'days'})</div>
+          <div className="mt-1 text-xs">Excluded: {range.skipped.weekend} weekend {range.skipped.weekend === 1 ? 'day' : 'days'}, {range.skipped.holiday} {range.skipped.holiday === 1 ? 'holiday' : 'holidays'}{range.leave_considered ? `, ${range.skipped.leave} leave ${range.skipped.leave === 1 ? 'day' : 'days'}` : ''}</div>
+          {range.skipped_dates.filter((d) => d.reason !== 'weekend').map((d) => <div key={d.date} className="text-xs text-slate-700">• {fmt(d.date)} – {d.reason === 'holiday' ? `Holiday${d.label ? ` (${d.label})` : ''}` : 'Leave'}</div>)}
+          {range.working_days === 0 && <div className="text-xs font-medium text-amber-800">No working days fall in this range.</div>}
+          {range.issues.map((i, n) => <div key={n} className="text-xs text-slate-700">• {i.message}</div>)}
+        </div>
+      )}
       <div className="grid gap-3 md:grid-cols-3">
         <Field label="Application name" htmlFor="e-an"><input id="e-an" className="input" value={f.application_name} onChange={s('application_name')} /></Field>
         <Field label="Version" htmlFor="e-av"><input id="e-av" className="input" value={f.application_version} onChange={s('application_version')} /></Field>
