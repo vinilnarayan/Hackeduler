@@ -119,7 +119,8 @@ def admin_calendar(start: date, end: date, activity_type_id: uuid.UUID | None = 
 def list_bookings(
     status: str | None = None, resource_id: uuid.UUID | None = None, activity_type_id: uuid.UUID | None = None,
     q: str | None = Query(None, max_length=100), start: date | None = None, end: date | None = None,
-    needs_review: bool | None = None, pci: bool | None = None, limit: int = Query(200, le=1000), offset: int = 0,
+    needs_review: bool | None = None, pci: bool | None = None, report_shared: bool | None = None,
+    report_type: str | None = Query(None, max_length=10), limit: int = Query(200, le=1000), offset: int = 0,
     product_id: uuid.UUID | None = None, implementation_id: uuid.UUID | None = None, requires_resource: bool | None = None,
     db: Session = Depends(get_db),
 ):
@@ -146,6 +147,12 @@ def list_bookings(
         stmt = stmt.where(Booking.needs_review.is_(needs_review))
     if pci is not None:
         stmt = stmt.where(Booking.pci_dss_scope.is_(pci))
+    if report_shared is not None:
+        stmt = stmt.where(Booking.report_shared.is_(report_shared))
+    if report_type:
+        if report_type not in reports.REPORT_TYPES:
+            raise bad_request("Invalid report type filter.")
+        stmt = stmt.where(Booking.report_type == report_type)
     if q:
         like = f"%{q}%"
         conds = [Booking.application_name.ilike(like), Booking.application_version.ilike(like), Booking.poc_name.ilike(like), Booking.poc_email.ilike(like)]

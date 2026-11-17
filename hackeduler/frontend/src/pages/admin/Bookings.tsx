@@ -11,12 +11,15 @@ import { useAsync } from '../../lib/useAsync'
 
 export default function AdminBookings() {
   const [sp, setSp] = useSearchParams()
-  const f = { status: sp.get('status') ?? '', resource_id: sp.get('resource_id') ?? '', product_id: sp.get('product_id') ?? '', activity_type_id: sp.get('activity_type_id') ?? '', q: sp.get('q') ?? '', start: sp.get('start') ?? '', end: sp.get('end') ?? '', needs_review: sp.get('needs_review') ?? '', pci: sp.get('pci') ?? '' }
+  const f = { status: sp.get('status') ?? '', resource_id: sp.get('resource_id') ?? '', product_id: sp.get('product_id') ?? '', activity_type_id: sp.get('activity_type_id') ?? '', q: sp.get('q') ?? '', start: sp.get('start') ?? '', end: sp.get('end') ?? '', needs_review: sp.get('needs_review') ?? '', pci: sp.get('pci') ?? '', report: sp.get('report') ?? '' }
+  // 'report' filter -> API params: shared / not_shared / V1 / Met
+  const reportQs = f.report === 'shared' ? { report_shared: 'true' } : f.report === 'not_shared' ? { report_shared: 'false' } : f.report ? { report_shared: 'true', report_type: f.report } : {}
+  const { report: _r, ...fApi } = f
   const set = (k: keyof typeof f, v: string) => { const n = new URLSearchParams(sp); v ? n.set(k, v) : n.delete(k); setSp(n, { replace: true }) }
   const [page, setPage] = useState(0)
   const [sel, setSel] = useState<string | null>(null)
   const PAGE = 50
-  const { data, error, loading, reload } = useAsync<{ total: number; items: AdminBooking[] }>(() => get('/api/admin/bookings' + qs({ ...f, limit: PAGE, offset: page * PAGE })), [sp.toString(), page])
+  const { data, error, loading, reload } = useAsync<{ total: number; items: AdminBooking[] }>(() => get('/api/admin/bookings' + qs({ ...fApi, ...reportQs, limit: PAGE, offset: page * PAGE })), [sp.toString(), page])
   const resources = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))
   const acts = useAsync<ActivityType[]>(() => get('/api/admin/activity-types'))
   const products = useAsync<Product[]>(() => get('/api/admin/products'))
@@ -24,8 +27,8 @@ export default function AdminBookings() {
     <div>
       <PageHeader title="Bookings" subtitle="Review, approve, reject, modify and reassign bookings."
         actions={<>
-          <a className="btn-secondary" href={'/api/admin/reports/bookings.csv' + qs({ status: f.status, start: f.start, end: f.end, resource_id: f.resource_id, product_id: f.product_id })}><Download className="h-4 w-4" />CSV</a>
-          <a className="btn-secondary" href={'/api/admin/reports/bookings.xlsx' + qs({ status: f.status, start: f.start, end: f.end, resource_id: f.resource_id, product_id: f.product_id })}><Download className="h-4 w-4" />Excel</a>
+          <a className="btn-secondary" href={'/api/admin/reports/bookings.csv' + qs({ status: f.status, start: f.start, end: f.end, resource_id: f.resource_id, product_id: f.product_id, pci: f.pci, ...reportQs })}><Download className="h-4 w-4" />CSV</a>
+          <a className="btn-secondary" href={'/api/admin/reports/bookings.xlsx' + qs({ status: f.status, start: f.start, end: f.end, resource_id: f.resource_id, product_id: f.product_id, pci: f.pci, ...reportQs })}><Download className="h-4 w-4" />Excel</a>
           <Link className="btn-primary" to="/admin/bookings/new"><CalendarPlus className="h-4 w-4" />Manual allocation</Link>
         </>} />
       <div className="card mb-3 grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -37,6 +40,8 @@ export default function AdminBookings() {
         <input type="date" className="input" aria-label="From" value={f.start} onChange={(e) => set('start', e.target.value)} />
         <input type="date" className="input" aria-label="To" value={f.end} onChange={(e) => set('end', e.target.value)} />
         <select className="input" aria-label="Review flag" value={f.needs_review} onChange={(e) => set('needs_review', e.target.value)}><option value="">Any review state</option><option value="true">Needs review</option><option value="false">No review flag</option></select>
+        <select className="input" aria-label="PCI DSS scope" value={f.pci} onChange={(e) => set('pci', e.target.value)}><option value="">Any PCI scope</option><option value="true">PCI in scope</option><option value="false">Not PCI</option></select>
+        <select className="input" aria-label="Report" value={f.report} onChange={(e) => set('report', e.target.value)}><option value="">Any report state</option><option value="shared">Report shared</option><option value="not_shared">Report not shared</option><option value="V1">Shared – V1</option><option value="Met">Shared – Met</option></select>
       </div>
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : !data?.items.length ? <Empty title="No bookings match the filters" /> : (

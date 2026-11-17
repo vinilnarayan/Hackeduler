@@ -222,6 +222,7 @@ def _safe_cell(v):
 @router.get("/reports/bookings.{fmt}")
 def export_bookings(fmt: str, status: str | None = None, start: date | None = None, end: date | None = None,
                     resource_id: str | None = None, product_id: uuid.UUID | None = None,
+                    pci: bool | None = None, report_shared: bool | None = None, report_type: str | None = Query(None, max_length=10),
                     limit: int = Query(10000, le=50000), db: Session = Depends(get_db),
                     admin: User = Depends(require_admin)):
     if fmt not in ("csv", "xlsx"):
@@ -229,6 +230,12 @@ def export_bookings(fmt: str, status: str | None = None, start: date | None = No
     q = select(Booking)
     if status:
         q = q.where(Booking.status == status)
+    if pci is not None:
+        q = q.where(Booking.pci_dss_scope.is_(pci))
+    if report_shared is not None:
+        q = q.where(Booking.report_shared.is_(report_shared))
+    if report_type:
+        q = q.where(Booking.report_type == report_type)
     if start:
         q = q.where(or_(Booking.end_date >= start, and_(Booking.start_date.is_(None), func.date(Booking.submitted_at) >= start)))
     if end:
