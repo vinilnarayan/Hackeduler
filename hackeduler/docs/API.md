@@ -51,7 +51,7 @@ schema is at `/api/openapi.json`.
 | GET | `/api/activity-types` | Active activity types that are visible to requesters (types marked admin-only are never listed and cannot be booked or previewed by requesters) |
 | GET | `/api/holidays?start&end` | Holidays |
 | GET | `/api/settings/public` | Timezone, today, working weekdays, expiry and cancellation policy |
-| GET | `/api/calendar?start&end[&activity_type_id]` | Anonymous availability grid (≤ ~6 months) |
+| GET | `/api/calendar?start&end[&activity_type_id]` | Anonymous availability grid (≤ ~6 months). With `activity_type_id`, free days from which the activity would not fit are `limited`. Days before today carry `past: true` and are never fit-checked (they cannot start a booking) |
 | POST | `/api/availability/auto` | `{activity_type_id, start_date?, additional_days?}` → the resource that would be assigned, end date, or `suggested_start_date` |
 | POST | `/api/availability/check` | Slot calculation for a specific resource |
 | POST | `/api/bookings` | Submit booking. `resource_id` optional (omit = auto-assign); `start_date` optional for activities without a resource; `implementation_id` optional (must belong to the product); `product_id` optional - one of the requester's products, default their primary one (403 otherwise). 409 `no_resource_available` includes `suggested_start_date` |
@@ -123,7 +123,7 @@ and `report_shared_at`, so the report state is visible to all roles; requesters 
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/admin/calendar?start&end[&activity_type_id]` | Grid with engineer names, booking details, overlap flags, leave and booking list |
+| GET | `/api/admin/calendar?start&end[&activity_type_id]` | Grid with engineer names, booking details, overlap flags, leave and booking list; same `limited` fit check and `past: true` flag as the requester grid |
 | GET | `/api/admin/bookings?status&resource_id&activity_type_id&q&start&end&needs_review&pci&limit&offset` | Search / filter |
 | GET | `/api/admin/bookings/{id}` | Booking, status history, locks, audit, conflicts, change requests, emails |
 | POST | `/api/admin/availability/check` | Like the requester check plus `exclude_booking_id`, booking ids and inactive resources |

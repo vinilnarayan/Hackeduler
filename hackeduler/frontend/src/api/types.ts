@@ -191,6 +191,7 @@ export interface CalendarCell {
   mine?: boolean
   team?: boolean
   conflict?: boolean
+  past?: boolean            // before today: can never start a booking, not part of the fit check
   bookings?: { id: string; status: BookingStatus; application_name: string; activity?: string; forced?: boolean }[]
 }
 
