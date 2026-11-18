@@ -233,12 +233,18 @@ def _get_template(db: Session, key: str) -> tuple[str, str] | None:
     return d["subject"], d["body"]
 
 
+def _bodies(template: str, ctx: dict[str, Any]) -> tuple[str, str]:
+    """(plain text, HTML fragment) of a template body. See services/email_html.py for the formatting syntax."""
+    from . import email_html
+    return email_html.render_plain(template, ctx), email_html.render_body_html(template, ctx)
+
+
 def enqueue(db: Session, key: str, recipients: list[str], ctx: dict[str, Any], booking_id: uuid.UUID | None = None) -> list[EmailNotificationLog]:
     tpl = _get_template(db, key)
     if tpl is None:
         return []
     subject = render(tpl[0], ctx).replace("\r", " ").replace("\n", " ")[:300]
-    body = render(tpl[1], ctx)
+    body, body_html = _bodies(tpl[1], ctx)
     rows = []
     seen = set()
     for r in recipients:
@@ -246,7 +252,7 @@ def enqueue(db: Session, key: str, recipients: list[str], ctx: dict[str, Any], b
         if not r or r.lower() in seen:
             continue
         seen.add(r.lower())
-        row = EmailNotificationLog(id=uuid.uuid4(), template_key=key, booking_id=booking_id, recipient=r, subject=subject, body=body)
+        row = EmailNotificationLog(id=uuid.uuid4(), template_key=key, booking_id=booking_id, recipient=r, subject=subject, body=body, body_html=body_html)
         db.add(row)
         rows.append(row)
     return rows
@@ -271,7 +277,7 @@ def enqueue_combined(db: Session, key: str, to: list[str], cc: list[str], ctx: d
         return None
     subject = render(tpl[0], ctx).replace("\r", " ").replace("\n", " ")[:300]
     row = EmailNotificationLog(id=uuid.uuid4(), template_key=key, booking_id=booking_id, recipient=", ".join(to_l),
-                               cc=", ".join(cc_l) or None, subject=subject, body=render(tpl[1], ctx))
+                               cc=", ".join(cc_l) or None, subject=subject, **dict(zip(("body", "body_html"), _bodies(tpl[1], ctx))))
     db.add(row)
     return row
 

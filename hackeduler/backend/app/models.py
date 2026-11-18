@@ -442,7 +442,8 @@ class EmailNotificationLog(Base):
     recipient: Mapped[str] = mapped_column(Text)  # the To address(es); several are comma-separated
     cc: Mapped[str | None] = mapped_column(Text)  # extra Cc address(es) for this email (comma-separated)
     subject: Mapped[str] = mapped_column(Text)
-    body: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)  # plain-text version
+    body_html: Mapped[str | None] = mapped_column(Text)  # formatted HTML body (without the logo/footer layout); None = plain only
     status: Mapped[str] = mapped_column(Text, default="queued")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, default=5)

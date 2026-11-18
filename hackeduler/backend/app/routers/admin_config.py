@@ -895,7 +895,14 @@ def preview_template(key: str, body: TemplateUpdate, db: Session = Depends(get_d
     sample = {v: f"<{v}>" for v in notifications.ALLOWED_VARIABLES}
     sample.update({"Booking ID": "550e8400-e29b-41d4-a716-446655440000", "Yes/No": "Yes", "PCI DSS Scope": "Yes"})
     db.rollback()
-    return {"subject": notifications.render(subject, sample), "body": notifications.render(bodytxt, sample)}
+    import base64
+
+    from ..services import email_html
+    rendered_subject = notifications.render(subject, sample)
+    logo = email_html.logo_bytes()
+    logo_src = "data:image/png;base64," + base64.b64encode(logo).decode() if logo else ""
+    return {"subject": rendered_subject, "body": email_html.render_plain(bodytxt, sample),
+            "html": email_html.render_html(bodytxt, sample, rendered_subject, logo_src=logo_src)}
 
 
 @router.get("/email-logs", response_model=list[EmailLogOut])
