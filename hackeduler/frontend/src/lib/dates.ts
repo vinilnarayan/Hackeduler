@@ -25,3 +25,9 @@ export function rangeTitle(anchor: Date, view: View): string {
   if (view === 'week') return `${format(s, 'dd MMM')} – ${format(e, 'dd MMM yyyy')}`
   return format(anchor, 'EEEE, dd MMMM yyyy')
 }
+
+/** First letters of each word of a person's name, upper-case: "Vinil P Prabhakaran" -> "VPP", "Sagar Raja" -> "SR". */
+export function initials(name: string | null | undefined, fallback = ''): string {
+  const out = (name ?? '').split(/[\s.\-_,]+/).map((w) => Array.from(w)[0] ?? '').join('').toUpperCase()
+  return out || fallback
+}

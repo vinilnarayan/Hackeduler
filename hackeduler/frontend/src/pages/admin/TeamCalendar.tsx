@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { get } from '../../api/client'
 import { shiftMonth } from '../../components/MyMonthCalendar'
 import { ErrorState, Modal, PageHeader, Pill, Spinner } from '../../components/ui'
-import { fmt } from '../../lib/dates'
+import { fmt, initials } from '../../lib/dates'
 import { useAsync } from '../../lib/useAsync'
 
 interface Entry { booking_id: string; resource_id: string; resource_name: string; engineer_name: string; application_name: string; application_version: string; activity_name: string; status: string; tentative: boolean; start_date: string | null; end_date: string | null }
@@ -68,13 +68,13 @@ export default function TeamCalendar() {
                     <div className={`text-xs font-semibold ${isToday ? 'text-blue-700' : ''}`}>{Number(d.date.slice(8))}</div>
                     {d.holiday && <span className="truncate font-medium text-amber-800" title={d.holiday}>{d.holiday}</span>}
                     {shown.map((e) => (
-                      <span key={e.booking_id + e.resource_id} title={`${e.resource_name} (${e.engineer_name}) - ${e.application_name} - ${e.activity_name} [${statusLabel(e.status)}]`}
+                      <span key={e.booking_id + e.resource_id} title={`${e.engineer_name} (${e.resource_name}) - ${e.application_name} v${e.application_version} - ${e.activity_name} [${statusLabel(e.status)}]`}
                         className={`truncate rounded px-1 py-0.5 ring-1 ${colour(e.resource_id)}${e.tentative ? ' border border-dashed border-slate-500' : ''}`}>
-                        <b>{e.resource_name.replace(/^Resource /, 'R')}</b> {e.activity_name}
+                        <b>{initials(e.engineer_name, e.resource_name.replace(/^Resource /, 'R'))}</b> {e.application_name}{e.application_version ? ` v${e.application_version}` : ''}
                       </span>
                     ))}
                     {more > 0 && <span className="font-medium text-slate-600">+{more} more</span>}
-                    {d.leaves.map((l) => <span key={l.leave_id + d.date} className="truncate rounded bg-sky-200 px-1 py-0.5 font-medium text-sky-900" title={`${l.resource_name} (${l.engineer_name}) on leave`}><b>{l.resource_name.replace(/^Resource /, 'R')}</b> leave</span>)}
+                    {d.leaves.map((l) => <span key={l.leave_id + d.date} className="truncate rounded bg-sky-200 px-1 py-0.5 font-medium text-sky-900" title={`${l.resource_name} (${l.engineer_name}) on leave`}><b>{initials(l.engineer_name, l.resource_name.replace(/^Resource /, 'R'))}</b> leave</span>)}
                   </div>
                 )
               })}
