@@ -63,15 +63,20 @@ email off, and edit the checklist of details it asks for. The wording is the edi
 (sent only for SSO-only accounts, with the sign-in URL from `public_base_url`) and `booking_confirmed_engineer`
 (sent to each assigned engineer's email when a booking becomes approved).
 
-### Email formatting, logo and footer
+### Email design: visual editor, logo and footer
 
-Every notification is sent as `text/plain` + `text/html`. Templates stay plain text with a small syntax:
-`**bold**`, `[text](https://link)` (http/https only), `- item` bullets, `# Heading`, blank line = new paragraph.
-The HTML version has a navy header with the Hackeduler logo (embedded in the message, so it shows even when the client
-blocks remote images) and a footer (automated-message notice, "Designed and developed by OffSec Team, InfoSec, IBS Group").
-Placeholder values are HTML-escaped and cannot add markup or formatting. **Admin → Email & Templates → Preview** shows the
-rendered HTML and the plain-text version. Existing saved templates keep working unchanged. Migration `0017` (adds
-`email_notification_logs.body_html`) runs automatically on `./deploy.sh`.
+**Admin → Email & Templates → Edit** opens a visual editor: format with buttons (bold, italic, heading, bullet list, link,
+details table, button), click a variable chip to insert `{{Name}}` at the cursor, and see the real email in a live preview
+that can be switched between **Desktop** and **Phone**. Pick one of three designs (Classic, Minimal, Banner) and a colour
+(14 presets or any custom colour) per template.
+
+Every notification is sent as `text/plain` + `text/html` with the Hackeduler logo header (embedded in the message, so it shows
+even when the client blocks remote images) and the footer ("Designed and developed by OffSec Team, InfoSec, IBS Group").
+The HTML is responsive: on a phone the details table stacks and buttons go full width. Body HTML is cleaned on the server
+(no scripts, images, event handlers or non-http(s) links) and placeholder values are escaped, so a name or comment can never
+inject markup. Templates written in the older text style (`**bold**`, `- ` bullets) keep sending unchanged until they are opened
+and saved in the visual editor, which converts them. Migrations `0017` and `0018` (new nullable/defaulted columns only) run
+automatically on `./deploy.sh`.
 
 
 `python -m app.worker` loops every `HACKEDULER_WORKER_INTERVAL_SECONDS` (default 30 s):

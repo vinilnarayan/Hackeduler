@@ -200,8 +200,8 @@ completes an approved booking that has no resource. The dashboard accepts `produ
 | GET | `/api/admin/team-calendar?month=YYYY-MM&resource_id=` | Admin Team Calendar: month grid (Monday-first weeks) with, per day, every resource's activity (`entries`: resource, engineer, application, activity, status, tentative flag, dates), `leaves` (resource, leave type), holiday and weekend flags, and `free` (resources that are active, not booked/on hold and not on leave that working day; empty on weekends and holidays); plus a summary and the resource list. `resource_id` limits it to one resource |
 | POST | `/api/admin/settings/test-email` | `{to, provider?: smtp\|ses}` - sends a test message immediately through one service (or the configured chain) and returns `{ok, provider, error}`. Audited (`email.test_sent`) |
 | GET | `/api/admin/email-templates`, `/api/admin/email-templates/variables` | Templates and allowed variables |
-| PUT | `/api/admin/email-templates/{key}` | Edit (unknown variables are rejected) |
-| POST | `/api/admin/email-templates/{key}/preview` | Render with sample data; returns `subject`, `body` (plain) and `html` (full layout, logo inlined) |
+| PUT | `/api/admin/email-templates/{key}` | Edit: `subject_template`, `body_template`, `body_format` (`text`/`html`), `layout` (`classic`/`minimal`/`banner`), `accent` (`#rrggbb`), `is_active` (unknown variables are rejected) |
+| POST | `/api/admin/email-templates/{key}/preview` | Render with sample data (accepts unsaved `body_template`/`layout`/`accent`); returns `subject`, `body` (plain) and `html` (full layout, logo inlined) |
 | GET | `/api/admin/email-logs?status&booking_id&recipient` | Delivery log |
 | POST | `/api/admin/email-logs/{id}/retry` | Requeue |
 

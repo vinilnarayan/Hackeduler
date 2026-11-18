@@ -101,3 +101,83 @@ def test_preview_returns_html_with_logo(admin):
 
 def test_preview_requires_admin(req1):
     assert req1.post("/api/admin/email-templates/x/preview", json={}).status_code == 403
+
+
+# ----------------------------------------------------------------------------- visual editor (HTML templates)
+RICH = ('<h2>Approved</h2><p>Hi <b>{{Name}}</b>,</p><ul><li>one</li><li>two</li></ul>'
+        '<table class="kv"><tr><td>Dates</td><td>{{Start}} to {{End}}</td></tr></table>'
+        '<p><a class="btn" href="https://app.example/b/1">View booking</a></p>')
+
+
+def test_rich_template_is_rewritten_with_inline_styles():
+    plain, inner = eh.render_rich(RICH, {"Name": "Jane", "Start": "1 Dec", "End": "5 Dec"}, "#0f766e")
+    assert "<strong" in inner and "Jane" in inner and inner.count("<li") == 2
+    assert "background:#0f766e" in inner and 'href="https://app.example/b/1"' in inner     # accent drives the button
+    assert 'class="k"' in inner                                                          # label cell (for the phone layout)
+    assert plain.startswith("Approved") and "- one" in plain and "Dates: 1 Dec to 5 Dec" in plain
+    assert "View booking (https://app.example/b/1)" in plain and "<" not in plain
+
+
+def test_rich_template_drops_scripts_handlers_images_and_unsafe_links():
+    evil = ('<p onclick="x()" style="position:fixed">hi</p><script>alert(1)</script><style>p{}</style>'
+            '<img src=x onerror=alert(1)><iframe src="https://e.example"></iframe>'
+            '<a href="javascript:alert(1)">bad</a> <a href="https://ok.example" onmouseover="y()">ok</a>')
+    _, inner = eh.render_rich(evil, {})
+    low = inner.lower()
+    for bad in ("<script", "alert(1)", "onclick", "onerror", "onmouseover", "<img", "<iframe", "javascript:", "position:fixed", "<style"):
+        assert bad not in low
+    assert 'href="https://ok.example"' in inner and "bad" in inner and "hi" in inner
+
+
+def test_rich_values_are_escaped():
+    _, inner = eh.render_rich("<p>{{Comment}}</p>", {"Comment": '<img src=x onerror=1> <b>x</b>'})
+    assert "<img" not in inner and "&lt;img" in inner and "<b>" not in inner
+
+
+def test_rich_handles_browser_markup():
+    _, inner = eh.render_rich("<div>one<br>two</div><div><b>bold <i>both</i></b></div><p>unclosed", {})
+    assert inner.count("<p") == 3 and "<br>" in inner and inner.count("<p") == inner.count("</p>")
+
+
+def test_layouts_and_accent():
+    for layout in eh.LAYOUTS:
+        full = eh.wrap_layout("<p>x</p>", "Subj", "cid:l", layout, "#9a3412")
+        assert "#9a3412" in full and "@media" in full and "Designed and developed by OffSec Team" in full
+    assert "Subj</div>" in eh.wrap_layout("x", "Subj", "cid:l", "banner")                    # banner shows the subject
+    assert "#0f2744" in eh.wrap_layout("x", "S", "", "nonsense", "red")                     # bad input falls back
+
+
+def test_template_design_saved_previewed_and_sent(req1, admin, data):
+    key = "booking_approved_poc"
+    design = {"body_template": "<p>Hello <b>{{Application Name}}</b></p><p><a class=\"btn\" href=\"https://app.example/x\">Open</a></p>",
+              "body_format": "html", "layout": "banner", "accent": "#1f5fd1"}
+    r = admin.put(f"/api/admin/email-templates/{key}", json=design)
+    assert r.status_code == 200, r.text
+    assert (r.json()["body_format"], r.json()["layout"], r.json()["accent"]) == ("html", "banner", "#1f5fd1")
+
+    pv = admin.post(f"/api/admin/email-templates/{key}/preview", json={"layout": "minimal", "accent": "#9a3412"}).json()   # unsaved change
+    assert "border-bottom:3px solid #9a3412" in pv["html"] and "Open (https://app.example/x)" in pv["body"]
+
+    b = req1.post("/api/bookings", json=booking_payload(data)).json()
+    admin.post(f"/api/admin/bookings/{b['id']}/approve")
+    db = SessionLocal()
+    try:
+        row = db.scalars(select(EmailNotificationLog).where(EmailNotificationLog.template_key == key)).first()
+        assert row.body_html.startswith("<!doctype") and "background:#1f5fd1" in row.body_html and "<b>" not in row.body_html
+        assert "Hello " in row.body and "<" not in row.body
+        msg = email_sender.build_message(db, row)
+        assert "background:#1f5fd1" in msg.get_body(("html",)).get_content()
+    finally:
+        db.close()
+
+
+def test_template_design_is_validated(admin):
+    key = "booking_approved_poc"
+    for bad in ({"accent": "red"}, {"accent": "#12345"}, {"accent": "#1f5fd1;background:url(x)"}, {"layout": "weird"}, {"body_format": "markdown"}):
+        assert admin.put(f"/api/admin/email-templates/{key}", json=bad).status_code == 422
+    assert admin.put(f"/api/admin/email-templates/{key}", json={"body_template": "<p>{{Not A Variable}}</p>", "body_format": "html"}).status_code == 422
+
+
+def test_existing_text_templates_still_render_unchanged(admin):
+    t = next(x for x in admin.get("/api/admin/email-templates").json() if x["key"] == "booking_approved_poc")
+    assert (t["body_format"], t["layout"], t["accent"]) == ("text", "classic", "#0f2744")
