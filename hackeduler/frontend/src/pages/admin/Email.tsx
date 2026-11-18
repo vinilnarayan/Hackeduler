@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { get, post, put, qs, validationMessage } from '../../api/client'
 import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner } from '../../components/ui'
@@ -6,6 +6,8 @@ import { fmtDateTime } from '../../lib/dates'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
 import { SortTh, useSort } from '../../components/SortTh'
+import RichEmailEditor from '../../components/RichEmailEditor'
+import { COLOURS, LAYOUTS, isHex, textToHtml } from '../../lib/emailDesign'
 
 export default function EmailPage() {
   const [tab, setTab] = useState<'templates' | 'logs'>('templates')
@@ -24,6 +26,33 @@ function Templates() {
   const vars = useAsync<string[]>(() => get('/api/admin/email-templates/variables'))
   const [edit, setEdit] = useState<any>(null)
   const [preview, setPreview] = useState<any>(null)
+  const [device, setDevice] = useState<'desktop' | 'phone'>('desktop')
+  const [converted, setConverted] = useState(false)
+
+  // Live preview: re-render (on the server, so it is exactly what is sent) shortly after each change.
+  useEffect(() => {
+    if (!edit) { setPreview(null); return }
+    let live = true
+    const t = setTimeout(async () => {
+      try { const r = await post(`/api/admin/email-templates/${edit.key}/preview`, { subject_template: edit.subject_template, body_template: edit.body_template, body_format: 'html', layout: edit.layout, accent: edit.accent }); if (live) setPreview(r) }
+      catch (e) { if (live) setPreview({ error: validationMessage(e) }) }
+    }, 400)
+    return () => { live = false; clearTimeout(t) }
+  }, [edit?.key, edit?.subject_template, edit?.body_template, edit?.layout, edit?.accent]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const open = (t: any) => {
+    const wasText = t.body_format !== 'html'
+    setConverted(wasText)
+    setDevice('desktop')
+    setEdit({ ...t, body_format: 'html', body_template: wasText ? textToHtml(t.body_template) : t.body_template })
+  }
+  const save = async () => {
+    try {
+      await put(`/api/admin/email-templates/${edit.key}`, { subject_template: edit.subject_template, body_template: edit.body_template, body_format: 'html', layout: edit.layout, accent: edit.accent, is_active: edit.is_active })
+      toast('success', 'Template saved'); setEdit(null); reload()
+    } catch (e) { toast('error', validationMessage(e)) }
+  }
+
   if (error) return <ErrorState message={error} onRetry={reload} />
   if (loading) return <Spinner />
   return (
@@ -31,26 +60,55 @@ function Templates() {
       <div className="card divide-y divide-slate-100">{data!.map((t) => (
         <div key={t.key} className="flex flex-wrap items-center gap-3 px-4 py-3">
           <div className="min-w-0 flex-1"><div className="font-medium">{t.name} {!t.is_active && <Pill>Disabled</Pill>}</div><div className="truncate font-mono text-xs text-slate-500">{t.subject_template}</div></div>
-          <button className="btn-secondary" onClick={() => { setEdit({ ...t }); setPreview(null) }}>Edit</button>
+          <button className="btn-secondary" onClick={() => open(t)}>Edit</button>
         </div>
       ))}</div>
-      <Modal open={!!edit} onClose={() => setEdit(null)} size="lg" title={`Template: ${edit?.name}`}
-        footer={<>
-          <button className="btn-secondary" onClick={async () => { try { setPreview(await post(`/api/admin/email-templates/${edit.key}/preview`, { subject_template: edit.subject_template, body_template: edit.body_template })) } catch (e) { toast('error', validationMessage(e)) } }}>Preview</button>
-          <button className="btn-primary" onClick={async () => { try { await put(`/api/admin/email-templates/${edit.key}`, { subject_template: edit.subject_template, body_template: edit.body_template, is_active: edit.is_active }); toast('success', 'Template saved'); setEdit(null); reload() } catch (e) { toast('error', validationMessage(e)) } }}>Save</button>
-        </>}>
-        {edit && <div className="space-y-3">
-          <Field label="Subject" htmlFor="t-s"><input id="t-s" className="input font-mono text-xs" value={edit.subject_template} onChange={(e) => setEdit({ ...edit, subject_template: e.target.value })} /></Field>
-          <Field label="Body" htmlFor="t-b" hint="Formatting: **bold**, [link text](https://…), lines starting with - for bullets, # for a heading, a blank line for a new paragraph. Emails are sent with a Hackeduler header (logo) and footer."><textarea id="t-b" className="input min-h-72 font-mono text-xs" value={edit.body_template} onChange={(e) => setEdit({ ...edit, body_template: e.target.value })} /></Field>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />Template enabled</label>
-          <div className="text-xs text-slate-600">Allowed variables (safe substitution, no code evaluation): {vars.data?.map((v) => <code key={v} className="mr-1 rounded bg-slate-100 px-1">{`{{${v}}}`}</code>)}</div>
-          {preview && (
-            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs" data-testid="email-preview">
-              <div className="mb-2 font-semibold">Subject: {preview.subject}</div>
-              <iframe title="Email preview" sandbox="" srcDoc={preview.html} className="h-96 w-full rounded border border-slate-200 bg-white" />
-              <details className="mt-2"><summary className="cursor-pointer text-slate-600">Plain-text version (for email clients that do not show HTML)</summary><pre className="mt-1 whitespace-pre-wrap font-sans">{preview.body}</pre></details>
+      <Modal open={!!edit} onClose={() => setEdit(null)} size="xl" title={`Template: ${edit?.name}`}
+        footer={<><button className="btn-secondary" onClick={() => setEdit(null)}>Cancel</button><button className="btn-primary" onClick={save}>Save</button></>}>
+        {edit && <div className="grid gap-4 lg:grid-cols-2">
+          <div className="min-w-0 space-y-3">
+            {converted && <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">This template was written in the older text style. It has been converted for the visual editor; nothing changes until you click Save.</div>}
+            <Field label="Subject" htmlFor="t-s"><input id="t-s" className="input font-mono text-xs" value={edit.subject_template} onChange={(e) => setEdit({ ...edit, subject_template: e.target.value })} /></Field>
+            <div><div className="label">Body</div>
+              <RichEmailEditor value={edit.body_template} resetKey={edit.key} variables={vars.data ?? []} onChange={(html) => setEdit((p: any) => ({ ...p, body_template: html }))} /></div>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />Template enabled</label>
+          </div>
+          <div className="min-w-0 space-y-3">
+            <div>
+              <div className="label">Design</div>
+              <div className="flex flex-wrap gap-1" role="group" aria-label="Design">{LAYOUTS.map((l) => (
+                <button key={l.id} type="button" title={l.hint} aria-pressed={edit.layout === l.id} className={edit.layout === l.id ? 'btn-primary' : 'btn-secondary'} onClick={() => setEdit({ ...edit, layout: l.id })}>{l.label}</button>
+              ))}</div>
             </div>
-          )}
+            <div>
+              <div className="label">Colour</div>
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Colour">
+                {COLOURS.map((c) => (
+                  <button key={c.hex} type="button" aria-label={c.name} aria-pressed={edit.accent.toLowerCase() === c.hex} title={c.name} onClick={() => setEdit({ ...edit, accent: c.hex })}
+                    className={`h-7 w-7 rounded-full border-2 border-white ring-1 ring-slate-300 ${edit.accent.toLowerCase() === c.hex ? 'ring-2 ring-slate-900' : ''}`} style={{ background: c.hex }} />
+                ))}
+                <label className="ml-1 flex items-center gap-1 text-xs text-slate-600">Custom
+                  <input type="color" aria-label="Custom colour" className="h-7 w-9 cursor-pointer rounded border border-slate-300 bg-white p-0.5" value={isHex(edit.accent) ? edit.accent : '#0f2744'} onChange={(e) => setEdit({ ...edit, accent: e.target.value })} />
+                </label>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="label mb-0">Preview as</span>
+              <div className="flex gap-1" role="group" aria-label="Device">{(['desktop', 'phone'] as const).map((d) => <button key={d} type="button" aria-pressed={device === d} className={device === d ? 'btn-primary' : 'btn-secondary'} onClick={() => setDevice(d)}>{d === 'desktop' ? 'Desktop' : 'Phone'}</button>)}</div>
+            </div>
+            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs" data-testid="email-preview">
+              {!preview ? <div className="text-slate-500">Preparing preview...</div> : preview.error ? <div className="text-red-700">{preview.error}</div> : (
+                <>
+                  <div className="mb-2 font-semibold">Subject: {preview.subject}</div>
+                  <div className="flex justify-center overflow-x-auto rounded bg-slate-200 p-2">
+                    <iframe title="Email preview" sandbox="" srcDoc={preview.html} style={{ width: device === 'phone' ? 360 : '100%', maxWidth: '100%' }} className="h-[32rem] rounded border border-slate-300 bg-white" />
+                  </div>
+                  <details className="mt-2"><summary className="cursor-pointer text-slate-600">Plain-text version (for email clients that do not show HTML)</summary><pre className="mt-1 whitespace-pre-wrap font-sans">{preview.body}</pre></details>
+                  <p className="mt-2 text-slate-500">Variables show as &lt;Name&gt; here and are replaced with real values when the email is sent.</p>
+                </>
+              )}
+            </div>
+          </div>
         </div>}
       </Modal>
     </>

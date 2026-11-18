@@ -513,13 +513,19 @@ class TemplateOut(ORM):
     name: str
     subject_template: str
     body_template: str
+    body_format: str
+    layout: str
+    accent: str
     is_active: bool
     updated_at: datetime
 
 
 class TemplateUpdate(Strict):
     subject_template: str | None = Field(default=None, min_length=1, max_length=300)
-    body_template: str | None = Field(default=None, min_length=1, max_length=20000)
+    body_template: str | None = Field(default=None, min_length=1, max_length=60000)
+    body_format: Literal["text", "html"] | None = None
+    layout: Literal["classic", "minimal", "banner"] | None = None
+    accent: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     is_active: bool | None = None
 
 

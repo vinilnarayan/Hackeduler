@@ -863,7 +863,8 @@ def update_template(key: str, body: TemplateUpdate, db: Session = Depends(get_db
     t = db.scalars(select(EmailTemplate).where(EmailTemplate.key == key)).first()
     if t is None:
         raise not_found("Template")
-    prev = {"subject_template": t.subject_template, "body_template": t.body_template, "is_active": t.is_active}
+    prev = {"subject_template": t.subject_template, "body_template": t.body_template, "body_format": t.body_format,
+            "layout": t.layout, "accent": t.accent, "is_active": t.is_active}
     data = body.model_dump(exclude_unset=True)
     subject = data.get("subject_template", t.subject_template)
     bodytxt = data.get("body_template", t.body_template)
@@ -875,7 +876,8 @@ def update_template(key: str, body: TemplateUpdate, db: Session = Depends(get_db
         setattr(t, k, v)
     t.updated_by = admin.id
     audit.record(db, "email_template.updated", admin, entity_type="email_template", entity_id=key, previous=prev,
-                 new={"subject_template": t.subject_template, "body_template": t.body_template, "is_active": t.is_active})
+                 new={"subject_template": t.subject_template, "body_template": t.body_template, "body_format": t.body_format,
+                      "layout": t.layout, "accent": t.accent, "is_active": t.is_active})
     commit(db)
     return t
 
@@ -888,6 +890,7 @@ def preview_template(key: str, body: TemplateUpdate, db: Session = Depends(get_d
         raise not_found("Template")
     subject = body.subject_template or t.subject_template
     bodytxt = body.body_template or t.body_template
+    fmt, layout, accent = body.body_format or t.body_format, body.layout or t.layout, body.accent or t.accent
     try:
         notifications.validate_template(subject, bodytxt)
     except ValueError as e:
@@ -901,8 +904,8 @@ def preview_template(key: str, body: TemplateUpdate, db: Session = Depends(get_d
     rendered_subject = notifications.render(subject, sample)
     logo = email_html.logo_bytes()
     logo_src = "data:image/png;base64," + base64.b64encode(logo).decode() if logo else ""
-    return {"subject": rendered_subject, "body": email_html.render_plain(bodytxt, sample),
-            "html": email_html.render_html(bodytxt, sample, rendered_subject, logo_src=logo_src)}
+    plain, full = email_html.build(bodytxt, fmt, sample, rendered_subject, layout=layout, accent=accent, logo_src=logo_src)
+    return {"subject": rendered_subject, "body": plain, "html": full}
 
 
 @router.get("/email-logs", response_model=list[EmailLogOut])

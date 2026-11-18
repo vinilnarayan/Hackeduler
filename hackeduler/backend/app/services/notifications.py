@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy.orm import Session
 
@@ -223,20 +223,28 @@ def booking_context(b: Booking, **extra: Any) -> dict[str, Any]:
     return ctx
 
 
-def _get_template(db: Session, key: str) -> tuple[str, str] | None:
+class Tpl(NamedTuple):
+    subject: str
+    body: str
+    fmt: str = "text"
+    layout: str = "classic"
+    accent: str = "#0f2744"
+
+
+def _get_template(db: Session, key: str) -> Tpl | None:
     t = db.query(EmailTemplate).filter_by(key=key).one_or_none()
     if t is not None:
         if not t.is_active:
             return None
-        return t.subject_template, t.body_template
+        return Tpl(t.subject_template, t.body_template, t.body_format or "text", t.layout or "classic", t.accent or "#0f2744")
     d = DEFAULT_TEMPLATES[key]
-    return d["subject"], d["body"]
+    return Tpl(d["subject"], d["body"])
 
 
-def _bodies(template: str, ctx: dict[str, Any]) -> tuple[str, str]:
-    """(plain text, HTML fragment) of a template body. See services/email_html.py for the formatting syntax."""
+def _bodies(tpl: Tpl, ctx: dict[str, Any], subject: str) -> tuple[str, str]:
+    """(plain text, complete HTML document with logo header and footer). See services/email_html.py."""
     from . import email_html
-    return email_html.render_plain(template, ctx), email_html.render_body_html(template, ctx)
+    return email_html.build(tpl.body, tpl.fmt, ctx, subject, layout=tpl.layout, accent=tpl.accent)
 
 
 def enqueue(db: Session, key: str, recipients: list[str], ctx: dict[str, Any], booking_id: uuid.UUID | None = None) -> list[EmailNotificationLog]:
@@ -244,7 +252,7 @@ def enqueue(db: Session, key: str, recipients: list[str], ctx: dict[str, Any], b
     if tpl is None:
         return []
     subject = render(tpl[0], ctx).replace("\r", " ").replace("\n", " ")[:300]
-    body, body_html = _bodies(tpl[1], ctx)
+    body, body_html = _bodies(tpl, ctx, subject)
     rows = []
     seen = set()
     for r in recipients:
@@ -277,7 +285,7 @@ def enqueue_combined(db: Session, key: str, to: list[str], cc: list[str], ctx: d
         return None
     subject = render(tpl[0], ctx).replace("\r", " ").replace("\n", " ")[:300]
     row = EmailNotificationLog(id=uuid.uuid4(), template_key=key, booking_id=booking_id, recipient=", ".join(to_l),
-                               cc=", ".join(cc_l) or None, subject=subject, **dict(zip(("body", "body_html"), _bodies(tpl[1], ctx))))
+                               cc=", ".join(cc_l) or None, subject=subject, **dict(zip(("body", "body_html"), _bodies(tpl, ctx, subject))))
     db.add(row)
     return row
 

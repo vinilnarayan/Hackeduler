@@ -20,3 +20,13 @@
 @utility card { @apply rounded-lg border border-slate-200 bg-white shadow-sm; }
 @utility th { @apply px-3 py-2 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase; }
 @utility td { @apply px-3 py-2 align-top text-sm; }
+
+/* Visual email editor: show headings, lists, details tables and buttons the way they will look in the email. */
+.email-editor h2 { font-size: 1.125rem; font-weight: 600; margin: 0 0 .5rem; color: #0f172a; }
+.email-editor p { margin: 0 0 .75rem; }
+.email-editor ul { margin: 0 0 .75rem; padding-left: 1.4rem; list-style: disc; }
+.email-editor a { color: #1d4ed8; text-decoration: underline; }
+.email-editor a.btn { display: inline-block; background: #1f5fd1; color: #fff; padding: .45rem .9rem; border-radius: .375rem; text-decoration: none; font-weight: 600; }
+.email-editor table.kv { width: 100%; border-collapse: collapse; margin: 0 0 .75rem; background: #f8fafc; }
+.email-editor table.kv td { border-bottom: 1px solid #e2e8f0; padding: .4rem .5rem; vertical-align: top; }
+.email-editor table.kv td:first-child { color: #64748b; width: 38%; }
