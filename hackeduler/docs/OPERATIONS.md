@@ -162,6 +162,16 @@ git pull            # or copy the new version's files over the old ones (keep .e
    run once each.
 6. Waits until the app is healthy, and shows the logs if it isn't.
 
+### Activity types: "Details to ask the POC for"
+
+On **Admin → Activity Types → Edit** (with the Activity initiation email on) this field is a visual editor with the same
+formatting as the template editor plus **tables** (choose rows and columns, add or remove rows and columns, header row on/off).
+The content replaces `{{Required Details}}` in the Activity initiation email as a formatted block; a preview below the editor
+shows it on Desktop and Phone, and the plain-text copy of the email shows tables as `Role | Accounts` lines. Leave the field empty
+to use the built-in checklist. Values saved earlier in the old text style (`- ` bullets) keep working and are converted when
+opened. No database change: the field already holds free text, and rich content is detected by its tags. The HTML is cleaned when
+sent (no scripts, images, event handlers or non-http(s) links).
+
 ### Why data can't be lost
 
 - **The database is Amazon RDS, not a container.** `docker compose down`, rebuilds and new checkouts cannot touch

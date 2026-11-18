@@ -129,10 +129,21 @@ def default_details(activity_name: str) -> str:
     return "\n".join(lines)
 
 
-def required_details(b: Booking) -> str:
+def required_details_parts(b: Booking) -> tuple[str, str]:
+    """(plain text, safe HTML block or "") of what to ask the POC for: the activity type's own text (rich or plain)
+    or, when that is empty, the built-in checklist for this kind of activity."""
+    from . import email_html
     a: ActivityType | None = b.activity_type
     custom = (a.initiation_details or "").strip() if a else ""
-    return custom or default_details(b.activity_name_snapshot)
+    if custom:
+        plain, block = email_html.details_to_email(custom)
+        if plain:
+            return plain, block
+    return email_html.details_to_email(default_details(b.activity_name_snapshot))
+
+
+def required_details(b: Booking) -> str:
+    return required_details_parts(b)[0]
 
 
 # --------------------------------------------------------------------------------------
@@ -193,7 +204,8 @@ def send(db: Session, b: Booking, actor: User | None = None, *, manual: bool = F
     """Queue the email to the POC (and the requester per the existing copy setting) and record it on the booking."""
     if b.status != BookingStatus.APPROVED or not b.start_date:
         return False
-    ctx = notifications.booking_context(b, **{"Required Details": required_details(b), "Days Until Start": _days_text(db, b)})
+    plain, block = required_details_parts(b)
+    ctx = notifications.booking_context(b, **{"Required Details": plain, "Days Until Start": _days_text(db, b), "_html": {"Required Details": block}})
     # One email: To the POC(s) (and the requester per the copy setting), with the assigned engineer(s) in Cc.
     row = notifications.enqueue_combined(db, "activity_initiation_poc", notifications.poc_recipients(db, b),
                                          notifications.engineer_emails(b), ctx, b.id)
