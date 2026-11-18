@@ -25,15 +25,18 @@ describe('Team Calendar', () => {
   it('shows each resource\'s activity, leave and holidays on the day', async () => {
     render(<TeamCalendar />)
     expect(await screen.findByText('Spring Fest')).toBeInTheDocument()
-    expect(screen.getByText('Web PT 1')).toBeInTheDocument()
-    expect(screen.getByText('Web PT 2')).toBeInTheDocument()
+    // each cell: engineer initials + application name + version (not the resource number / activity type)
+    const cell = (app: string) => screen.getByText((_, el) => el?.tagName === 'SPAN' && el.className.includes('truncate') && (el.textContent ?? '').includes(app))
+    expect(cell('App1 v1').textContent).toBe('E1 App1 v1')
+    expect(cell('App2 v1').textContent).toBe('E2 App2 v1')
+    expect(screen.queryByText('R01')).toBeNull()
     expect(screen.getByText('Activity days 2')).toBeInTheDocument()
   })
 
   it('opens the day with application, status and leave details', async () => {
     render(<TeamCalendar />)
     fireEvent.click(await screen.findByLabelText(/2099-03-02: 2 activities/))
-    expect(await screen.findByText('App1 v1')).toBeInTheDocument()
+    expect(await screen.findByText('App1 v1', { selector: 'span.font-medium' })).toBeInTheDocument()
     expect(screen.getByText('pending approval')).toBeInTheDocument()
     expect(screen.getByText('Casual leave')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Free (1)' })).toBeInTheDocument()
