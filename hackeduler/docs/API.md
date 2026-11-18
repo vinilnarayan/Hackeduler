@@ -201,7 +201,7 @@ completes an approved booking that has no resource. The dashboard accepts `produ
 | POST | `/api/admin/settings/test-email` | `{to, provider?: smtp\|ses}` - sends a test message immediately through one service (or the configured chain) and returns `{ok, provider, error}`. Audited (`email.test_sent`) |
 | GET | `/api/admin/email-templates`, `/api/admin/email-templates/variables` | Templates and allowed variables |
 | PUT | `/api/admin/email-templates/{key}` | Edit (unknown variables are rejected) |
-| POST | `/api/admin/email-templates/{key}/preview` | Render with sample data |
+| POST | `/api/admin/email-templates/{key}/preview` | Render with sample data; returns `subject`, `body` (plain) and `html` (full layout, logo inlined) |
 | GET | `/api/admin/email-logs?status&booking_id&recipient` | Delivery log |
 | POST | `/api/admin/email-logs/{id}/retry` | Requeue |
 

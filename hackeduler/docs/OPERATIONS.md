@@ -63,6 +63,17 @@ email off, and edit the checklist of details it asks for. The wording is the edi
 (sent only for SSO-only accounts, with the sign-in URL from `public_base_url`) and `booking_confirmed_engineer`
 (sent to each assigned engineer's email when a booking becomes approved).
 
+### Email formatting, logo and footer
+
+Every notification is sent as `text/plain` + `text/html`. Templates stay plain text with a small syntax:
+`**bold**`, `[text](https://link)` (http/https only), `- item` bullets, `# Heading`, blank line = new paragraph.
+The HTML version has a navy header with the Hackeduler logo (embedded in the message, so it shows even when the client
+blocks remote images) and a footer (automated-message notice, "Designed and developed by OffSec Team, InfoSec, IBS Group").
+Placeholder values are HTML-escaped and cannot add markup or formatting. **Admin → Email & Templates → Preview** shows the
+rendered HTML and the plain-text version. Existing saved templates keep working unchanged. Migration `0017` (adds
+`email_notification_logs.body_html`) runs automatically on `./deploy.sh`.
+
+
 `python -m app.worker` loops every `HACKEDULER_WORKER_INTERVAL_SECONDS` (default 30 s):
 
 1. expires pending bookings past `expires_at` (releases locks, notifies the POC/requester, audits the change)

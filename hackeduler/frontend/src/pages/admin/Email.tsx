@@ -41,10 +41,16 @@ function Templates() {
         </>}>
         {edit && <div className="space-y-3">
           <Field label="Subject" htmlFor="t-s"><input id="t-s" className="input font-mono text-xs" value={edit.subject_template} onChange={(e) => setEdit({ ...edit, subject_template: e.target.value })} /></Field>
-          <Field label="Body (plain text)" htmlFor="t-b"><textarea id="t-b" className="input min-h-72 font-mono text-xs" value={edit.body_template} onChange={(e) => setEdit({ ...edit, body_template: e.target.value })} /></Field>
+          <Field label="Body" htmlFor="t-b" hint="Formatting: **bold**, [link text](https://…), lines starting with - for bullets, # for a heading, a blank line for a new paragraph. Emails are sent with a Hackeduler header (logo) and footer."><textarea id="t-b" className="input min-h-72 font-mono text-xs" value={edit.body_template} onChange={(e) => setEdit({ ...edit, body_template: e.target.value })} /></Field>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} />Template enabled</label>
           <div className="text-xs text-slate-600">Allowed variables (safe substitution, no code evaluation): {vars.data?.map((v) => <code key={v} className="mr-1 rounded bg-slate-100 px-1">{`{{${v}}}`}</code>)}</div>
-          {preview && <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs"><div className="font-semibold">{preview.subject}</div><pre className="mt-2 whitespace-pre-wrap font-sans">{preview.body}</pre></div>}
+          {preview && (
+            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs" data-testid="email-preview">
+              <div className="mb-2 font-semibold">Subject: {preview.subject}</div>
+              <iframe title="Email preview" sandbox="" srcDoc={preview.html} className="h-96 w-full rounded border border-slate-200 bg-white" />
+              <details className="mt-2"><summary className="cursor-pointer text-slate-600">Plain-text version (for email clients that do not show HTML)</summary><pre className="mt-1 whitespace-pre-wrap font-sans">{preview.body}</pre></details>
+            </div>
+          )}
         </div>}
       </Modal>
     </>

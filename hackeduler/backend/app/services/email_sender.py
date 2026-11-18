@@ -66,7 +66,13 @@ def build_message(db: Session, row: EmailNotificationLog) -> EmailMessage:
     if cc:
         msg["Cc"] = ", ".join(cc)
     msg["Message-ID"] = make_msgid(domain="hackeduler")
-    msg.set_content(row.body)  # text/plain only
+    msg.set_content(row.body)  # text/plain part (always present)
+    if row.body_html:  # + a formatted HTML part with the Hackeduler header (logo) and footer
+        from . import email_html
+        msg.add_alternative(email_html.wrap_layout(row.body_html, row.subject, f"cid:{email_html.LOGO_CID}"), subtype="html")
+        logo = email_html.logo_bytes()
+        if logo:  # embedded, so it shows even when the client blocks remote images
+            msg.get_payload()[1].add_related(logo, "image", "png", cid=f"<{email_html.LOGO_CID}>", filename="hackeduler.png", disposition="inline")
     return msg
 
 
