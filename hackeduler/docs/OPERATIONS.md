@@ -67,7 +67,7 @@ Environment (`HACKEDULER_*`): see `.env.example`. Runtime settings, editable und
 New settings (Admin → Settings → Activity initiation email): `initiation_email_enabled` (default on) and
 `initiation_email_days_before` (default 7). Per activity type, admins can override the number of days or switch the
 email off, and edit the checklist of details it asks for. The wording is the editable template
-`activity_initiation_poc` under Email & Templates. It is ONE email addressed To the POC(s) (plus the requester when the requester-copy setting applies), with the assigned engineer(s) in Cc (and the Settings Cc list after them). New-user and engineer emails use the templates `user_welcome`
+`activity_initiation_poc` under Email & Templates. All emails to the POCs (approved, rejected, modified, cancelled, impacted, expired, change request declined, initiation) are ONE email addressed To every POC (not one email per POC). The initiation email is ONE email addressed To the POC(s) (plus the requester when the requester-copy setting applies), with the assigned engineer(s) in Cc (and the Settings Cc list after them). New-user and engineer emails use the templates `user_welcome`
 (sent only for SSO-only accounts, with the sign-in URL from `public_base_url`) and `booking_confirmed_engineer`
 (sent to each assigned engineer's email when a booking becomes approved).
 

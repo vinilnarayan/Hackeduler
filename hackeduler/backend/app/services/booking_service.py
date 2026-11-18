@@ -1100,7 +1100,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                 lines.append(f"- {labels[k]}: {before.get(k)} -> {after.get(k)}")
         notifications.notify_modified(db, b, "\n".join(lines) or "Booking details updated.", reason)
         if "poc_email" in changed and before.get("poc_email"):
-            notifications.enqueue(db, "booking_modified_poc", split_emails(before["poc_email"]),
+            notifications.enqueue_poc(db, "booking_modified_poc", split_emails(before["poc_email"]),
                                   notifications.booking_context(b, **{"Change Summary": "\n".join(lines), "Reason": reason}), b.id)
     if b.status == BookingStatus.APPROVED:
         initiation.send_if_due(db, b)  # rescheduled (new start date) and already inside the window => send again now
@@ -1185,7 +1185,7 @@ def decide_change_request(db: Session, admin: User, cr_id: uuid.UUID, approve_it
     if not approve_it:
         b = db.get(Booking, cr.booking_id)
         kind = "cancellation" if cr.request_type == "cancel" else "reschedule"
-        notifications.enqueue(db, "change_request_declined", notifications.poc_recipients(db, b),
+        notifications.enqueue_poc(db, "change_request_declined", notifications.poc_recipients(db, b),
                               notifications.booking_context(b, **{"Change Summary": f"Your {kind} request was not approved. The booking remains unchanged.",
                                                                   "Reason": note}), b.id)
     return cr
