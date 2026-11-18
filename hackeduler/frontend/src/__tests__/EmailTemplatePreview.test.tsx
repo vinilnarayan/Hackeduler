@@ -70,6 +70,19 @@ describe('Email template visual editor', () => {
       expect.objectContaining({ body_template: '<p>Hello</p>', body_format: 'html', layout: 'banner', accent: '#0f2744' }))
   })
 
+  it('has table tools in the body editor, enabled only inside a table, and saves the table', async () => {
+    await openEditor()
+    expect(screen.getByLabelText('Rows')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Insert table' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '+ Column' })).toBeDisabled()
+    const ed = screen.getByTestId('rich-editor')
+    ed.innerHTML = '<table><thead><tr><th>Engineer</th><th>From</th></tr></thead><tbody><tr><td>{{Requester Name}}</td><td>{{Application Name}}</td></tr></tbody></table>'
+    fireEvent.input(ed)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Save' })) })
+    expect(api.put).toHaveBeenCalledWith('/api/admin/email-templates/booking_approved_poc',
+      expect.objectContaining({ body_format: 'html', body_template: expect.stringContaining('<th>Engineer</th>') }))
+  })
+
   it('rejects a link that is not http(s)', async () => {
     await openEditor()
     fireEvent.change(screen.getByLabelText('Link address'), { target: { value: 'javascript:alert(1)' } })

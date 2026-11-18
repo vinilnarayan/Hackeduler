@@ -80,7 +80,7 @@ export default function RichEmailEditor({ value, resetKey, onChange, variables =
         {!details && <button type="button" className={btn} aria-label="Button" onMouseDown={keepFocus}
           onClick={() => run(() => exec('insertHTML', '<a class="btn" href="https://">Button text</a>&nbsp;'))}>Button</button>}
       </div>
-      {details && <div className="space-y-1">
+      <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
           <label htmlFor={`${resetKey}-rows`}>Rows</label><input id={`${resetKey}-rows`} type="number" min={1} max={12} className="input w-16 py-1" value={rows} onChange={(e) => setRows(Number(e.target.value))} />
           <label htmlFor={`${resetKey}-cols`}>Columns</label><input id={`${resetKey}-cols`} type="number" min={1} max={5} className="input w-16 py-1" value={cols} onChange={(e) => setCols(Number(e.target.value))} />
@@ -91,7 +91,7 @@ export default function RichEmailEditor({ value, resetKey, onChange, variables =
           {([['addrow', '+ Row'], ['delrow', '− Row'], ['addcol', '+ Column'], ['delcol', '− Column'], ['head', 'Header row on/off'], ['deltable', 'Delete table']] as const).map(([a, t]) => (
             <button key={a} type="button" className={btn} disabled={!inCell} onMouseDown={keepFocus} onClick={() => tableAction(a)}>{t}</button>))}
         </div>
-      </div>}
+      </div>
       <div className="flex flex-wrap items-start gap-1">
         <div className="min-w-0 flex-1">
           <input className="input text-xs" aria-label="Link address" placeholder="Link address, e.g. https://hackeduler.example/bookings" value={url} onChange={(e) => setUrl(e.target.value)} />

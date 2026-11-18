@@ -77,6 +77,8 @@ email off, and edit the checklist of details it asks for. The wording is the edi
 details table, button), click a variable chip to insert `{{Name}}` at the cursor, and see the real email in a live preview
 that can be switched between **Desktop** and **Phone**. Pick one of three designs (Classic, Minimal, Banner) and a colour
 (14 presets or any custom colour) per template.
+The body editor also has **tables**: a label/value *Details table*, or a data table (choose rows and columns, add or remove rows and
+columns, header row on/off) with banded rows. Variables work inside any cell, and the plain-text copy shows rows as `a | b | c`.
 
 Every notification is sent as `text/plain` + `text/html` with the Hackeduler logo header (embedded in the message, so it shows
 even when the client blocks remote images) and the footer ("Designed and developed by OffSec Team, InfoSec, IBS Group").

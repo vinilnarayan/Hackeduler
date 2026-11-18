@@ -231,3 +231,23 @@ def test_activity_details_preview_and_initiation_email(admin, req1, data):
 
 def test_details_preview_requires_admin(req1):
     assert req1.post("/api/admin/activity-types/details-preview", json={"details": "x"}).status_code == 403
+
+
+def test_template_with_data_table_and_variables_in_cells(req1, admin, data):
+    key = "booking_approved_poc"
+    body = ('<p>Hi</p><table><thead><tr><th>Application</th><th>Dates</th></tr></thead>'
+            '<tbody><tr><td>{{Application Name}}</td><td>{{Start Date}} to {{End Date}}</td></tr></tbody></table><p>Thanks</p>')
+    assert admin.put(f"/api/admin/email-templates/{key}", json={"body_template": body, "body_format": "html", "accent": "#0f766e"}).status_code == 200
+    pv = admin.post(f"/api/admin/email-templates/{key}/preview", json={}).json()
+    assert "<th " in pv["html"] and 'class="grid"' in pv["html"] and "&lt;Application Name&gt;" in pv["html"]
+    assert "Application | Dates" in pv["body"]
+    b = req1.post("/api/bookings", json=booking_payload(data)).json()
+    admin.post(f"/api/admin/bookings/{b['id']}/approve")
+    db = SessionLocal()
+    try:
+        row = db.scalars(select(EmailNotificationLog).where(EmailNotificationLog.template_key == key)).first()
+        assert "<table" in row.body_html and "<script" not in row.body_html and "{{" not in row.body_html
+        assert "Application | Dates" in row.body and "{{" not in row.body
+        assert "@media" in email_sender.build_message(db, row).get_body(("html",)).get_content()   # phone styles ship in the email
+    finally:
+        db.close()
