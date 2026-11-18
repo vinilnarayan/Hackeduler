@@ -151,7 +151,9 @@ def test_approval_notifies_poc_and_confirms_locks(req1, admin, data):
     bk = db.get(Booking, uuid.UUID(b["id"]))
     assert st == {"confirmed"} and bk.approved_by is not None and bk.approved_at is not None
     db.close()
-    recips = {e.recipient for e in _emails("booking_approved_poc", b["id"])}
+    mails = _emails("booking_approved_poc", b["id"])
+    assert len(mails) == 1                                               # one email to all POCs
+    recips = {x.strip() for e in mails for x in e.recipient.split(",")}
     assert "jane.poc@example.com" in recips
     assert admin.post(f"/api/admin/bookings/{b['id']}/approve").status_code == 409  # already approved
 

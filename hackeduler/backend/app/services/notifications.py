@@ -276,6 +276,13 @@ def enqueue_combined(db: Session, key: str, to: list[str], cc: list[str], ctx: d
     return row
 
 
+def enqueue_poc(db: Session, key: str, recipients: list[str], ctx: dict[str, Any],
+                booking_id: uuid.UUID | None = None) -> list[EmailNotificationLog]:
+    """An email to the POCs: ONE message addressed To all of them (not one email per POC)."""
+    row = enqueue_combined(db, key, recipients, [], ctx, booking_id)
+    return [row] if row else []
+
+
 def engineer_emails(b: Booking) -> list[str]:
     """Email addresses of every assigned security engineer (primary first); engineers without an email are skipped."""
     return [r.engineer_email for r in engineer_resources(b) if r.engineer_email]
@@ -314,7 +321,7 @@ def notify_engineers(db: Session, b: Booking) -> None:
 
 
 def notify_approved(db: Session, b: Booking) -> None:
-    enqueue(db, "booking_approved_poc", poc_recipients(db, b), booking_context(b), b.id)
+    enqueue_poc(db, "booking_approved_poc", poc_recipients(db, b), booking_context(b), b.id)
     notify_engineers(db, b)
     from . import initiation
 
@@ -330,19 +337,19 @@ def notify_user_welcome(db: Session, user) -> None:
 
 
 def notify_rejected(db: Session, b: Booking) -> None:
-    enqueue(db, "booking_rejected_poc", poc_recipients(db, b), booking_context(b), b.id)
+    enqueue_poc(db, "booking_rejected_poc", poc_recipients(db, b), booking_context(b), b.id)
 
 
 def notify_modified(db: Session, b: Booking, summary: str, reason: str) -> None:
-    enqueue(db, "booking_modified_poc", poc_recipients(db, b), booking_context(b, **{"Change Summary": summary, "Reason": reason}), b.id)
+    enqueue_poc(db, "booking_modified_poc", poc_recipients(db, b), booking_context(b, **{"Change Summary": summary, "Reason": reason}), b.id)
 
 
 def notify_cancelled(db: Session, b: Booking, reason: str) -> None:
-    enqueue(db, "booking_cancelled_poc", poc_recipients(db, b), booking_context(b, Reason=reason), b.id)
+    enqueue_poc(db, "booking_cancelled_poc", poc_recipients(db, b), booking_context(b, Reason=reason), b.id)
 
 
 def notify_impacted(db: Session, b: Booking, summary: str) -> None:
-    enqueue(db, "booking_impacted_poc", poc_recipients(db, b), booking_context(b, **{"Change Summary": summary}), b.id)
+    enqueue_poc(db, "booking_impacted_poc", poc_recipients(db, b), booking_context(b, **{"Change Summary": summary}), b.id)
 
 
 def notify_change_request(db: Session, b: Booking, summary: str, reason: str) -> None:
@@ -350,4 +357,4 @@ def notify_change_request(db: Session, b: Booking, summary: str, reason: str) ->
 
 
 def notify_expired(db: Session, b: Booking) -> None:
-    enqueue(db, "booking_expired_requester", poc_recipients(db, b), booking_context(b), b.id)
+    enqueue_poc(db, "booking_expired_requester", poc_recipients(db, b), booking_context(b), b.id)
