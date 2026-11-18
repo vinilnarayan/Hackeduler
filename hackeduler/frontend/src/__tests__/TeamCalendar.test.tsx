@@ -30,6 +30,9 @@ describe('Team Calendar', () => {
     expect(cell('App1 v1').textContent).toBe('E1 App1 v1')
     expect(cell('App2 v1').textContent).toBe('E2 App2 v1')
     expect(screen.queryByText('R01')).toBeNull()
+    // each booking has its own colour
+    expect(cell('App1 v1').style.backgroundColor).not.toBe('')
+    expect(cell('App1 v1').style.backgroundColor).not.toBe(cell('App2 v1').style.backgroundColor)
     expect(screen.getByText('Activity days 2')).toBeInTheDocument()
   })
 

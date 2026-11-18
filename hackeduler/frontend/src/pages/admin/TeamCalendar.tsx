@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { get } from '../../api/client'
 import { shiftMonth } from '../../components/MyMonthCalendar'
 import { ErrorState, Modal, PageHeader, Pill, Spinner } from '../../components/ui'
+import { distinctColours } from '../../lib/colours'
 import { fmt, initials } from '../../lib/dates'
 import { useAsync } from '../../lib/useAsync'
 
@@ -13,9 +14,6 @@ interface Day { date: string; in_month: boolean; weekend: boolean; holiday: stri
 interface Res { id: string; display_name: string; engineer_name: string; is_active: boolean }
 interface Cal { month: string; today: string; days: Day[]; resources: Res[]; summary: { working_days: number; booked_days: number; leave_days: number; holidays: number } }
 
-const COLOURS = ['bg-blue-100 text-blue-900 ring-blue-300', 'bg-violet-100 text-violet-900 ring-violet-300', 'bg-teal-100 text-teal-900 ring-teal-300',
-  'bg-fuchsia-100 text-fuchsia-900 ring-fuchsia-300', 'bg-orange-100 text-orange-900 ring-orange-300', 'bg-cyan-100 text-cyan-900 ring-cyan-300',
-  'bg-lime-100 text-lime-900 ring-lime-300', 'bg-rose-100 text-rose-900 ring-rose-300']
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MAX_SHOWN = 4
 const monthLabel = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })
@@ -29,7 +27,12 @@ export default function TeamCalendar() {
     () => get('/api/admin/team-calendar' + (month || resource ? '?' + [month && `month=${month}`, resource && `resource_id=${resource}`].filter(Boolean).join('&') : '')), [month, resource])
   if (error) return <ErrorState message={error} onRetry={reload} />
   const cur = data?.month ?? month
-  const colour = (id: string) => COLOURS[Math.max(0, data?.resources.findIndex((r) => r.id === id) ?? 0) % COLOURS.length]
+  // Every booking in the month gets its own colour (never repeated within the month), in start-date order.
+  const bookingColours = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const d of data?.days ?? []) for (const e of d.entries) { const st = e.start_date ?? ''; if (!seen.has(e.booking_id) || st < seen.get(e.booking_id)!) seen.set(e.booking_id, st) }
+    return distinctColours([...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0])).map(([id]) => id))
+  }, [data])
   const day = data?.days.find((d) => d.date === picked) ?? null
   const s = data?.summary
   return (
@@ -69,7 +72,7 @@ export default function TeamCalendar() {
                     {d.holiday && <span className="truncate font-medium text-amber-800" title={d.holiday}>{d.holiday}</span>}
                     {shown.map((e) => (
                       <span key={e.booking_id + e.resource_id} title={`${e.engineer_name} (${e.resource_name}) - ${e.application_name} v${e.application_version} - ${e.activity_name} [${statusLabel(e.status)}]`}
-                        className={`truncate rounded px-1 py-0.5 ring-1 ${colour(e.resource_id)}${e.tentative ? ' border border-dashed border-slate-500' : ''}`}>
+                        style={bookingColours.get(e.booking_id)} className={`truncate rounded px-1 py-0.5${e.tentative ? ' border border-dashed border-slate-500' : ''}`}>
                         <b>{initials(e.engineer_name, e.resource_name.replace(/^Resource /, 'R'))}</b> {e.application_name}{e.application_version ? ` v${e.application_version}` : ''}
                       </span>
                     ))}
@@ -82,7 +85,7 @@ export default function TeamCalendar() {
           </div>
         )}
         <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
-          <span><span className="mr-1 inline-block h-3 w-3 rounded-sm bg-blue-100 ring-1 ring-blue-300" />Activity (colour = resource)</span>
+          <span><span className="mr-1 inline-block h-3 w-3 rounded-sm" style={{ background: 'linear-gradient(90deg,#cfe3ff,#ffd9c9,#d6f5d6)' }} />Activity (each booking has its own colour)</span>
           <span><span className="mr-1 inline-block h-3 w-3 rounded-sm border border-dashed border-slate-500 bg-white" />Dashed = pending approval</span>
           <span><span className="mr-1 inline-block h-3 w-3 rounded-sm bg-sky-200" />Leave</span>
           <span><span className="mr-1 inline-block h-3 w-3 rounded-sm bg-amber-50 ring-1 ring-amber-300" />Holiday</span>
@@ -99,7 +102,7 @@ export default function TeamCalendar() {
               <ul className="divide-y divide-slate-100 rounded border border-slate-200">
                 {day.entries.map((e) => (
                   <li key={e.booking_id + e.resource_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
-                    <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ring-1 ${colour(e.resource_id)}`}>{e.resource_name}</span>
+                    <span style={bookingColours.get(e.booking_id)} className="rounded px-1.5 py-0.5 text-xs font-semibold">{e.resource_name}</span>
                     <span className="text-xs text-slate-500">{e.engineer_name}</span>
                     <span className="font-medium">{e.application_name} v{e.application_version}</span>
                     <span>{e.activity_name}</span>
@@ -115,7 +118,7 @@ export default function TeamCalendar() {
             {day.weekend || day.holiday ? <p className="text-slate-500">Non-working day – nobody is scheduled.</p>
               : day.free.length === 0 ? <p className="text-slate-500">Nobody is free on this day.</p> : (
                 <ul className="divide-y divide-slate-100 rounded border border-slate-200">
-                  {day.free.map((f) => <li key={f.resource_id} className="flex flex-wrap items-center gap-x-3 px-3 py-2"><span className={`rounded px-1.5 py-0.5 text-xs font-semibold ring-1 ${colour(f.resource_id)}`}>{f.resource_name}</span><span className="text-xs text-slate-500">{f.engineer_name}</span><span className="text-emerald-700">Free</span></li>)}
+                  {day.free.map((f) => <li key={f.resource_id} className="flex flex-wrap items-center gap-x-3 px-3 py-2"><span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-300">{f.resource_name}</span><span className="text-xs text-slate-500">{f.engineer_name}</span><span className="text-emerald-700">Free</span></li>)}
                 </ul>
               )}
           </section>
