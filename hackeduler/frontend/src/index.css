@@ -30,3 +30,7 @@
 .email-editor table.kv { width: 100%; border-collapse: collapse; margin: 0 0 .75rem; background: #f8fafc; }
 .email-editor table.kv td { border-bottom: 1px solid #e2e8f0; padding: .4rem .5rem; vertical-align: top; }
 .email-editor table.kv td:first-child { color: #64748b; width: 38%; }
+.email-editor table:not(.kv) { width: 100%; border-collapse: collapse; margin: 0 0 .75rem; }
+.email-editor table:not(.kv) td, .email-editor table:not(.kv) th { border: 1px solid #cbd5e1; padding: .35rem .5rem; vertical-align: top; text-align: left; }
+.email-editor table:not(.kv) th { background: #f1f5f9; font-weight: 600; }
+.email-editor h3 { font-size: 1rem; font-weight: 600; margin: 0 0 .5rem; color: #0f172a; }

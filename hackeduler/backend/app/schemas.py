@@ -183,7 +183,7 @@ class ActivityCreate(Strict):
     visible_to_requesters: bool = True
     initiation_email_enabled: bool = True
     initiation_days_before: int | None = Field(default=None, ge=0, le=365, strict=True)
-    initiation_details: str | None = Field(default=None, max_length=4000)
+    initiation_details: str | None = Field(default=None, max_length=20000)
 
 
 class ActivityUpdate(Strict):
@@ -198,7 +198,7 @@ class ActivityUpdate(Strict):
     visible_to_requesters: bool | None = None
     initiation_email_enabled: bool | None = None
     initiation_days_before: int | None = Field(default=None, ge=0, le=365, strict=True)
-    initiation_details: str | None = Field(default=None, max_length=4000)
+    initiation_details: str | None = Field(default=None, max_length=20000)
 
 
 # ---------------------------------------------------------------- holidays / leave
@@ -527,6 +527,10 @@ class TemplateUpdate(Strict):
     layout: Literal["classic", "minimal", "banner"] | None = None
     accent: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     is_active: bool | None = None
+
+
+class DetailsPreviewIn(Strict):
+    details: str = Field(max_length=20000)
 
 
 class EmailLogOut(ORM):

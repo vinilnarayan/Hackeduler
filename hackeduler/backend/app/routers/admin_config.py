@@ -38,6 +38,7 @@ from ..schemas import (
     ActivityAdminOut,
     ActivityOut,
     ActivityUpdate,
+    DetailsPreviewIn,
     EmailLogOut,
     HolidayIn,
     HolidayOut,
@@ -244,6 +245,19 @@ def list_activities(include_deleted: bool = False, db: Session = Depends(get_db)
         q = q.where(ActivityType.deleted_at.is_(None))
     return [ActivityAdminOut.model_validate(a).model_copy(update={"initiation_details_default": initiation.default_details(a.name)})
             for a in db.scalars(q).all()]
+
+
+@router.post("/activity-types/details-preview")
+def preview_details(body: DetailsPreviewIn):
+    """How the "Details to ask the POC for" text will look in the email (cleaned the same way as when it is sent)."""
+    import base64
+
+    from ..services import email_html
+    plain, block = email_html.details_to_email(body.details)
+    logo = email_html.logo_bytes()
+    logo_src = "data:image/png;base64," + base64.b64encode(logo).decode() if logo else ""
+    intro = '<p style="margin:0 0 14px;"><strong>What we need from you:</strong></p>'
+    return {"plain": plain, "html": email_html.wrap_layout(intro + block, "Activity initiation", logo_src) if block else ""}
 
 
 @router.post("/activity-types", response_model=ActivityAdminOut, status_code=201)

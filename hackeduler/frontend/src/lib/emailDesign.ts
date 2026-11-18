@@ -40,3 +40,9 @@ export function textToHtml(text: string): string {
   flush()
   return out.join('')
 }
+
+/** Rich values contain tags; older "Details to ask the POC for" values are plain text with "- " bullets. */
+export const isRichHtml = (v?: string | null) => !!v && /<\s*(p|ul|ol|li|table|h[1-6]|div|br|strong|b|em|a)\b/i.test(v)
+export const toEditorHtml = (v?: string | null) => (!v ? '' : isRichHtml(v) ? v : textToHtml(v))
+/** True when the editor holds nothing visible (so the built-in checklist should be used instead). */
+export const isEmptyRich = (v?: string | null) => !v || (!/<table/i.test(v) && v.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() === '')

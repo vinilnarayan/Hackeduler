@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { del, get, patch, post, validationMessage } from '../../api/client'
 import type { ActivityType } from '../../api/types'
@@ -7,6 +7,8 @@ import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner } from '../.
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
 import { SortTh, useSort } from '../../components/SortTh'
+import RichEmailEditor from '../../components/RichEmailEditor'
+import { isEmptyRich, textToHtml, toEditorHtml } from '../../lib/emailDesign'
 
 export default function ActivityTypes() {
   const toast = useToast()
@@ -14,6 +16,19 @@ export default function ActivityTypes() {
   const tbl = useSort(data, { name: (a) => a.name, duration: (a) => a.base_duration_days, resource: (a) => (a.requires_resource ? 'Security resource' : 'No resource'), extra: (a) => (a.allow_additional_days ? a.max_additional_days : 0), status: (a) => (a.is_active ? 'Active' : 'Inactive') })
   const [edit, setEdit] = useState<Partial<ActivityType> | null>(null)
   const [remove, setRemove] = useState<ActivityType | null>(null)
+  const [dk, setDk] = useState(0)                      // bumps to reload the details editor (e.g. "Start from the built-in checklist")
+  const [dprev, setDprev] = useState<{ html: string; plain: string; error?: string } | null>(null)
+  const [phone, setPhone] = useState(false)
+  const details = edit?.initiation_details
+  useEffect(() => {   // preview of the "What we need from you" block, rendered by the server (same cleaning as when sent)
+    if (!edit || isEmptyRich(details)) { setDprev(null); return }
+    let live = true
+    const t = setTimeout(async () => {
+      try { const r = await post<{ html: string; plain: string }>('/api/admin/activity-types/details-preview', { details }); if (live) setDprev(r) }
+      catch (e) { if (live) setDprev({ html: '', plain: '', error: validationMessage(e) }) }
+    }, 400)
+    return () => { live = false; clearTimeout(t) }
+  }, [edit?.id, details]) // eslint-disable-line react-hooks/exhaustive-deps
   const durOk = (v: number | null | undefined) => v == null || (Number.isInteger(v) && v > 0)
   const valid = edit && edit.name?.trim() && durOk(edit.base_duration_days) && (!edit.requires_resource || (edit.base_duration_days ?? 0) > 0) &&
     (!edit.allow_additional_days || (Number.isInteger(edit.max_additional_days) && (edit.max_additional_days ?? 0) > 0))
@@ -24,7 +39,7 @@ export default function ActivityTypes() {
       visible_to_requesters: edit!.visible_to_requesters !== false,
       initiation_email_enabled: edit!.initiation_email_enabled !== false,
       initiation_days_before: edit!.initiation_days_before == null || (edit!.initiation_days_before as unknown) === '' ? null : Number(edit!.initiation_days_before),
-      initiation_details: edit!.initiation_details?.trim() ? edit!.initiation_details : null }
+      initiation_details: isEmptyRich(edit!.initiation_details) ? null : edit!.initiation_details }
     try { if (edit!.id) await patch(`/api/admin/activity-types/${edit!.id}`, body); else await post('/api/admin/activity-types', body); toast('success', 'Activity type saved'); setEdit(null); reload() }
     catch (e) { toast('error', validationMessage(e)) }
   }
@@ -58,7 +73,7 @@ export default function ActivityTypes() {
           try { const res = await del<{ mode: string }>(`/api/admin/activity-types/${a.id}`); toast('success', `${a.name} removed${res.mode === 'archived' ? ' (archived with its booking history)' : ''}`); setRemove(null); reload() }
           catch (e) { setRemove(null); toast('error', validationMessage(e)) }
         }} />
-      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? 'Edit activity type' : 'Add activity type'} size="sm"
+      <Modal open={!!edit} onClose={() => setEdit(null)} title={edit?.id ? 'Edit activity type' : 'Add activity type'} size="lg"
         footer={<><button className="btn-secondary" onClick={() => setEdit(null)}>Cancel</button><button className="btn-primary" disabled={!valid} onClick={save}>Save</button></>}>
         {edit && <div className="space-y-3">
           <Field label="Name *" htmlFor="a-n"><input id="a-n" className="input" value={edit.name ?? ''} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
@@ -77,10 +92,20 @@ export default function ActivityTypes() {
             <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={edit.initiation_email_enabled !== false} onChange={(e) => setEdit({ ...edit, initiation_email_enabled: e.target.checked })} />Send the Activity initiation email for this type</label>
             {edit.initiation_email_enabled !== false && <>
               <Field label="Days before start (this type)" htmlFor="a-id" hint="Leave empty to use the number of days from Settings."><input id="a-id" type="number" min={0} max={365} className="input w-40" value={edit.initiation_days_before ?? ''} onChange={(e) => setEdit({ ...edit, initiation_days_before: e.target.value === '' ? null : Number(e.target.value) })} /></Field>
-              <Field label="Details to ask the POC for" htmlFor="a-idt" hint="Used for {{Required Details}} in the email. Leave empty to use the built-in checklist for this kind of activity (shown below).">
-                <textarea id="a-idt" className="input min-h-28 font-mono text-xs" value={edit.initiation_details ?? ''} placeholder={edit.initiation_details_default ?? 'Built-in checklist for this kind of activity'} onChange={(e) => setEdit({ ...edit, initiation_details: e.target.value })} />
-              </Field>
-              {edit.initiation_details_default && <button type="button" className="btn-ghost text-xs" onClick={() => setEdit({ ...edit, initiation_details: edit.initiation_details_default })}>Start from the built-in checklist</button>}
+              <div>
+                <div className="label">Details to ask the POC for</div>
+                <RichEmailEditor variant="details" label="Details to ask the POC for" value={toEditorHtml(edit.initiation_details)} resetKey={`${edit.id ?? 'new'}-${dk}`}
+                  onChange={(html) => setEdit((p) => ({ ...p, initiation_details: html }))} />
+                <p className="mt-1 text-xs text-slate-500">Shown in the email wherever the template has {'{{Required Details}}'}. Leave it empty to use the built-in checklist for this kind of activity.</p>
+              </div>
+              {edit.initiation_details_default && <button type="button" className="btn-ghost text-xs" onClick={() => { setEdit({ ...edit, initiation_details: textToHtml(edit.initiation_details_default!) }); setDk(dk + 1) }}>Start from the built-in checklist</button>}
+              {dprev && <div className="rounded border border-slate-200 bg-slate-50 p-2 text-xs" data-testid="details-preview">
+                <div className="mb-1 flex items-center gap-2"><span className="font-semibold">How it looks in the email</span>
+                  <button type="button" className={phone ? 'btn-secondary px-2 py-0.5' : 'btn-primary px-2 py-0.5'} onClick={() => setPhone(false)}>Desktop</button>
+                  <button type="button" className={phone ? 'btn-primary px-2 py-0.5' : 'btn-secondary px-2 py-0.5'} onClick={() => setPhone(true)}>Phone</button></div>
+                {dprev.error ? <div className="text-red-700">{dprev.error}</div> :
+                  <div className="flex justify-center overflow-x-auto rounded bg-slate-200 p-2"><iframe title="Details preview" sandbox="" srcDoc={dprev.html} style={{ width: phone ? 360 : '100%', maxWidth: '100%' }} className="h-80 rounded border border-slate-300 bg-white" /></div>}
+              </div>}
             </>}
           </div>
           <Field label="Sort order" htmlFor="a-s"><input id="a-s" type="number" className="input" value={edit.sort_order ?? 0} onChange={(e) => setEdit({ ...edit, sort_order: Number(e.target.value) })} /></Field>

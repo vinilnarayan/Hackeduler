@@ -72,9 +72,21 @@ def _inline(text: str) -> str:
     return _LINK.sub(lambda m: f'<a href="{m.group(2)}" style="color:#1d4ed8;">{m.group(1)}</a>', text)
 
 
+def _html_blocks(ctx: dict[str, Any]) -> dict[str, str]:
+    """Values the system itself has already turned into safe HTML (e.g. the activity's "Required Details" with tables)."""
+    return {k: v for k, v in (ctx.get("_html") or {}).items() if v}
+
+
 def render_body_html(template: str, ctx: dict[str, Any]) -> str:
     """Template -> HTML fragment. Template text and values are escaped first; structure is built afterwards."""
     esc = html.escape(template, quote=True)                       # the author's text is text, never markup
+    blocks_html = _html_blocks(ctx)
+    tokens: dict[str, str] = {}
+    for i, (name, block) in enumerate(blocks_html.items()):       # a line that is only {{Name}}: insert the formatted block
+        tok = f"\x00BLOCK{i}\x00"
+        esc, n = re.subn(rf"(?m)^[ \t]*\{{\{{{re.escape(name)}\}}\}}[ \t]*$", tok, esc)
+        if n:
+            tokens[tok] = block
     esc = PLACEHOLDER_RE.sub(lambda m: _neutral(str(ctx.get(m.group(1), ""))), esc)
     blocks: list[str] = []
     para: list[str] = []
@@ -91,7 +103,10 @@ def render_body_html(template: str, ctx: dict[str, Any]) -> str:
     for line in esc.split("\n"):
         line = line.rstrip()
         b = _BULLET.match(line)
-        if not line.strip():
+        if line.strip() in tokens:
+            flush()
+            blocks.append(tokens[line.strip()])
+        elif not line.strip():
             flush()
         elif b:
             if para:
@@ -113,6 +128,7 @@ _RESPONSIVE_CSS = (
     ".bd{padding:16px!important}.hd{padding:12px 16px!important}.ft{padding:12px 16px 16px!important}"
     ".kv td{display:block!important;width:100%!important;box-sizing:border-box}"
     ".kv td.k{padding-bottom:0!important;border-bottom:0!important;font-size:12px!important}"
+    ".grid td,.grid th{padding:5px 6px!important;font-size:12px!important}"
     "a.btn{display:block!important;text-align:center!important}}"
 )
 
@@ -162,8 +178,8 @@ def render_html(template: str, ctx: dict[str, Any], subject: str, *, logo_src: s
 # The visual editor saves HTML. It is cleaned to a small allow-list (no scripts, styles, images, event handlers, or
 # links other than http/https) and re-written with inline styles, so whatever is stored or pasted renders safely.
 _SKIP = {"script", "style", "iframe", "object", "embed", "head", "title", "svg", "math", "noscript", "template"}
-_ALIAS = {"b": "strong", "i": "em", "div": "p", "h1": "h2", "h4": "h3", "h5": "h3", "h6": "h3", "th": "td"}
-_TAGS = {"p", "br", "h2", "h3", "strong", "em", "u", "ul", "ol", "li", "a", "table", "tbody", "tr", "td", "hr"}
+_ALIAS = {"b": "strong", "i": "em", "div": "p", "h1": "h2", "h4": "h3", "h5": "h3", "h6": "h3"}
+_TAGS = {"p", "br", "h2", "h3", "strong", "em", "u", "ul", "ol", "li", "a", "table", "thead", "tbody", "tr", "td", "th", "hr"}
 _VOID = {"br", "hr"}
 _LINK_OK = re.compile(r"^https?://[^\s\"'<>]+$", re.I)
 
@@ -182,10 +198,14 @@ def _style(tag: str, cls: str, accent: str, first_cell: bool) -> str:
     if tag == "hr":
         return "border:0;border-top:1px solid #e2e8f0;margin:14px 0;"
     if tag == "table":
-        return "width:100%;border-collapse:collapse;margin:0 0 14px;background:#f8fafc;"
+        return ("width:100%;border-collapse:collapse;margin:0 0 14px;background:#f8fafc;" if cls == "kv"
+                else "width:100%;border-collapse:collapse;margin:0 0 14px;")
+    if tag == "th":
+        return "border:1px solid #e2e8f0;padding:8px 10px;vertical-align:top;text-align:left;background:#f1f5f9;color:#0f172a;font-weight:600;"
     if tag == "td":
-        base = "border-bottom:1px solid #e2e8f0;padding:8px 10px;vertical-align:top;"
-        return base + ("color:#64748b;width:38%;" if first_cell else "")
+        if cls == "kv":
+            return "border-bottom:1px solid #e2e8f0;padding:8px 10px;vertical-align:top;" + ("color:#64748b;width:38%;" if first_cell else "")
+        return "border:1px solid #e2e8f0;padding:8px 10px;vertical-align:top;text-align:left;" + ("background:#f8fafc;" if cls == "zebra" else "")
     if tag == "a":
         if cls == "btn":
             return f"display:inline-block;background:{accent};color:#ffffff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;"
@@ -200,6 +220,7 @@ class _Cleaner(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.accent, self.out, self.stack, self.skip = accent, [], [], 0
         self.cells: list[int] = []   # per open <tr>: how many cells so far
+        self.tables: list[dict] = []  # per open <table>: {"kv": bool, "rows": int}
 
     def handle_starttag(self, tag, attrs):
         if tag in _SKIP:
@@ -222,16 +243,23 @@ class _Cleaner(HTMLParser):
             cls = "btn" if "btn" in (at.get("class") or "").split() else ""
             extra = f' href="{html.escape(href, quote=True)}"' + (' class="btn"' if cls else "")
         elif tag == "table":
-            extra = ' class="kv" role="presentation" cellpadding="0" cellspacing="0"'
+            kv = "kv" in (at.get("class") or "").split()
+            self.tables.append({"kv": kv, "rows": 0})
+            cls = "kv" if kv else "grid"
+            extra = f' class="{cls}" role="presentation" cellpadding="0" cellspacing="0"'
         elif tag == "tr":
             self.cells.append(0)
-        elif tag == "td":
+            if self.tables:
+                self.tables[-1]["rows"] += 1
+        elif tag in ("td", "th"):
+            t = self.tables[-1] if self.tables else {"kv": False, "rows": 1}
             first = bool(self.cells) and self.cells[-1] == 0
             if self.cells:
                 self.cells[-1] += 1
-            extra = ' class="k"' if first else ""
-            self.out.append(f'<td{extra} style="{_style("td", "", self.accent, first)}">')
-            self.stack.append("td")
+            kind = "kv" if t["kv"] else ("zebra" if tag == "td" and t["rows"] % 2 == 0 else "")
+            klass = ' class="k"' if (t["kv"] and first) else ""
+            self.out.append(f'<{tag}{klass} style="{_style(tag, kind, self.accent, first)}">')
+            self.stack.append(tag)
             return
         self.out.append(f'<{tag}{extra} style="{_style(tag, cls, self.accent, False)}">')
         self.stack.append(tag)
@@ -245,6 +273,8 @@ class _Cleaner(HTMLParser):
             return
         if tag == "tr" and self.cells:
             self.cells.pop()
+        if tag == "table" and self.tables:
+            self.tables.pop()
         # close down to the matching open tag (tolerates the sloppy HTML browsers produce)
         if tag in self.stack or (tag == "a" and None in self.stack):
             while self.stack:
@@ -278,6 +308,7 @@ class _Plain(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.row: list[str] | None = None
+        self.header = False          # the current table has a header row: its rows read "a | b | c"
         self.cell: list[str] | None = None
         self.href: str | None = None
         self.link_text: list[str] = []
@@ -295,11 +326,16 @@ class _Plain(HTMLParser):
             self._w("\n")
         elif tag == "li":
             self._w("\n- ")
-        elif tag in ("p", "div", "h1", "h2", "h3", "h4", "ul", "ol", "table", "hr"):
+        elif tag in ("p", "div", "h1", "h2", "h3", "h4", "ul", "ol", "hr"):
+            self._w("\n\n")
+        elif tag == "table":
+            self.header = False
             self._w("\n\n")
         elif tag == "tr":
             self.row = []
         elif tag in ("td", "th"):
+            if tag == "th":
+                self.header = True
             self.cell = []
         elif tag == "a":
             h = (dict(attrs).get("href") or "").strip()
@@ -315,7 +351,8 @@ class _Plain(HTMLParser):
             self.cell = None
         elif tag == "tr" and self.row is not None:
             cells = [c for c in self.row if c]
-            self.parts.append("\n" + (f"{cells[0]}: {' '.join(cells[1:])}" if len(cells) > 1 else " ".join(cells)))
+            joined = " | ".join(cells) if (self.header and len(cells) > 1) else (f"{cells[0]}: {' '.join(cells[1:])}" if len(cells) > 1 else " ".join(cells))
+            self.parts.append("\n" + joined)
             self.row = None
         elif tag == "a" and self.href:
             text = "".join(self.link_text).strip()
@@ -348,8 +385,11 @@ def html_to_plain(src: str) -> str:
 def render_rich(template: str, ctx: dict[str, Any], accent: str = DEFAULT_ACCENT) -> tuple[str, str]:
     """(plain text, HTML fragment) for a visual-editor template. Values are escaped; they can never add markup."""
     safe = clean_html(template, accent)
-    inner = PLACEHOLDER_RE.sub(lambda m: html.escape(str(ctx.get(m.group(1), "")), quote=True), safe)
-    plain = PLACEHOLDER_RE.sub(lambda m: str(ctx.get(m.group(1), "")), html_to_plain(safe))
+    blocks = _html_blocks(ctx)
+    for name, block in blocks.items():   # <p>{{Name}}</p> on its own: put the formatted block in its place (no <p> around a table)
+        safe = re.sub(rf"<p[^>]*>\s*\{{\{{{re.escape(name)}\}}\}}\s*</p>", lambda _m: block, safe)
+    inner = PLACEHOLDER_RE.sub(lambda m: blocks[m.group(1)] if m.group(1) in blocks else html.escape(str(ctx.get(m.group(1), "")), quote=True), safe)
+    plain = PLACEHOLDER_RE.sub(lambda m: str(ctx.get(m.group(1), "")), html_to_plain(clean_html(template, accent)))
     return plain, inner
 
 
@@ -361,3 +401,22 @@ def build(template: str, fmt: str, ctx: dict[str, Any], subject: str, *, layout:
     else:
         plain, inner = render_plain(template, ctx), render_body_html(template, ctx)
     return plain, wrap_layout(inner, subject, logo_src, layout, accent)
+
+
+# --------------------------------------------------------- rich "details" fields (e.g. what to ask the POC for)
+_HTML_HINT = re.compile(r"<\s*(p|ul|ol|li|table|h[1-6]|div|br|strong|b|em|a)\b", re.I)
+
+
+def is_html(value: str | None) -> bool:
+    """Rich values (from the visual editor) contain tags; older ones are plain text with '- ' bullets."""
+    return bool(value and _HTML_HINT.search(value))
+
+
+def details_to_email(value: str) -> tuple[str, str]:
+    """(plain text, safe HTML block) for a rich details value. Returns ("", "") when it has no visible content."""
+    if not is_html(value):   # older plain-text value: '- ' lines become a list, blank lines paragraphs
+        value = value.strip()
+        return value, (render_body_html(value, {}) if value else "")
+    safe = clean_html(value)
+    plain = html_to_plain(safe)
+    return (plain, safe) if plain else ("", "")

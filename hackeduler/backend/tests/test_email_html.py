@@ -181,3 +181,53 @@ def test_template_design_is_validated(admin):
 def test_existing_text_templates_still_render_unchanged(admin):
     t = next(x for x in admin.get("/api/admin/email-templates").json() if x["key"] == "booking_approved_poc")
     assert (t["body_format"], t["layout"], t["accent"]) == ("text", "classic", "#0f2744")
+
+
+# ----------------------------------------------------------------------------- rich "details to ask the POC for"
+DETAILS = ('<h3>Web app</h3><ul><li>Test URL</li></ul><table><thead><tr><th>Role</th><th>Accounts</th></tr></thead>'
+           '<tbody><tr><td>Admin</td><td>1</td></tr><tr><td>User</td><td>2</td></tr><tr><td>Auditor</td><td>1</td></tr></tbody></table>'
+           '<script>x()</script><p onclick="y()">Share credentials securely.</p>')
+
+
+def test_details_table_is_styled_and_plain_text_is_readable():
+    plain, block = eh.details_to_email(DETAILS)
+    assert block.count("<th ") == 2 and "background:#f1f5f9" in block and "<script" not in block and "onclick" not in block
+    assert block.count("background:#f8fafc") == 4                                     # banded rows: 2nd and 4th row, 2 cells each
+    assert 'class="grid"' in block and "@media" not in block
+    assert "Role | Accounts" in plain and "Admin | 1" in plain and "- Test URL" in plain and "<" not in plain
+    assert "Share credentials securely." in plain
+
+
+def test_old_text_details_still_work():
+    plain, block = eh.details_to_email("Environment\n- Test URL\n- Test accounts\n\nShare securely.")
+    assert block.count("<li") == 2 and plain.startswith("Environment")
+    assert eh.details_to_email("   ") == ("", "") and eh.details_to_email("<p><br></p>") == ("", "")
+
+
+def test_block_is_placed_in_text_and_visual_templates_without_nesting():
+    _, block = eh.details_to_email(DETAILS)
+    ctx = {"Required Details": "plain version", "_html": {"Required Details": block}}
+    old = eh.render_body_html("What we need:\n\n{{Required Details}}\n\nThanks", ctx)       # older text template
+    assert "<table" in old and "plain version" not in old and "Thanks" in old
+    plain, new = eh.render_rich("<p>What we need:</p><p>{{Required Details}}</p><p>Thanks</p>", ctx)   # visual template
+    assert "<table" in new and "<p style=\"margin:0 0 14px;\"><h3" not in new and new.count("<p") == 2 + block.count("<p")
+    assert "plain version" in plain
+
+
+def test_grid_and_kv_tables_differ():
+    kv = eh.clean_html('<table class="kv"><tr><td>A</td><td>B</td></tr></table>')
+    grid = eh.clean_html("<table><tr><td>A</td><td>B</td></tr></table>")
+    assert 'class="kv"' in kv and 'class="k"' in kv and 'class="grid"' in grid and "border:1px solid" in grid
+
+
+def test_activity_details_preview_and_initiation_email(admin, req1, data):
+    r = admin.post("/api/admin/activity-types/details-preview", json={"details": DETAILS})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert "<table" in j["html"] and "What we need from you" in j["html"] and "<script" not in j["html"] and "Role | Accounts" in j["plain"]
+    assert admin.post("/api/admin/activity-types/details-preview", json={"details": "<p><br></p>"}).json() == {"plain": "", "html": ""}
+    assert admin.post("/api/admin/activity-types/details-preview", json={"details": "x" * 20001}).status_code == 422
+
+
+def test_details_preview_requires_admin(req1):
+    assert req1.post("/api/admin/activity-types/details-preview", json={"details": "x"}).status_code == 403

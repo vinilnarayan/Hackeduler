@@ -204,3 +204,24 @@ def test_no_engineer_email_means_no_cc(admin, data, monkeypatch):
     _approved(admin, data)
     (m,) = _mails()
     assert m.cc is None
+
+
+def test_rich_details_with_a_table_reach_the_email(admin, data, monkeypatch):
+    web = data["acts"][0]
+    rich = ('<h3>Accounts</h3><table><thead><tr><th>Role</th><th>Count</th></tr></thead><tbody><tr><td>Admin</td><td>1</td></tr></tbody></table>'
+            '<p onclick="x()">Share securely</p><script>bad()</script>')
+    assert admin.patch(f"/api/admin/activity-types/{web.id}", json={"initiation_details": rich}).status_code == 200
+    _today(monkeypatch, date(2027, 2, 26))
+    _approved(admin, data)
+    row = _mails()[0]
+    assert "<table" in row.body_html and "<th " in row.body_html and "Application URL" not in row.body_html
+    assert "onclick" not in row.body_html and "<script" not in row.body_html
+    assert "Role | Count" in row.body and "Admin | 1" in row.body and "Share securely" in row.body and "<" not in row.body
+
+
+def test_empty_rich_details_fall_back_to_the_built_in_checklist(admin, data, monkeypatch):
+    web = data["acts"][0]
+    assert admin.patch(f"/api/admin/activity-types/{web.id}", json={"initiation_details": "<p><br></p>"}).status_code == 200
+    _today(monkeypatch, date(2027, 2, 26))
+    _approved(admin, data)
+    assert "Application URL" in _mails()[0].body
