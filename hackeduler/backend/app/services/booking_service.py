@@ -937,6 +937,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                        "in place. Cancel it and create a new multi-resource booking, or edit the booking details only.",
                        "multi_resource_locked")
     before = audit.booking_snapshot(b)
+    old_engineers = notifications.engineer_emails(b)     # told about the change too, if the resource is replaced
     old_alloc = {"resource_id": str(b.resource_id) if b.resource_id else None,
                  "resource_code": b.resource.code if b.resource else None,
                  "start_date": b.start_date.isoformat() if b.start_date else None,
@@ -1098,7 +1099,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                              f"{b.resource.display_name if b.resource else 'Not required'}")
             else:
                 lines.append(f"- {labels[k]}: {before.get(k)} -> {after.get(k)}")
-        notifications.notify_modified(db, b, "\n".join(lines) or "Booking details updated.", reason)
+        notifications.notify_modified(db, b, "\n".join(lines) or "Booking details updated.", reason, previous_engineers=old_engineers)
         if "poc_email" in changed and before.get("poc_email"):
             notifications.enqueue_poc(db, "booking_modified_poc", split_emails(before["poc_email"]),
                                   notifications.booking_context(b, **{"Change Summary": "\n".join(lines), "Reason": reason}), b.id)
