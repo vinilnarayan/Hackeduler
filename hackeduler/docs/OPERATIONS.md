@@ -192,3 +192,10 @@ Keep `HACKEDULER_SEED=none` (or `minimal`) on a system with real data. `demo` re
 ```
 
 New schema changes go in new Alembic revisions under `backend/alembic/versions/`. Never edit an existing one.
+
+### Admin screens: deep link to a booking
+
+`/admin/bookings?booking=<booking id>` opens the Bookings page with that booking's details window already open (the address is
+updated when a row is opened and cleared when the window is closed; other filters in the address are kept). In **Team Calendar**,
+the application name and version in the day popup link there, so the booking can be opened in the same tab or, with Ctrl/Cmd-click,
+a new tab. No backend or database change.

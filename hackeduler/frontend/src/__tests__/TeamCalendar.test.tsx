@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 
 const api = vi.hoisted(() => ({ get: vi.fn() }))
@@ -23,7 +24,7 @@ describe('Team Calendar', () => {
   beforeEach(() => { api.get.mockReset(); api.get.mockResolvedValue(cal) })
 
   it('shows each resource\'s activity, leave and holidays on the day', async () => {
-    render(<TeamCalendar />)
+    render(<MemoryRouter><TeamCalendar /></MemoryRouter>)
     expect(await screen.findByText('Spring Fest')).toBeInTheDocument()
     // each cell: engineer initials + application name + version (not the resource number / activity type)
     const cell = (app: string) => screen.getByText((_, el) => el?.tagName === 'SPAN' && el.className.includes('truncate') && (el.textContent ?? '').includes(app))
@@ -37,9 +38,11 @@ describe('Team Calendar', () => {
   })
 
   it('opens the day with application, status and leave details', async () => {
-    render(<TeamCalendar />)
+    render(<MemoryRouter><TeamCalendar /></MemoryRouter>)
     fireEvent.click(await screen.findByLabelText(/2099-03-02: 2 activities/))
-    expect(await screen.findByText('App1 v1', { selector: 'span.font-medium' })).toBeInTheDocument()
+    const link = await screen.findByRole('link', { name: /App1 v1/ })
+    expect(link).toHaveAttribute('href', '/admin/bookings?booking=b1')       // opens that booking's details on the Bookings page
+    expect(screen.getByRole('link', { name: /App2 v1/ })).toHaveAttribute('href', '/admin/bookings?booking=b2')
     expect(screen.getByText('pending approval')).toBeInTheDocument()
     expect(screen.getByText('Casual leave')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Free (1)' })).toBeInTheDocument()
@@ -47,13 +50,13 @@ describe('Team Calendar', () => {
   })
 
   it('says nobody is scheduled on a non-working day instead of listing free resources', async () => {
-    render(<TeamCalendar />)
+    render(<MemoryRouter><TeamCalendar /></MemoryRouter>)
     fireEvent.click(await screen.findByLabelText(/2099-03-06/))
     expect(await screen.findByText(/Non-working day – nobody is scheduled/)).toBeInTheDocument()
   })
 
   it('filters by resource and moves between months', async () => {
-    render(<TeamCalendar />)
+    render(<MemoryRouter><TeamCalendar /></MemoryRouter>)
     await screen.findByText('Spring Fest')
     fireEvent.change(screen.getByLabelText('Resource'), { target: { value: 'r2' } })
     await waitFor(() => expect(api.get).toHaveBeenLastCalledWith('/api/admin/team-calendar?resource_id=r2'))
