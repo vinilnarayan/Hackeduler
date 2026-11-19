@@ -306,6 +306,12 @@ def admin_recipients(db: Session) -> list[str]:
     return list(settings_service.get_setting(db, "admin_notification_recipients") or [])
 
 
+def enqueue_admins(db: Session, key: str, ctx: dict[str, Any], booking_id: uuid.UUID | None = None) -> list[EmailNotificationLog]:
+    """An email to the admins: ONE message addressed To all admin notification recipients (not one email per admin)."""
+    row = enqueue_combined(db, key, admin_recipients(db), [], ctx, booking_id)
+    return [row] if row else []
+
+
 def poc_recipients(db: Session, b: Booking) -> list[str]:
     rec = split_emails(b.poc_email)
     if settings_service.get_setting(db, "notify_requester_copy") and b.requester and b.source == "requester":
@@ -314,7 +320,7 @@ def poc_recipients(db: Session, b: Booking) -> list[str]:
 
 
 def notify_submitted(db: Session, b: Booking) -> None:
-    enqueue(db, "booking_submitted_admin", admin_recipients(db), booking_context(b), b.id)
+    enqueue_admins(db, "booking_submitted_admin", booking_context(b), b.id)
 
 
 def engineer_resources(b: Booking) -> list:
@@ -367,7 +373,7 @@ def notify_impacted(db: Session, b: Booking, summary: str) -> None:
 
 
 def notify_change_request(db: Session, b: Booking, summary: str, reason: str) -> None:
-    enqueue(db, "change_request_admin", admin_recipients(db), booking_context(b, **{"Change Summary": summary, "Reason": reason}), b.id)
+    enqueue_admins(db, "change_request_admin", booking_context(b, **{"Change Summary": summary, "Reason": reason}), b.id)
 
 
 def notify_expired(db: Session, b: Booking) -> None:
