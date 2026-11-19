@@ -202,6 +202,13 @@ Keep `HACKEDULER_SEED=none` (or `minimal`) on a system with real data. `demo` re
 
 New schema changes go in new Alembic revisions under `backend/alembic/versions/`. Never edit an existing one.
 
+### Who is copied on "Booking modified"
+
+The Booking modified email is ONE message: To the POC(s) (and the requester copy, if enabled), with the assigned security engineer(s)
+in Cc. When the resource is changed, the previous engineer is copied as well, so the person who loses the booking is told too.
+The default template now includes `{{Engineer Names}}`; templates you already edited keep their text, so add the line in
+Email & Templates if you want it shown. No database change.
+
 ### Admin screens: deep link to a booking
 
 `/admin/bookings?booking=<booking id>` opens the Bookings page with that booking's details window already open (the address is

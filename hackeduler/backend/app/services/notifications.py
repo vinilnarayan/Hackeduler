@@ -76,7 +76,7 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             "Hello {{POC Name}},\n\nYour approved security assessment booking has been updated.\n\n"
             "- Booking ID: {{Booking ID}}\n- Application Name: {{Application Name}}\n"
             "- Application Version: {{Application Version}}\n- Activity Type: {{Activity Type}}\n"
-            "- Resource: {{Resource ID}}\n- Start Date: {{Start Date}}\n- Expected End Date: {{End Date}}\n"
+            "- Resource: {{Resource ID}}\n- Security engineer(s): {{Engineer Names}}\n- Start Date: {{Start Date}}\n- Expected End Date: {{End Date}}\n"
             "- Booking Status: {{Booking Status}}\n\nWhat changed:\n{{Change Summary}}\n\nReason:\n{{Reason}}\n\n"
             "Please contact the Offensive Security team if you have any questions." + SIGNATURE
         ),
@@ -291,9 +291,9 @@ def enqueue_combined(db: Session, key: str, to: list[str], cc: list[str], ctx: d
 
 
 def enqueue_poc(db: Session, key: str, recipients: list[str], ctx: dict[str, Any],
-                booking_id: uuid.UUID | None = None) -> list[EmailNotificationLog]:
-    """An email to the POCs: ONE message addressed To all of them (not one email per POC)."""
-    row = enqueue_combined(db, key, recipients, [], ctx, booking_id)
+                booking_id: uuid.UUID | None = None, cc: list[str] | None = None) -> list[EmailNotificationLog]:
+    """An email to the POCs: ONE message addressed To all of them (not one email per POC); ``cc`` is copied on it."""
+    row = enqueue_combined(db, key, recipients, cc or [], ctx, booking_id)
     return [row] if row else []
 
 
@@ -360,8 +360,10 @@ def notify_rejected(db: Session, b: Booking) -> None:
     enqueue_poc(db, "booking_rejected_poc", poc_recipients(db, b), booking_context(b), b.id)
 
 
-def notify_modified(db: Session, b: Booking, summary: str, reason: str) -> None:
-    enqueue_poc(db, "booking_modified_poc", poc_recipients(db, b), booking_context(b, **{"Change Summary": summary, "Reason": reason}), b.id)
+def notify_modified(db: Session, b: Booking, summary: str, reason: str, previous_engineers: list[str] | None = None) -> None:
+    """ONE email: To the POCs, with the assigned engineer(s) in Cc - and the previous engineer(s) too when the resource changed."""
+    cc = engineer_emails(b) + list(previous_engineers or [])
+    enqueue_poc(db, "booking_modified_poc", poc_recipients(db, b), booking_context(b, **{"Change Summary": summary, "Reason": reason}), b.id, cc=cc)
 
 
 def notify_cancelled(db: Session, b: Booking, reason: str) -> None:
