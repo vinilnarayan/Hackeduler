@@ -38,7 +38,7 @@ Environment (`HACKEDULER_*`): see `.env.example`. Runtime settings, editable und
 | `pending_expiry_enabled` / `pending_expiry_hours` | `true` / `72` | Auto-release of unreviewed pending reservations |
 | `requester_direct_cancel_pending` | `true` | Requesters can cancel their own pending requests without approval |
 | `email_sender_name` / `email_sender_address` | — | From header |
-| `admin_notification_recipients` | `[…]` | Recipients of new-request and change-request emails |
+| `admin_notification_recipients` | `[…]` | Recipients of new-request and change-request emails: ONE email addressed To all of them (everyone sees who else got it), not one email each |
 | `email_cc_recipients` | `[]` | Up to 10 addresses copied (Cc) on **every** email Hackeduler sends, initiation email included. Skipped where that address is already the recipient. Applied when the email is sent, so queued emails pick up a change. The admin "Send test email" is not copied |
 | `notify_requester_copy` | `true` | Copy the requester on POC emails |
 | `smtp_host/port/username/starttls` | `null` (= env) | Non-secret SMTP overrides |
