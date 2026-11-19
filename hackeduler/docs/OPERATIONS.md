@@ -199,6 +199,10 @@ The Booking modified email is ONE message: To the POC(s) (and the requester copy
 in Cc. When the resource is changed, the previous engineer is copied as well, so the person who loses the booking is told too.
 The default template now includes `{{Engineer Names}}`; templates you already edited keep their text, so add the line in
 Email & Templates if you want it shown. No database change.
+If the POC list was changed, the people taken off it get the update in a second email, sent only to them (nobody gets it twice).
+
+The engineers' "Booking confirmed" email (sent on approval) is also ONE email addressed To all assigned engineers; its greeting
+reads "Hello Name1, Name2,".
 
 ### Admin screens: deep link to a booking
 

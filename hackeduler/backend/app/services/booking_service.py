@@ -1101,8 +1101,12 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                 lines.append(f"- {labels[k]}: {before.get(k)} -> {after.get(k)}")
         notifications.notify_modified(db, b, "\n".join(lines) or "Booking details updated.", reason, previous_engineers=old_engineers)
         if "poc_email" in changed and before.get("poc_email"):
-            notifications.enqueue_poc(db, "booking_modified_poc", split_emails(before["poc_email"]),
-                                  notifications.booking_context(b, **{"Change Summary": "\n".join(lines), "Reason": reason}), b.id)
+            # People taken off the POC list still get told - but only them: everyone still on the list already got the email above.
+            still_notified = {a.lower() for a in notifications.poc_recipients(db, b)}
+            removed = [a for a in split_emails(before["poc_email"]) if a.lower() not in still_notified]
+            if removed:
+                notifications.enqueue_poc(db, "booking_modified_poc", removed,
+                                          notifications.booking_context(b, **{"Change Summary": "\n".join(lines), "Reason": reason}), b.id)
     if b.status == BookingStatus.APPROVED:
         initiation.send_if_due(db, b)  # rescheduled (new start date) and already inside the window => send again now
     return b

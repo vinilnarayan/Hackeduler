@@ -94,9 +94,11 @@ def test_schedule_edit_blocked_but_details_editable(admin, data):
 def test_every_engineer_is_emailed(admin, data):
     admin.post("/api/admin/bookings", json=_multi(data))
     db = SessionLocal()
-    rec = sorted(m.recipient for m in db.scalars(select(EmailNotificationLog).where(EmailNotificationLog.template_key == "booking_confirmed_engineer")))
+    rows = list(db.scalars(select(EmailNotificationLog).where(EmailNotificationLog.template_key == "booking_confirmed_engineer")))
     db.close()
-    assert rec == ["eng1@offsec.local", "eng2@offsec.local", "eng3@offsec.local"]
+    assert len(rows) == 1                                                     # ONE email to all the engineers, not one each
+    assert sorted(a.strip() for a in rows[0].recipient.split(",")) == ["eng1@offsec.local", "eng2@offsec.local", "eng3@offsec.local"]
+    assert "Hello Secret Engineer 1, Secret Engineer 2, Secret Engineer 3," in rows[0].body
 
 
 def test_resource_with_extra_booking_cannot_be_deleted(admin, data):

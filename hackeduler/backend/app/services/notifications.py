@@ -331,13 +331,14 @@ def engineer_resources(b: Booking) -> list:
 
 
 def notify_engineers(db: Session, b: Booking) -> None:
-    """Tell the assigned security engineer(s) a booking is confirmed. Engineers without an email are skipped."""
-    for r in engineer_resources(b):
-        if not r.engineer_email:
-            continue
-        ctx = booking_context(b, **{"Engineer Name": r.engineer_name or r.display_name,
-                                    "Additional Comments": b.additional_comments or "None"})
-        enqueue(db, "booking_confirmed_engineer", [r.engineer_email], ctx, b.id)
+    """Tell the assigned security engineer(s) a booking is confirmed: ONE email addressed To all of them (not one each).
+    Engineers without an email address are skipped."""
+    engineers = [r for r in engineer_resources(b) if r.engineer_email]
+    if not engineers:
+        return
+    names = ", ".join(dict.fromkeys(r.engineer_name or r.display_name for r in engineers))
+    ctx = booking_context(b, **{"Engineer Name": names, "Additional Comments": b.additional_comments or "None"})
+    enqueue_combined(db, "booking_confirmed_engineer", [r.engineer_email for r in engineers], [], ctx, b.id)
 
 
 def notify_approved(db: Session, b: Booking) -> None:
