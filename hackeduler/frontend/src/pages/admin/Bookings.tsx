@@ -24,7 +24,9 @@ export default function AdminBookings() {
     if (!sort || sort.key !== k) { n.set('sort_by', k); n.set('sort_dir', 'asc') } else if (sort.dir === 'asc') { n.set('sort_dir', 'desc') } else { n.delete('sort_by'); n.delete('sort_dir') }
     setPage(0); setSp(n, { replace: true })
   }
-  const [sel, setSel] = useState<string | null>(null)
+  // The open booking lives in the address (?booking=<id>) so a link from the Team Calendar, or a copied address, opens its details.
+  const sel = sp.get('booking')
+  const setSel = (id: string | null) => { const n = new URLSearchParams(sp); if (id) n.set('booking', id); else n.delete('booking'); setSp(n, { replace: true }) }
   const PAGE = 50
   const { data, error, loading, reload } = useAsync<{ total: number; items: AdminBooking[]; summary?: { total: number; pci: number; non_pci: number; report_shared: number; report_not_shared: number } }>(() => get('/api/admin/bookings' + qs({ ...fApi, ...reportQs, limit: PAGE, offset: page * PAGE })), [sp.toString(), page])
   const resources = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))

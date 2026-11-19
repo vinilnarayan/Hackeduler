@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react'
 import { get } from '../../api/client'
 import { shiftMonth } from '../../components/MyMonthCalendar'
 import { ErrorState, Modal, PageHeader, Pill, Spinner } from '../../components/ui'
@@ -104,7 +105,9 @@ export default function TeamCalendar() {
                   <li key={e.booking_id + e.resource_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
                     <span style={bookingColours.get(e.booking_id)} className="rounded px-1.5 py-0.5 text-xs font-semibold">{e.resource_name}</span>
                     <span className="text-xs text-slate-500">{e.engineer_name}</span>
-                    <span className="font-medium">{e.application_name} v{e.application_version}</span>
+                    <Link to={`/admin/bookings?booking=${encodeURIComponent(e.booking_id)}`} title="Open booking details"
+                      className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline focus-visible:underline">
+                      {e.application_name} v{e.application_version}<ExternalLink size={12} aria-hidden="true" /></Link>
                     <span>{e.activity_name}</span>
                     <span className="text-xs text-slate-500">{fmt(e.start_date)} – {fmt(e.end_date)}</span>
                     <Pill>{statusLabel(e.status)}</Pill>
