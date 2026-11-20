@@ -31,12 +31,14 @@ export default function ActivityTypes() {
   }, [edit?.id, details]) // eslint-disable-line react-hooks/exhaustive-deps
   const durOk = (v: number | null | undefined) => v == null || (Number.isInteger(v) && v > 0)
   const valid = edit && edit.name?.trim() && durOk(edit.base_duration_days) && (!edit.requires_resource || (edit.base_duration_days ?? 0) > 0) &&
-    (!edit.allow_additional_days || (Number.isInteger(edit.max_additional_days) && (edit.max_additional_days ?? 0) > 0))
+    (!edit.allow_additional_days || (Number.isInteger(edit.max_additional_days) && (edit.max_additional_days ?? 0) > 0)) &&
+    (edit.yearly_limit == null || (Number.isInteger(edit.yearly_limit) && edit.yearly_limit > 0))
   const save = async () => {
     const body = { name: edit!.name, description: edit!.description || null, base_duration_days: edit!.base_duration_days || null,
       requires_resource: edit!.requires_resource !== false, allow_additional_days: !!edit!.allow_additional_days && !!edit!.base_duration_days,
       max_additional_days: edit!.allow_additional_days ? edit!.max_additional_days : 0, sort_order: edit!.sort_order ?? 0,
       visible_to_requesters: edit!.visible_to_requesters !== false,
+      yearly_limit: edit!.yearly_limit == null || (edit!.yearly_limit as unknown) === '' ? null : Number(edit!.yearly_limit),
       initiation_email_enabled: edit!.initiation_email_enabled !== false,
       initiation_days_before: edit!.initiation_days_before == null || (edit!.initiation_days_before as unknown) === '' ? null : Number(edit!.initiation_days_before),
       initiation_details: isEmptyRich(edit!.initiation_details) ? null : edit!.initiation_details }
@@ -57,7 +59,7 @@ export default function ActivityTypes() {
                 <td className="td"><div className="font-medium">{a.name}</div>{a.description && <div className="text-xs text-slate-500">{a.description}</div>}</td>
                 <td className="td tabular-nums">{a.base_duration_days ? `${a.base_duration_days} working days` : <span className="text-slate-400">Not set</span>}</td>
                 <td className="td">{a.requires_resource ? <Pill className="bg-blue-100 text-blue-800">Security resource</Pill> : <Pill>No resource</Pill>}</td>
-                <td className="td">{a.allow_additional_days ? `Up to +${a.max_additional_days}` : '—'}</td>
+                <td className="td">{a.allow_additional_days ? `Up to +${a.max_additional_days}` : '—'}{a.yearly_limit ? <div className="text-xs text-slate-500">{a.yearly_limit} / year</div> : null}</td>
                 <td className="td"><div className="flex flex-wrap gap-1">{a.is_active ? <Pill className="bg-emerald-100 text-emerald-800">Active</Pill> : <Pill>Inactive</Pill>}{!a.visible_to_requesters && <Pill className="bg-amber-100 text-amber-800">Hidden from requesters</Pill>}</div></td>
                 <td className="td whitespace-nowrap"><div className="flex gap-1"><button className="btn-secondary" onClick={() => setEdit(a)}>Edit</button><button className="btn-secondary" onClick={() => toggle(a)}>{a.is_active ? 'Deactivate' : 'Activate'}</button><button className="btn-secondary text-red-700" onClick={() => setRemove(a)}>Remove</button></div></td>
               </tr>
@@ -86,6 +88,10 @@ export default function ActivityTypes() {
           </Field>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!edit.allow_additional_days} onChange={(e) => setEdit({ ...edit, allow_additional_days: e.target.checked, max_additional_days: e.target.checked ? edit.max_additional_days || 1 : 0 })} />Allow requesters to add extra working days</label>
           {edit.allow_additional_days && <Field label="Maximum additional days" htmlFor="a-m"><input id="a-m" type="number" min={1} step={1} className="input" value={edit.max_additional_days ?? 1} onChange={(e) => setEdit({ ...edit, max_additional_days: Number(e.target.value) })} /></Field>}
+          <Field label="Bookings accepted per calendar year" htmlFor="a-yl" hint="Leave empty for unlimited. Counted by booking start date; a booking uses the balance once an admin approves it. Requesters see the remaining balance when they pick this activity."
+            error={edit.yearly_limit != null && !(Number.isInteger(edit.yearly_limit) && edit.yearly_limit > 0) ? 'Must be a positive whole number' : undefined}>
+            <input id="a-yl" type="number" min={1} step={1} className="input" placeholder="Unlimited" value={edit.yearly_limit ?? ''} onChange={(e) => setEdit({ ...edit, yearly_limit: e.target.value === '' ? null : Number(e.target.value) })} />
+          </Field>
           <label className="flex items-start gap-2 rounded-md border border-slate-200 p-2 text-sm"><input type="checkbox" className="mt-0.5" checked={edit.visible_to_requesters !== false} onChange={(e) => setEdit({ ...edit, visible_to_requesters: e.target.checked })} />
             <span><span className="font-medium">Visible to requesters</span><span className="block text-xs text-slate-500">Turn off to keep this type admin-only: requesters never see it or can book it, but admins can still book it (e.g. via Manual Allocation).</span></span></label>
           <div className="space-y-2 rounded-md border border-slate-200 p-2">

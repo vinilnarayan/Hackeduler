@@ -99,6 +99,8 @@ export interface ActivityType {
   sort_order: number
   visible_to_requesters: boolean
   deleted_at: string | null
+  yearly_limit?: number | null
+  quota?: { year: number; limit: number; used: number; remaining: number } | null
   initiation_email_enabled?: boolean
   initiation_days_before?: number | null
   initiation_details?: string | null

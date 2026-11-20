@@ -48,7 +48,7 @@ schema is at `/api/openapi.json`.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/resources` | Anonymous resources `{id, code, display_name, is_active}` |
-| GET | `/api/activity-types` | Active activity types that are visible to requesters (types marked admin-only are never listed and cannot be booked or previewed by requesters) |
+| GET | `/api/activity-types` | Active activity types that are visible to requesters, each with `yearly_limit` and, when limited, `quota` `{year, limit, used, remaining}` for the current year (types marked admin-only are never listed and cannot be booked or previewed by requesters) |
 | GET | `/api/holidays?start&end` | Holidays |
 | GET | `/api/settings/public` | Timezone, today, working weekdays, expiry and cancellation policy |
 | GET | `/api/calendar?start&end[&activity_type_id]` | Anonymous availability grid (≤ ~6 months). With `activity_type_id`, free days from which the activity would not fit are `limited`. Days before today carry `past: true` and are never fit-checked (they cannot start a booking) |
@@ -185,7 +185,7 @@ completes an approved booking that has no resource. The dashboard accepts `produ
 | GET | `/api/admin/resources?include_deleted=true` / POST `/api/admin/resources/{id}/restore` | Show / restore archived resources (restored as inactive) |
 | PATCH | `/api/admin/resources/{id}` | Edit. Deactivate: `{"is_active": false}` (immediately) or `{"inactive_from": "YYYY-MM-DD"}` (from a date, today or later). `{"inactive_from": null}` cancels a scheduled deactivation; `{"is_active": true}` reactivates. Optional `reason`. The response lists flagged bookings |
 | GET | `/api/admin/resources/{id}/allocation` | Engineer's bookings and leave |
-| GET/POST | `/api/admin/activity-types[?include_deleted=true]` | List / add. Fields include `visible_to_requesters` (false = admin-only), `initiation_email_enabled`, `initiation_days_before` (null = global setting) and `initiation_details` (null = built-in checklist, returned as `initiation_details_default`) |
+| GET/POST | `/api/admin/activity-types[?include_deleted=true]` | List / add. Fields include `visible_to_requesters` (false = admin-only), `yearly_limit` (positive integer, null = unlimited), `initiation_email_enabled`, `initiation_days_before` (null = global setting) and `initiation_details` (null = built-in checklist, returned as `initiation_details_default`) |
 | POST | `/api/admin/activity-types/details-preview` | `{details}` -> `{html, plain}`: how the "Details to ask the POC for" text (rich HTML with tables, or older plain text) will look in the Activity initiation email; cleaned exactly as when sent |
 | PATCH | `/api/admin/activity-types/{id}` | Edit / (de)activate / hide. Durations must be positive integers |
 | DELETE | `/api/admin/activity-types/{id}` | Remove. Never-used types are deleted (`mode: removed`); types in booking history are archived (`mode: archived`: hidden everywhere, not bookable, existing bookings unchanged, name reusable) |

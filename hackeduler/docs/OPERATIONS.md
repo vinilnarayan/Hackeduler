@@ -217,3 +217,14 @@ a new tab. No backend or database change.
 Status — Active / Disabled, plus Deleted when "Show deleted" is on) and a search box that matches any column in the table (name, email,
 role, resource, products, implementation, sign-in, status, last login). Several words must all match. The counts follow the search.
 Frontend only; no backend or database change.
+
+### Yearly booking limit per activity type
+
+**Admin → Activity types → Edit → "Bookings accepted per calendar year"** sets a maximum for that type (empty = unlimited, the default).
+The year is the calendar year of the booking's start date (for a request with no date, the year it is approved). A booking uses the balance
+once an admin **approves** it (approved or completed); pending, rejected, cancelled and expired requests do not. Example: limit 10 for 2027 means
+the first requester sees "Balance for 2027: 10 of 10", and after one approval the next requester sees 9.
+
+When the year is full, requesters cannot submit that type for that year and the booking form says so; an admin cannot approve another pending
+request until the limit is raised (bookings created by an admin directly, e.g. Manual Allocation, still count but are never blocked).
+Requires migration 0019 (`./deploy.sh` runs it; it only adds a nullable column, existing data is untouched).
