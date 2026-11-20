@@ -18,6 +18,7 @@ interface AutoResult {
   work_dates: string[]
   reason: string | null
   message: string
+  quota?: { year: number; limit: number; used: number; remaining: number } | null
   suggested_start_date: string | null
   available_resources: number
 }
@@ -50,6 +51,7 @@ export default function NewBooking() {
   const [submitErr, setSubmitErr] = useState<string | null>(null)
   const activity = useMemo(() => acts.data?.find((a) => a.id === activityId), [acts.data, activityId])
   const needsResource = activity?.requires_resource ?? true
+  const quota = activity ? (check?.quota ?? activity.quota ?? null) : null   // balance for the year of the chosen start date
 
   useEffect(() => { if (mine.data?.default_implementation_id && !implementationId) setImplementationId(mine.data.default_implementation_id) }, [mine.data])
   const products = mine.data?.products ?? []
@@ -129,6 +131,14 @@ export default function NewBooking() {
             </Field>
           )}
         </div>
+
+        {activity && quota && (
+          <div data-testid="yearly-balance" className={`rounded border p-3 text-sm ${quota.remaining > 0 ? 'border-sky-200 bg-sky-50 text-sky-900' : 'border-red-200 bg-red-50 text-red-800'}`}>
+            {quota.remaining > 0
+              ? <>Balance for {quota.year}: <b className="tabular-nums">{quota.remaining}</b> of {quota.limit} {activity.name} {quota.limit === 1 ? 'booking' : 'bookings'} remaining.</>
+              : <>No {activity.name} bookings remain for {quota.year} (limit {quota.limit}).</>}
+          </div>
+        )}
 
         <div aria-live="polite">
           {checking && <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Checking availability…</div>}

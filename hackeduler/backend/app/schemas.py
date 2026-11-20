@@ -162,6 +162,8 @@ class ActivityOut(ORM):
     sort_order: int
     visible_to_requesters: bool = True
     deleted_at: datetime | None = None
+    yearly_limit: int | None = None
+    quota: dict | None = None      # {year, limit, used, remaining}; only filled for requesters
 
 
 class ActivityAdminOut(ActivityOut):
@@ -181,6 +183,7 @@ class ActivityCreate(Strict):
     max_additional_days: int = Field(default=0, ge=0, le=250, strict=True)
     sort_order: int = 0
     visible_to_requesters: bool = True
+    yearly_limit: int | None = Field(default=None, ge=1, le=100000, strict=True)
     initiation_email_enabled: bool = True
     initiation_days_before: int | None = Field(default=None, ge=0, le=365, strict=True)
     initiation_details: str | None = Field(default=None, max_length=20000)
@@ -196,6 +199,7 @@ class ActivityUpdate(Strict):
     is_active: bool | None = None
     sort_order: int | None = None
     visible_to_requesters: bool | None = None
+    yearly_limit: int | None = Field(default=None, ge=1, le=100000, strict=True)
     initiation_email_enabled: bool | None = None
     initiation_days_before: int | None = Field(default=None, ge=0, le=365, strict=True)
     initiation_details: str | None = Field(default=None, max_length=20000)

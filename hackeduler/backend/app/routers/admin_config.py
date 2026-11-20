@@ -223,7 +223,7 @@ def resource_allocation(resource_id: uuid.UUID, start: date | None = None, end: 
 
 # =============================================================== activity types
 ACT_FIELDS = ("name", "description", "base_duration_days", "requires_resource", "allow_additional_days", "max_additional_days", "is_active", "sort_order",
-              "visible_to_requesters", "initiation_email_enabled", "initiation_days_before", "initiation_details")
+              "visible_to_requesters", "yearly_limit", "initiation_email_enabled", "initiation_days_before", "initiation_details")
 
 
 def _check_activity(a: ActivityType) -> None:

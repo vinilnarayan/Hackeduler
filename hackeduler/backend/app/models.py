@@ -219,6 +219,8 @@ class ActivityType(Base):
     initiation_email_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     initiation_days_before: Mapped[int | None] = mapped_column(Integer)
     initiation_details: Mapped[str | None] = mapped_column(Text)
+    # Max accepted bookings per calendar year (by start date); NULL = unlimited
+    yearly_limit: Mapped[int | None] = mapped_column(Integer)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -86,9 +86,11 @@ def list_resources(db: Session = Depends(get_db), _: User = Depends(get_requeste
 
 @router.get("/activity-types", response_model=list[ActivityOut])
 def list_activity_types(db: Session = Depends(get_db), _: User = Depends(get_requester_user)):
-    return db.scalars(select(ActivityType).where(ActivityType.is_active.is_(True), ActivityType.deleted_at.is_(None),
+    rows = db.scalars(select(ActivityType).where(ActivityType.is_active.is_(True), ActivityType.deleted_at.is_(None),
                                          ActivityType.visible_to_requesters.is_(True))
                       .order_by(ActivityType.sort_order, ActivityType.name)).all()
+    year = settings_service.org_today(db).year   # balance for the current year; the booking form refines it by start date
+    return [ActivityOut.model_validate(a).model_copy(update={"quota": booking_service.quota_for(db, a, year)}) for a in rows]
 
 
 @router.get("/holidays", response_model=list[HolidayOut])

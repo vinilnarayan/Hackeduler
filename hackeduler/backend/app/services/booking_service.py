@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import Date, cast, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -257,6 +257,28 @@ def _get_activity(db: Session, activity_type_id: uuid.UUID, *, must_be_active: b
     if must_be_active and not a.is_active:
         raise bad_request("The selected activity type is not available for new bookings.")
     return a
+
+
+QUOTA_STATUSES = (BookingStatus.APPROVED, BookingStatus.COMPLETED)
+
+
+def quota_for(db: Session, activity: ActivityType, year: int) -> dict[str, Any] | None:
+    """Yearly balance of an activity type, or None when it is unlimited. A booking counts once an admin has accepted it
+    (approved/completed) and belongs to the calendar year of its start date."""
+    if activity.yearly_limit is None:
+        return None
+    when = func.coalesce(Booking.start_date, cast(Booking.approved_at, Date))
+    used = db.scalar(select(func.count()).select_from(Booking).where(
+        Booking.activity_type_id == activity.id, Booking.status.in_(QUOTA_STATUSES),
+        func.extract("year", when) == year)) or 0
+    return {"year": year, "limit": activity.yearly_limit, "used": used, "remaining": max(activity.yearly_limit - used, 0)}
+
+
+def _ensure_quota(db: Session, activity: ActivityType, year: int, *, approving: bool = False) -> None:
+    q = quota_for(db, activity, year)
+    if q is not None and q["remaining"] <= 0:
+        who = "An administrator can raise the limit on the Activity types page." if approving else "Please contact the OffSec team."
+        raise conflict(f"{activity.name} has reached its limit of {q['limit']} bookings for {year}. {who}", "yearly_limit_reached")
 
 
 def ensure_force_allowed(actor: User, force: ForceOptions | None, *, booking_id=None) -> None:
@@ -539,9 +561,12 @@ def preview_auto(db: Session, actor: User, activity_type_id: uuid.UUID, start: d
     base = {"activity_type_id": str(activity.id), "activity_name": activity.name, "requires_resource": activity.requires_resource,
             "duration_days": duration, "start_date": start.isoformat() if start else None, "end_date": None,
             "work_dates": [], "resource_id": None, "resource_display_name": None, "available": False, "reason": None,
-            "message": "", "suggested_start_date": None, "available_resources": 0}
+            "message": "", "suggested_start_date": None, "available_resources": 0,
+            "quota": quota_for(db, activity, (start or today).year)}
     if start is not None and start < today:
         return {**base, "reason": "past_date", "message": "The start date cannot be in the past."}
+    if base["quota"] and base["quota"]["remaining"] <= 0:
+        return {**base, "reason": "yearly_limit_reached", "message": f"{activity.name} has reached its limit of {base['quota']['limit']} bookings for {base['quota']['year']}."}
     if not activity.requires_resource:
         s_, e_, d_ = _resourceless_dates(db, start, duration)
         return {**base, "available": True, "start_date": s_.isoformat() if s_ else None, "end_date": e_.isoformat() if e_ else None,
@@ -700,6 +725,7 @@ def submit_booking(db: Session, actor: User, inp: BookingInput) -> Booking:
     if inp.start_date is not None and inp.start_date < settings_service.org_today(db):
         raise bad_request("The start date cannot be in the past.", "past_date")
     product_id, implementation_id = resolve_product(db, actor, inp.product_id, inp.implementation_id, for_admin=False)
+    _ensure_quota(db, activity, (inp.start_date or settings_service.org_today(db)).year)
 
     if not activity.requires_resource:
         if inp.resource_id:
@@ -810,6 +836,9 @@ def approve(db: Session, admin: User, booking_id: uuid.UUID, force: ForceOptions
         raise conflict(f"Only pending bookings can be approved (current status: {BookingStatus.LABELS[b.status]}).", "invalid_state")
     if _is_expired(db, b):
         raise conflict("This request has expired and its reservation has been released.", "booking_expired")
+    act = db.get(ActivityType, b.activity_type_id)
+    if act is not None:
+        _ensure_quota(db, act, (b.start_date or settings_service.org_today(db)).year, approving=True)
     if not b.requires_resource:
         prev = audit.booking_snapshot(b)
         _set_status(db, b, BookingStatus.APPROVED, admin, "Approved")
