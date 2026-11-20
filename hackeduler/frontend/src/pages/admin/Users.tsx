@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Plus } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Plus, Search } from 'lucide-react'
 import { del, get, patch, post, validationMessage } from '../../api/client'
 import type { Product, ResourceAdmin, User } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -10,12 +10,28 @@ import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
 import { SortTh, useSort } from '../../components/SortTh'
 
+const signInOf = (u: User) => (u.sso_provider_id ? 'SSO' : u.has_password ? 'Password' : 'SSO (not yet signed in)')
+const statusOf = (u: User) => (u.deleted_at ? 'Deleted' : u.is_active ? 'Active' : 'Disabled')
+const lastMethod = (u: User) => (u.last_login_method ? (u.last_login_method.startsWith('sso:') ? `via SSO (${u.last_login_method.slice(4)})` : 'via password') : '')
+/** Everything visible in a row, as one lowercase string, so the search box matches any column. */
+const searchText = (u: User) => [
+  u.full_name, u.email, u.role, u.resource_name, u.product_name, u.products?.map((p) => p.name).join(' '), u.implementation_name,
+  u.sso_provider_id ? `SSO ${u.sso_provider_name ?? ''}` : '', u.has_password ? 'Password' : '', signInOf(u), statusOf(u),
+  u.deleted_at ? fmtDateTime(u.deleted_at) : '', fmtDateTime(u.last_login_at), lastMethod(u),
+].filter(Boolean).join(' ').toLowerCase()
+const tally = (users: User[], keys: string[], of: (u: User) => string[]) => keys.map((k) => [k, users.filter((u) => of(u).includes(k)).length] as const)
+
 export default function UsersPage() {
   const toast = useToast()
   const { user: me } = useAuth()
   const [showDeleted, setShowDeleted] = useState(false)
   const { data, error, loading, reload } = useAsync<User[]>(() => get(`/api/admin/users${showDeleted ? '?include_deleted=true' : ''}`), [showDeleted])
-  const tbl = useSort(data, { name: (u) => u.full_name, email: (u) => u.email, role: (u) => u.role, product: (u) => u.product_name, signin: (u) => (u.sso_provider_id ? 'SSO' : u.has_password ? 'Password' : 'SSO (pending)'), status: (u) => (u.deleted_at ? 'Deleted' : u.is_active ? 'Active' : 'Disabled'), last: (u) => u.last_login_at })
+  const [q, setQ] = useState('')
+  const shown = useMemo(() => {
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
+    return terms.length ? (data ?? []).filter((u) => { const t = searchText(u); return terms.every((x) => t.includes(x)) }) : (data ?? [])
+  }, [data, q])
+  const tbl = useSort(shown, { name: (u) => u.full_name, email: (u) => u.email, role: (u) => u.role, product: (u) => u.product_name, signin: signInOf, status: statusOf, last: (u) => u.last_login_at })
   const [remove, setRemove] = useState<User | null>(null)
   const products = useAsync<Product[]>(() => get('/api/admin/products'))
   const resources = useAsync<ResourceAdmin[]>(() => get('/api/admin/resources'))
@@ -46,8 +62,17 @@ export default function UsersPage() {
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} />Show deleted</label>
           <button className="btn-primary" onClick={() => setEdit({ role: 'requester', email: '', full_name: '', password: '', sso_only: true })}><Plus className="h-4 w-4" />Add user</button>
         </>} />
+      <div className="mb-3 flex flex-wrap gap-2 text-sm" aria-live="polite" data-testid="user-counts">
+        <span className="card px-3 py-1.5"><b className="tabular-nums">{shown.length}</b> {shown.length === 1 ? 'user' : 'users'}{q.trim() && data ? <> of <span className="tabular-nums">{data.length}</span></> : null}</span>
+        <span className="card px-3 py-1.5">Role: {tally(shown, ['admin', 'requester', 'resource'], (u) => [u.role]).map(([k, n], i) => <span key={k}>{i > 0 && ' · '}{k[0].toUpperCase() + k.slice(1)} <b className="tabular-nums">{n}</b></span>)}</span>
+        <span className="card px-3 py-1.5">Sign-in: {tally(shown, ['SSO', 'Password', 'SSO (not yet signed in)'], (u) => [signInOf(u), ...(u.sso_provider_id && u.has_password ? ['Password'] : [])]).map(([k, n], i) => <span key={k}>{i > 0 && ' · '}{k} <b className="tabular-nums">{n}</b></span>)}</span>
+        <span className="card px-3 py-1.5">Status: {tally(shown, ['Active', 'Disabled', ...(showDeleted ? ['Deleted'] : [])], (u) => [statusOf(u)]).map(([k, n], i) => <span key={k}>{i > 0 && ' · '}{k} <b className="tabular-nums">{n}</b></span>)}</span>
+      </div>
+      <div className="card mb-3 p-3">
+        <label className="relative block"><span className="sr-only">Search users</span><Search className="absolute top-2 left-2 h-4 w-4 text-slate-400" /><input className="input pl-8" type="search" placeholder="Search name, email, role, product, sign-in, status, last login…" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+      </div>
       <div className="card overflow-x-auto">
-        {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No users" /> : (
+        {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <Empty title="No users" /> : !shown.length ? <Empty title="No users match your search" /> : (
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50"><tr><SortTh label="Name" k="name" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Email" k="email" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Role" k="role" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Product / implementation" k="product" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Sign-in" k="signin" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Last login" k="last" sort={tbl.sort} onToggle={tbl.toggle} /><th className="th" /></tr></thead>
             <tbody className="divide-y divide-slate-100">{tbl.sorted.map((u) => (
@@ -60,7 +85,7 @@ export default function UsersPage() {
                   {!u.sso_provider_id && !u.has_password && <Pill className="bg-amber-100 text-amber-800">SSO (not yet signed in)</Pill>}
                 </div></td>
                 <td className="td">{u.deleted_at ? <Pill className="bg-red-100 text-red-800">Deleted {fmtDateTime(u.deleted_at)}</Pill> : u.is_active ? <Pill className="bg-emerald-100 text-emerald-800">Active</Pill> : <Pill>Disabled</Pill>}</td>
-                <td className="td text-xs">{fmtDateTime(u.last_login_at)}{u.last_login_method && <div className="text-slate-500">{u.last_login_method.startsWith('sso:') ? `via SSO (${u.last_login_method.slice(4)})` : 'via password'}</div>}</td>
+                <td className="td text-xs">{fmtDateTime(u.last_login_at)}{u.last_login_method && <div className="text-slate-500">{lastMethod(u)}</div>}</td>
                 <td className="td whitespace-nowrap">{u.deleted_at ? <button className="btn-secondary" onClick={() => restore(u)}>Restore</button> : <div className="flex gap-1"><button className="btn-secondary" onClick={() => setEdit({ ...u, password: '' })}>Edit</button>{u.id !== me?.id && <><button className="btn-secondary" onClick={() => toggle(u)}>{u.is_active ? 'Disable' : 'Enable'}</button><button className="btn-ghost px-2 text-red-700" onClick={() => setRemove(u)}>Delete</button></>}</div>}</td></tr>
             ))}</tbody>
           </table>

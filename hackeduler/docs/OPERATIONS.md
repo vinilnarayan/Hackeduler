@@ -219,3 +219,10 @@ reads "Hello Name1, Name2,".
 updated when a row is opened and cleared when the window is closed; other filters in the address are kept). In **Team Calendar**,
 the application name and version in the day popup link there, so the booking can be opened in the same tab or, with Ctrl/Cmd-click,
 a new tab. No backend or database change.
+
+### Users page: counts and search
+
+**Admin → Users** shows a summary strip at the top (users shown, by Role, by Sign-in — SSO / Password / SSO not yet signed in — and by
+Status — Active / Disabled, plus Deleted when "Show deleted" is on) and a search box that matches any column in the table (name, email,
+role, resource, products, implementation, sign-in, status, last login). Several words must all match. The counts follow the search.
+Frontend only; no backend or database change.
