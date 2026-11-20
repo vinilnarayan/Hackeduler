@@ -75,3 +75,17 @@ def test_applies_to_resource_activities_too(admin, req1, data):
     assert admin.post(f"/api/admin/bookings/{b['id']}/approve").status_code == 200
     r = req1.post("/api/bookings", json=booking_payload(data))
     assert r.status_code == 409 and "yearly_limit_reached" in r.text
+
+
+def test_admin_quota_endpoint_and_manual_booking_still_allowed(admin, req1, data):
+    scan = _scan(admin, 1)
+    assert admin.get(f"/api/admin/activity-types/{scan['id']}/quota?year=2027").json()["quota"] == {"year": 2027, "limit": 1, "used": 0, "remaining": 1}
+    r = admin.post("/api/admin/bookings", json=_payload(data, scan, "2027-03-01"))
+    assert r.status_code in (200, 201), r.text
+    assert admin.get(f"/api/admin/activity-types/{scan['id']}/quota?year=2027").json()["quota"]["remaining"] == 0
+    # admins are never blocked: a second manual booking goes through and the balance stays at 0
+    assert admin.post("/api/admin/bookings", json=_payload(data, scan, "2027-03-02")).status_code in (200, 201)
+    assert admin.get(f"/api/admin/activity-types/{scan['id']}/quota?year=2027").json()["quota"]["remaining"] == 0
+    free = admin.post("/api/admin/activity-types", json={"name": "Unlimited", "requires_resource": False}).json()
+    assert admin.get(f"/api/admin/activity-types/{free['id']}/quota").json()["quota"] is None
+    assert req1.get(f"/api/admin/activity-types/{scan['id']}/quota").status_code == 403
