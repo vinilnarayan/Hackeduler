@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -27,12 +27,42 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class NameIn(_Strict):
+MAX_TAGS, MAX_TAG_LEN = 20, 40
+
+
+def clean_tags(raw: list[str] | None) -> list[str]:
+    """Trim, collapse spaces, drop empties and case-insensitive duplicates (first spelling wins), keep the entered order."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in raw or []:
+        t = " ".join(str(t).split())
+        if not t:
+            continue
+        if len(t) > MAX_TAG_LEN:
+            raise ValueError(f"A tag can have at most {MAX_TAG_LEN} characters.")
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    if len(out) > MAX_TAGS:
+        raise ValueError(f"At most {MAX_TAGS} tags are allowed.")
+    return out
+
+
+class _Tags(_Strict):
+    tags: list[str] | None = None
+
+    @field_validator("tags")
+    @classmethod
+    def _tags(cls, v):
+        return None if v is None else clean_tags(v)
+
+
+class NameIn(_Tags):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=1000)
 
 
-class NameUpdate(_Strict):
+class NameUpdate(_Tags):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=1000)
     is_active: bool | None = None
@@ -56,14 +86,14 @@ def _product_counts(db: Session, product_id) -> dict:
 
 def _impl_out(db: Session, i: Implementation) -> dict:
     return {"id": str(i.id), "product_id": str(i.product_id), "name": i.name, "description": i.description,
-            "is_active": i.is_active, **_counts(db, lambda m: m.implementation_id, i.id)}
+            "is_active": i.is_active, "tags": list(i.tags or []), **_counts(db, lambda m: m.implementation_id, i.id)}
 
 
 def _product_out(db: Session, p: Product, include_inactive: bool = True) -> dict:
     q = select(Implementation).where(Implementation.product_id == p.id).order_by(Implementation.name)
     if not include_inactive:
         q = q.where(Implementation.is_active.is_(True))
-    return {"id": str(p.id), "name": p.name, "description": p.description, "is_active": p.is_active,
+    return {"id": str(p.id), "name": p.name, "description": p.description, "is_active": p.is_active, "tags": list(p.tags or []),
             **_product_counts(db, p.id),
             "implementations": [_impl_out(db, i) for i in db.scalars(q).unique().all()]}
 
@@ -86,7 +116,7 @@ def list_products(db: Session = Depends(get_db)):
 def create_product(body: NameIn, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     if _name_taken(db, Product, body.name):
         raise conflict("A product with that name already exists.", "duplicate")
-    p = Product(id=uuid.uuid4(), name=body.name, description=body.description)
+    p = Product(id=uuid.uuid4(), name=body.name, description=body.description, tags=body.tags or [])
     db.add(p)
     db.flush()
     audit.record(db, "product.created", admin, entity_type="product", entity_id=p.id, new=body.model_dump())
@@ -100,9 +130,11 @@ def update_product(product_id: uuid.UUID, body: NameUpdate, db: Session = Depend
     if p is None:
         raise not_found("Product")
     data = body.model_dump(exclude_unset=True)
+    if data.get("tags", 0) is None:
+        data["tags"] = []
     if "name" in data and _name_taken(db, Product, data["name"], exclude=p.id):
         raise conflict("A product with that name already exists.", "duplicate")
-    prev = {"name": p.name, "description": p.description, "is_active": p.is_active}
+    prev = {"name": p.name, "description": p.description, "is_active": p.is_active, "tags": list(p.tags or [])}
     for k, v in data.items():
         setattr(p, k, v)
     audit.record(db, "product.updated", admin, entity_type="product", entity_id=p.id, previous=prev, new=data)
@@ -134,7 +166,7 @@ def create_implementation(product_id: uuid.UUID, body: NameIn, db: Session = Dep
         raise not_found("Product")
     if _name_taken(db, Implementation, body.name, scope=Implementation.product_id == p.id):
         raise conflict(f"{p.name} already has an implementation with that name.", "duplicate")
-    i = Implementation(id=uuid.uuid4(), product_id=p.id, name=body.name, description=body.description)
+    i = Implementation(id=uuid.uuid4(), product_id=p.id, name=body.name, description=body.description, tags=body.tags or [])
     db.add(i)
     db.flush()
     audit.record(db, "implementation.created", admin, entity_type="implementation", entity_id=i.id,
@@ -150,10 +182,12 @@ def update_implementation(implementation_id: uuid.UUID, body: NameUpdate, db: Se
     if i is None:
         raise not_found("Implementation")
     data = body.model_dump(exclude_unset=True)
+    if data.get("tags", 0) is None:
+        data["tags"] = []
     if "name" in data and _name_taken(db, Implementation, data["name"], scope=Implementation.product_id == i.product_id,
                                       exclude=i.id):
         raise conflict("That product already has an implementation with that name.", "duplicate")
-    prev = {"name": i.name, "description": i.description, "is_active": i.is_active}
+    prev = {"name": i.name, "description": i.description, "is_active": i.is_active, "tags": list(i.tags or [])}
     for k, v in data.items():
         setattr(i, k, v)
     audit.record(db, "implementation.updated", admin, entity_type="implementation", entity_id=i.id, previous=prev, new=data)

@@ -21,6 +21,7 @@ from ..models import (
     BookingResourceLock,
     BookingStatus,
     Holiday,
+    Implementation,
     LockStatus,
     Product,
     SecurityResource,
@@ -42,14 +43,27 @@ def _next_month(d: date) -> date:
     return (d.replace(day=28) + timedelta(days=4)).replace(day=1)
 
 
+def _tag_clause(db: Session, tag: str | None):
+    """Bookings whose product or implementation carries the tag (case-insensitive); None when no tag is given."""
+    if not tag or not tag.strip():
+        return None
+    want = tag.strip().lower()
+    pids = [p.id for p in db.scalars(select(Product)).all() if want in {t.lower() for t in (p.tags or [])}]
+    iids = [i.id for i in db.scalars(select(Implementation)).unique().all() if want in {t.lower() for t in (i.tags or [])}]
+    return or_(Booking.product_id.in_(pids), Booking.implementation_id.in_(iids))
+
+
 @router.get("/dashboard")
 def dashboard(start: date | None = None, end: date | None = None, product_id: uuid.UUID | None = None,
-              db: Session = Depends(get_db)):
+              tag: str | None = Query(default=None, max_length=60), db: Session = Depends(get_db)):
     today = settings_service.org_today(db)
     start = start or _month_start(today - timedelta(days=150))
     end = end or (_next_month(_next_month(_month_start(today))) - timedelta(days=1)) + timedelta(days=150)
     if end < start or (end - start).days > 800:
         raise bad_request("Invalid date range (max ~2 years).")
+
+    tag_clause = _tag_clause(db, tag)
+    extra_filters = [f for f in (Booking.product_id == product_id if product_id else None, tag_clause) if f is not None]
 
     resources = list(db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None)).order_by(SecurityResource.sequence_no)))
     active = [r for r in resources if r.is_active]
@@ -74,7 +88,7 @@ def dashboard(start: date | None = None, end: date | None = None, product_id: uu
         .join(Booking, Booking.id == BookingResourceLock.booking_id)
         .where(BookingResourceLock.work_date.between(start, end), BookingResourceLock.lock_status == LockStatus.CONFIRMED,
                Booking.status.in_([BookingStatus.APPROVED, BookingStatus.COMPLETED]),
-               *( [Booking.product_id == product_id] if product_id else []))
+               *extra_filters)
     ).all()
     used_by_month: Counter = Counter()
     used_by_resource: Counter = Counter()
@@ -104,7 +118,7 @@ def dashboard(start: date | None = None, end: date | None = None, product_id: uu
     total_used = sum(v for k, v in used_by_resource.items() if k in {r.id for r in active})
 
     # ---- booking stats
-    pf = [Booking.product_id == product_id] if product_id else []
+    pf = extra_filters
     # dated bookings overlapping the range, plus undated (resource-less) bookings submitted in the range
     in_range = db.scalars(select(Booking).where(
         or_(and_(Booking.start_date <= end, Booking.end_date >= start),
@@ -226,7 +240,7 @@ def _safe_cell(v):
 @router.get("/reports/bookings.{fmt}")
 def export_bookings(fmt: str, status: str | None = None, start: date | None = None, end: date | None = None,
                     resource_id: str | None = None, product_id: uuid.UUID | None = None,
-                    pci: bool | None = None, report_shared: bool | None = None, report_type: str | None = Query(None, max_length=10),
+                    tag: str | None = Query(None, max_length=60), pci: bool | None = None, report_shared: bool | None = None, report_type: str | None = Query(None, max_length=10),
                     limit: int = Query(10000, le=50000), db: Session = Depends(get_db),
                     admin: User = Depends(require_admin)):
     if fmt not in ("csv", "xlsx"):
@@ -246,6 +260,9 @@ def export_bookings(fmt: str, status: str | None = None, start: date | None = No
         q = q.where(or_(Booking.start_date <= end, and_(Booking.start_date.is_(None), func.date(Booking.submitted_at) <= end)))
     if product_id:
         q = q.where(Booking.product_id == product_id)
+    tc = _tag_clause(db, tag)
+    if tc is not None:
+        q = q.where(tc)
     if resource_id:
         q = q.where(Booking.uses_resource(resource_id))
     rows = db.scalars(q.order_by(Booking.start_date.nulls_last(), Booking.submitted_at).limit(limit)).unique().all()

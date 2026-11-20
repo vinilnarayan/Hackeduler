@@ -158,7 +158,7 @@ and `report_shared_at`, so the report state is visible to all roles; requesters 
 
 | Method | Path | Description |
 |---|---|---|
-| GET/POST | `/api/admin/products` | List (with implementations and usage counts) / create `{name, description}` |
+| GET/POST | `/api/admin/products` | List (with implementations and usage counts) / create `{name, description, tags}` (`tags`: up to 20 strings of at most 40 characters; trimmed, case-insensitive duplicates dropped) |
 | PATCH/DELETE | `/api/admin/products/{id}` | Edit / (de)activate / delete (only when unused) |
 | POST | `/api/admin/products/{id}/implementations` | Add an implementation |
 | PATCH/DELETE | `/api/admin/implementations/{id}` | Edit / (de)activate / delete (only when unused) |
@@ -225,5 +225,5 @@ accepts `remove_password` and `unlink_sso`.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/admin/dashboard?start&end` | KPIs (today) + charts (range): monthly utilisation, activity distribution, status distribution, resource allocation, monthly volume |
+| GET | `/api/admin/dashboard?start&end&product_id&tag` (`tag` keeps bookings whose product or implementation carries that tag, case-insensitive; the CSV/Excel export accepts the same `tag`) | KPIs (today) + charts (range): monthly utilisation, activity distribution, status distribution, resource allocation, monthly volume |
 | GET | `/api/admin/reports/bookings.csv` / `.xlsx` `?status&start&end&resource_id` | Export (formula-injection safe, audited) |

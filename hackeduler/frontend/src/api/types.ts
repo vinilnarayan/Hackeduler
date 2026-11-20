@@ -25,8 +25,8 @@ export interface User {
 
 export type ReportType = 'V1' | 'Met'
 
-export interface Implementation { id: string; product_id: string; name: string; description: string | null; is_active: boolean; users: number; bookings: number }
-export interface Product { id: string; name: string; description: string | null; is_active: boolean; users: number; bookings: number; implementations: Implementation[] }
+export interface Implementation { id: string; product_id: string; name: string; description: string | null; is_active: boolean; tags?: string[]; users: number; bookings: number }
+export interface Product { id: string; name: string; description: string | null; is_active: boolean; tags?: string[]; users: number; bookings: number; implementations: Implementation[] }
 
 export interface SSOProvider {
   id: string
