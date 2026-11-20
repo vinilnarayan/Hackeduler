@@ -17,7 +17,7 @@ describe('New booking: yearly balance', () => {
   beforeEach(() => {
     api.get.mockReset(); api.post.mockReset()
     api.get.mockImplementation((u: string) => Promise.resolve(u.includes('/api/me/implementations') ? { product: null, implementations: [], default_implementation_id: null, products: [] } : u.includes('/api/activity-types') ? acts : []))
-    api.post.mockResolvedValue({ available: true, requires_resource: false, message: 'ok', duration_days: null, start_date: '2027-03-01', end_date: null, work_dates: [], reason: null, suggested_start_date: null, available_resources: 0, resource_display_name: null, quota: { year: 2027, limit: 10, used: 0, remaining: 10 } })
+    api.post.mockImplementation((_u: string, b: any) => Promise.resolve({ available: true, requires_resource: false, message: 'ok', duration_days: null, start_date: '2027-03-01', end_date: null, work_dates: [], reason: null, suggested_start_date: null, available_resources: 0, resource_display_name: null, quota: b.activity_type_id === 'a1' ? { year: 2027, limit: 10, used: 0, remaining: 10 } : null }))
   })
 
   it('shows the balance on selecting a limited activity, and follows the start year', async () => {
@@ -34,6 +34,7 @@ describe('New booking: yearly balance', () => {
     render(<MemoryRouter><NewBooking /></MemoryRouter>)
     fireEvent.change(await screen.findByLabelText(/Activity type/), { target: { value: 'a2' } })
     await vi.waitFor(() => expect(api.post).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 50))
     expect(screen.queryByTestId('yearly-balance')).toBeNull()
   })
 })
