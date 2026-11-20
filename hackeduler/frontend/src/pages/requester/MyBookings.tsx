@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Search } from 'lucide-react'
 import { get, post, qs, validationMessage } from '../../api/client'
 import type { Booking, BookingStatus } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { Empty, ErrorState, Field, KV, Modal, PageHeader, Spinner, StatusBadge, ReportBadge } from '../../components/ui'
+import { Empty, ErrorState, Field, KV, Modal, PageHeader, Pill, Spinner, StatusBadge, ReportBadge } from '../../components/ui'
 import { fmt, fmtDateTime } from '../../lib/dates'
 import { STATUS_LABELS } from '../../lib/status'
 import { useAuth } from '../../lib/auth'
@@ -16,6 +16,16 @@ const TABS: { key: '' | BookingStatus; label: string }[] = [
   { key: 'completed', label: 'Completed' }, { key: 'rejected', label: 'Rejected' }, { key: 'cancelled', label: 'Cancelled' }, { key: 'expired', label: 'Expired' },
 ]
 
+/** Everything visible in a row, as one lowercase string, so the search box matches any column. */
+const searchText = (b: Booking) => [
+  b.application_name, b.id, b.application_version, b.is_mine ? 'You' : b.requester_name, b.product_name, b.implementation_name,
+  b.activity_name, b.duration_days ? `${b.duration_days} working days` : '', b.pci_dss_scope ? 'PCI scope' : 'Not in scope',
+  b.requires_resource ? b.resource_display_name : 'Not required',
+  b.start_date ? `${fmt(b.start_date)} – ${fmt(b.end_date)} ${b.start_date} ${b.end_date ?? ''}` : 'Date flexible',
+  STATUS_LABELS[b.status], b.pending_change_request ? 'Change requested' : '',
+  b.report_shared ? `Shared ${b.report_type === 'Met' ? 'Met report' : 'V1 report'}` : 'Not shared', fmtDateTime(b.submitted_at),
+].filter(Boolean).join(' ').toLowerCase()
+
 export default function MyBookings() {
   const [tab, setTab] = useState<'' | BookingStatus>('')
   const [q, setQ] = useState('')
@@ -24,8 +34,13 @@ export default function MyBookings() {
   const [scope, setScope] = useState<'mine' | 'product'>('mine')
   const manyProducts = (user?.products?.length ?? 0) > 1
   const productLabel = manyProducts ? 'All my products' : user?.product_name ?? ''
-  const { data, error, loading, reload } = useAsync<Booking[]>(() => get('/api/bookings/mine' + qs({ status: tab, q, scope })), [tab, q, scope])
-  const tbl = useSort(data, { app: (b) => b.application_name, version: (b) => b.application_version, by: (b) => b.requester_name, product: (b) => b.product_name, impl: (b) => b.implementation_name, activity: (b) => b.activity_name, resource: (b) => b.resource_display_name, dates: (b) => b.start_date, status: (b) => b.status, report: (b) => (b.report_shared ? (b.report_type ?? 'Shared') : ''), submitted: (b) => b.submitted_at })
+  const { data, error, loading, reload } = useAsync<Booking[]>(() => get('/api/bookings/mine' + qs({ status: tab, scope })), [tab, scope])
+  // Search runs here on every column shown in the table, so it also finds status, PCI, dates, report etc.
+  const shown = useMemo(() => {
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
+    return terms.length ? (data ?? []).filter((b) => { const t = searchText(b); return terms.every((x) => t.includes(x)) }) : (data ?? [])
+  }, [data, q])
+  const tbl = useSort(shown, { app: (b) => b.application_name, version: (b) => b.application_version, by: (b) => b.requester_name, product: (b) => b.product_name, impl: (b) => b.implementation_name, activity: (b) => b.activity_name, pci: (b) => (b.pci_dss_scope ? 1 : 0), resource: (b) => b.resource_display_name, dates: (b) => b.start_date, status: (b) => b.status, report: (b) => (b.report_shared ? (b.report_type ?? 'Shared') : ''), submitted: (b) => b.submitted_at })
   return (
     <div>
       <PageHeader title="My Bookings" subtitle={user?.product_name ? `Your own requests, or every booking of ${manyProducts ? 'your products' : user.product_name}. Only the person who made a booking can change it.` : 'Your own booking requests.'}
@@ -37,12 +52,12 @@ export default function MyBookings() {
         <div className="flex flex-wrap rounded-md border border-slate-300 bg-white p-0.5" role="tablist">
           {TABS.map((t) => <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)} className={`rounded px-3 py-1 text-sm ${tab === t.key ? 'bg-blue-700 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{t.label}</button>)}
         </div>
-        <label className="relative ml-auto"><span className="sr-only">Search applications or versions</span><Search className="absolute top-2 left-2 h-4 w-4 text-slate-400" /><input className="input w-64 pl-8" placeholder="Search application or version…" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+        <label className="relative ml-auto"><span className="sr-only">Search bookings</span><Search className="absolute top-2 left-2 h-4 w-4 text-slate-400" /><input className="input w-64 pl-8" placeholder="Search all columns…" value={q} onChange={(e) => setQ(e.target.value)} /></label>
       </div>
       <div className="card overflow-x-auto">
-        {error ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : !data?.length ? <Empty title="No bookings found" hint="Create a new booking request from the calendar." /> : (
+        {error ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : !data?.length ? <Empty title="No bookings found" hint="Create a new booking request from the calendar." /> : !shown.length ? <Empty title="No bookings match your search" /> : (
           <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50"><tr><SortTh label="Application" k="app" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Version" k="version" sort={tbl.sort} onToggle={tbl.toggle} />{scope === 'product' && <SortTh label="Requested by" k="by" sort={tbl.sort} onToggle={tbl.toggle} />}{manyProducts && <SortTh label="Product" k="product" sort={tbl.sort} onToggle={tbl.toggle} />}<SortTh label="Implementation" k="impl" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Activity" k="activity" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Resource" k="resource" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Dates" k="dates" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Report" k="report" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Submitted" k="submitted" sort={tbl.sort} onToggle={tbl.toggle} /></tr></thead>
+            <thead className="bg-slate-50"><tr><SortTh label="Application" k="app" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Version" k="version" sort={tbl.sort} onToggle={tbl.toggle} />{scope === 'product' && <SortTh label="Requested by" k="by" sort={tbl.sort} onToggle={tbl.toggle} />}{manyProducts && <SortTh label="Product" k="product" sort={tbl.sort} onToggle={tbl.toggle} />}<SortTh label="Implementation" k="impl" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Activity" k="activity" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="PCI scope" k="pci" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Resource" k="resource" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Dates" k="dates" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Report" k="report" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Submitted" k="submitted" sort={tbl.sort} onToggle={tbl.toggle} /></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {tbl.sorted.map((b) => (
                 <tr key={b.id} className="cursor-pointer hover:bg-slate-50" tabIndex={0} onClick={() => setSel(b)} onKeyDown={(e) => e.key === 'Enter' && setSel(b)}>
@@ -52,6 +67,7 @@ export default function MyBookings() {
                   {manyProducts && <td className="td text-xs">{b.product_name ?? '—'}</td>}
                   <td className="td text-xs">{b.implementation_name ?? '—'}</td>
                   <td className="td">{b.activity_name}{b.duration_days ? <div className="text-xs text-slate-500">{b.duration_days} working days</div> : null}</td>
+                  <td className="td">{b.pci_dss_scope ? <Pill className="bg-amber-100 text-amber-800">PCI</Pill> : <span className="text-xs text-slate-500">Not in scope</span>}</td>
                   <td className="td">{b.requires_resource ? b.resource_display_name : <span className="text-xs text-slate-500">Not required</span>}</td>
                   <td className="td whitespace-nowrap">{b.start_date ? <>{fmt(b.start_date)} – {fmt(b.end_date)}</> : <span className="text-xs text-slate-500">Date flexible</span>}</td>
                   <td className="td"><StatusBadge status={b.status} />{b.pending_change_request && <div className="mt-1 text-xs text-amber-700">Change requested</div>}</td>
