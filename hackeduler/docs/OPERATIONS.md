@@ -247,3 +247,11 @@ of 40 characters each. Tags are only for grouping, nothing else changes. The **A
 Product filter (shown once any tag exists); choosing a tag limits every KPI and chart to bookings whose product **or** implementation has
 that tag (case-insensitive), and combines with the Product and date filters. The CSV/Excel download from the dashboard follows the tag too.
 Requires migration 0020 (adds an empty tag list to both tables; existing data is untouched).
+
+### My Bookings: PCI scope and search
+
+**My Bookings** (requester) has a **PCI scope** column (a "PCI" badge when the booking is in PCI DSS scope, otherwise "Not in scope"; sortable)
+and a search box that matches every column in the table (application, booking id, version, requested by, product, implementation, activity,
+PCI, resource, dates, status, report, submitted). Several words must all match. Search runs in the browser on the loaded list, so it is
+instant; the status tabs and "My bookings / product bookings" switch still filter on the server. The full booking id is shown on this page
+and on the admin Bookings page. Frontend only.
