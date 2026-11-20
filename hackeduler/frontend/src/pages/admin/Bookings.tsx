@@ -64,7 +64,7 @@ export default function AdminBookings() {
             <tbody className="divide-y divide-slate-100">
               {data.items.map((b) => (
                 <tr key={b.id} tabIndex={0} className="cursor-pointer hover:bg-slate-50" onClick={() => setSel(b.id)} onKeyDown={(e) => e.key === 'Enter' && setSel(b.id)}>
-                  <td className="td font-mono text-xs" title={b.id}>{b.id.slice(0, 8)}…</td>
+                  <td className="td min-w-[17rem] font-mono text-xs break-all" title={b.id}>{b.id}</td>
                   <td className="td"><div className="font-medium">{b.application_name}</div></td>
                   <td className="td whitespace-nowrap">{b.application_version}</td>
                   <td className="td text-xs">{b.product_name ?? <span className="text-slate-400">—</span>}{b.implementation_name && <div className="text-slate-500">{b.implementation_name}</div>}</td>
