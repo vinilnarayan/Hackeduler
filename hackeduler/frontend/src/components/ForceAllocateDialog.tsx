@@ -48,7 +48,7 @@ export function ForceAllocateDialog({ open, details, onClose, onConfirm }: {
                 <thead className="bg-slate-50"><tr><SortTh label="Booking" k="booking" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Application" k="app" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Dates" k="dates" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="POC" k="poc" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /></tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {tbl.sorted.map((b) => (
-                    <tr key={b.id}><td className="td font-mono text-xs">{b.id.slice(0, 8)}…</td><td className="td">{b.application_name}</td>
+                    <tr key={b.id}><td className="td font-mono text-xs">{b.id}</td><td className="td">{b.application_name}</td>
                       <td className="td whitespace-nowrap">{fmt(b.start_date)} – {fmt(b.end_date)}</td><td className="td">{b.poc_name}<div className="text-xs text-slate-500">{b.poc_email}</div></td>
                       <td className="td"><StatusBadge status={b.status as any} /></td></tr>
                   ))}

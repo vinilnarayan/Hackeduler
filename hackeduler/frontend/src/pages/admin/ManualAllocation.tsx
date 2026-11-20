@@ -157,7 +157,7 @@ export default function ManualAllocation() {
           <div className={`rounded-md border p-3 text-sm ${check.available ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`} aria-live="polite">
             <div className="flex items-center gap-2 font-semibold">{check.available ? <CheckCircle2 className="h-4 w-4 text-emerald-700" /> : <AlertCircle className="h-4 w-4 text-amber-700" />}{check.available ? 'Available' : check.message}</div>
             <div className="mt-1 text-xs">Standard calculation: {fmt(check.start_date)} – {fmt(check.end_date)} ({check.duration_days} working {check.duration_days === 1 ? 'day' : 'days'}){f.duration_mode !== 'activity' && ' · your override will be applied on save'}</div>
-            {check.issues.map((i, n) => <div key={n} className="text-xs text-slate-700">• {i.message}{i.booking_ids?.length ? ` (bookings ${i.booking_ids.map((x) => x.slice(0, 8)).join(', ')})` : ''}</div>)}
+            {check.issues.map((i, n) => <div key={n} className="text-xs text-slate-700">• {i.message}{i.booking_ids?.length ? ` (bookings ${i.booking_ids.join(', ')})` : ''}</div>)}
           </div>
         )}
         {f.end_date && f.end_date < f.start_date && <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm" role="alert">End date must be on or after the start date.</div>}

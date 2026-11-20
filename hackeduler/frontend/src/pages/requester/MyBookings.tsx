@@ -46,7 +46,7 @@ export default function MyBookings() {
             <tbody className="divide-y divide-slate-100">
               {tbl.sorted.map((b) => (
                 <tr key={b.id} className="cursor-pointer hover:bg-slate-50" tabIndex={0} onClick={() => setSel(b)} onKeyDown={(e) => e.key === 'Enter' && setSel(b)}>
-                  <td className="td"><div className="font-medium">{b.application_name}</div><div className="text-xs text-slate-500"><span className="font-mono">{b.id.slice(0, 8)}</span></div></td>
+                  <td className="td"><div className="font-medium">{b.application_name}</div><div className="text-xs text-slate-500"><span className="font-mono break-all">{b.id}</span></div></td>
                   <td className="td whitespace-nowrap">{b.application_version}</td>
                   {scope === 'product' && <td className="td text-xs">{b.is_mine ? 'You' : b.requester_name}</td>}
                   {manyProducts && <td className="td text-xs">{b.product_name ?? '—'}</td>}
