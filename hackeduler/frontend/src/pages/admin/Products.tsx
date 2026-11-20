@@ -4,24 +4,26 @@ import { del, get, patch, post, validationMessage } from '../../api/client'
 import type { Implementation, Product } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Empty, ErrorState, Field, Modal, PageHeader, Pill, Spinner } from '../../components/ui'
+import { TagInput, collectTags } from '../../components/TagInput'
 import { useToast } from '../../lib/toast'
 import { useAsync } from '../../lib/useAsync'
 
 type EditTarget =
-  | { kind: 'product'; id?: string; name: string; description: string }
-  | { kind: 'implementation'; id?: string; productId: string; productName: string; name: string; description: string }
+  | { kind: 'product'; id?: string; name: string; description: string; tags: string[] }
+  | { kind: 'implementation'; id?: string; productId: string; productName: string; name: string; description: string; tags: string[] }
 
 /** Products group requesters and bookings; implementations are sub-groups within a product. */
 export default function Products() {
   const toast = useToast()
   const { data, error, loading, reload } = useAsync<Product[]>(() => get('/api/admin/products'))
+  const allTags = collectTags(data)
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [edit, setEdit] = useState<EditTarget | null>(null)
   const [remove, setRemove] = useState<{ kind: 'product' | 'implementation'; id: string; name: string } | null>(null)
 
   const save = async () => {
     if (!edit) return
-    const body = { name: edit.name.trim(), description: edit.description.trim() || null }
+    const body = { name: edit.name.trim(), description: edit.description.trim() || null, tags: edit.tags }
     try {
       if (edit.kind === 'product') {
         if (edit.id) await patch(`/api/admin/products/${edit.id}`, body); else await post('/api/admin/products', body)
@@ -39,7 +41,7 @@ export default function Products() {
   return (
     <div className="max-w-5xl">
       <PageHeader title="Products" subtitle="Group requesters and bookings by product, with implementations inside each product. Requesters in the same product can see each other's bookings. Assign people to a product under Users."
-        actions={<button className="btn-primary" onClick={() => setEdit({ kind: 'product', name: '', description: '' })}><Plus className="h-4 w-4" />Add product</button>} />
+        actions={<button className="btn-primary" onClick={() => setEdit({ kind: 'product', name: '', description: '', tags: [] })}><Plus className="h-4 w-4" />Add product</button>} />
       {error ? <ErrorState message={error} onRetry={reload} /> : loading ? <Spinner /> : !data?.length ? <div className="card"><Empty title="No products yet" hint="Add your first product, then its implementations." /></div> : (
         <div className="space-y-3">
           {data.map((p) => (
@@ -51,11 +53,12 @@ export default function Products() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2"><span className="font-semibold">{p.name}</span>{!p.is_active && <Pill>Inactive</Pill>}</div>
                   {p.description && <div className="text-xs text-slate-500">{p.description}</div>}
+                  <Tags tags={p.tags} />
                 </div>
                 <div className="flex gap-3 text-xs text-slate-600"><span>{p.implementations.length} implementation(s)</span><span>{p.users} user(s)</span><span>{p.bookings} booking(s)</span></div>
                 <div className="flex gap-1">
-                  <button className="btn-secondary" onClick={() => setEdit({ kind: 'implementation', productId: p.id, productName: p.name, name: '', description: '' })}><Plus className="h-4 w-4" />Implementation</button>
-                  <button className="btn-secondary" onClick={() => setEdit({ kind: 'product', id: p.id, name: p.name, description: p.description ?? '' })}>Edit</button>
+                  <button className="btn-secondary" onClick={() => setEdit({ kind: 'implementation', productId: p.id, productName: p.name, name: '', description: '', tags: [] })}><Plus className="h-4 w-4" />Implementation</button>
+                  <button className="btn-secondary" onClick={() => setEdit({ kind: 'product', id: p.id, name: p.name, description: p.description ?? '', tags: p.tags ?? [] })}>Edit</button>
                   <button className="btn-secondary" onClick={() => toggle('products', p)}>{p.is_active ? 'Deactivate' : 'Activate'}</button>
                   <button className="btn-ghost px-2 text-red-700" onClick={() => setRemove({ kind: 'product', id: p.id, name: p.name })}>Delete</button>
                 </div>
@@ -66,11 +69,11 @@ export default function Products() {
                     <table className="min-w-full text-sm"><thead><tr><th className="th pl-12">Implementation</th><th className="th">Users</th><th className="th">Bookings</th><th className="th">Status</th><th className="th" /></tr></thead>
                       <tbody className="divide-y divide-slate-100">{p.implementations.map((i) => (
                         <tr key={i.id} className={i.is_active ? '' : 'opacity-60'}>
-                          <td className="td pl-12"><div className="font-medium">{i.name}</div>{i.description && <div className="text-xs text-slate-500">{i.description}</div>}</td>
+                          <td className="td pl-12"><div className="font-medium">{i.name}</div>{i.description && <div className="text-xs text-slate-500">{i.description}</div>}<Tags tags={i.tags} /></td>
                           <td className="td tabular-nums">{i.users}</td><td className="td tabular-nums">{i.bookings}</td>
                           <td className="td">{i.is_active ? <Pill className="bg-emerald-100 text-emerald-800">Active</Pill> : <Pill>Inactive</Pill>}</td>
                           <td className="td whitespace-nowrap"><div className="flex gap-1">
-                            <button className="btn-secondary" onClick={() => setEdit({ kind: 'implementation', id: i.id, productId: p.id, productName: p.name, name: i.name, description: i.description ?? '' })}>Edit</button>
+                            <button className="btn-secondary" onClick={() => setEdit({ kind: 'implementation', id: i.id, productId: p.id, productName: p.name, name: i.name, description: i.description ?? '', tags: i.tags ?? [] })}>Edit</button>
                             <button className="btn-secondary" onClick={() => toggle('implementations', i)}>{i.is_active ? 'Deactivate' : 'Activate'}</button>
                             <button className="btn-ghost px-2 text-red-700" onClick={() => setRemove({ kind: 'implementation', id: i.id, name: i.name })}>Delete</button>
                           </div></td>
@@ -88,6 +91,9 @@ export default function Products() {
         footer={<><button className="btn-secondary" onClick={() => setEdit(null)}>Cancel</button><button className="btn-primary" disabled={!edit?.name.trim()} onClick={save}>Save</button></>}>
         {edit && <div className="space-y-3">
           <Field label="Name *" htmlFor="pr-n"><input id="pr-n" className="input" maxLength={120} value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
+          <Field label="Tags" htmlFor="pr-t" hint="Group products with tags (for example Payments, Core banking). The admin dashboard can be filtered by tag. Enter or comma adds a tag.">
+            <TagInput id="pr-t" value={edit.tags} onChange={(tags) => setEdit({ ...edit, tags })} suggestions={allTags} />
+          </Field>
           <Field label="Description" htmlFor="pr-d"><textarea id="pr-d" className="input" maxLength={1000} value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} /></Field>
         </div>}
       </Modal>
@@ -96,4 +102,8 @@ export default function Products() {
         onConfirm={async () => { try { await del(`/api/admin/${remove!.kind === 'product' ? 'products' : 'implementations'}/${remove!.id}`); toast('success', `${remove!.name} deleted`); setRemove(null); reload() } catch (e) { setRemove(null); toast('error', validationMessage(e)) } }} />
     </div>
   )
+}
+
+function Tags({ tags }: { tags?: string[] }) {
+  return tags?.length ? <div className="mt-1 flex flex-wrap gap-1" aria-label="Tags">{tags.map((t) => <Pill key={t} className="bg-indigo-100 text-indigo-800">{t}</Pill>)}</div> : null
 }

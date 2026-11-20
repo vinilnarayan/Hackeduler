@@ -5,6 +5,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import { get, qs } from '../../api/client'
 import type { AdminBooking, BookingStatus, Product } from '../../api/types'
 import { AdminBookingModal } from '../../components/AdminBookingModal'
+import { collectTags } from '../../components/TagInput'
 import { Empty, ErrorState, PageHeader, Spinner, StatCard, StatusBadge } from '../../components/ui'
 import { fmt } from '../../lib/dates'
 import { STATUS_CHART } from '../../lib/status'
@@ -34,10 +35,11 @@ function ChartCard({ title, children, table }: { title: string; children: ReactN
 const tip = { contentStyle: { fontSize: 12, borderRadius: 6, border: '1px solid #e2e8f0' }, cursor: { fill: 'rgba(148,163,184,0.15)' } }
 
 export default function AdminDashboard() {
-  const [range, setRange] = useState({ start: '', end: '', product_id: '' })
-  const { data, error, loading, reload } = useAsync<any>(() => get('/api/admin/dashboard' + qs(range)), [range.start, range.end, range.product_id])
+  const [range, setRange] = useState({ start: '', end: '', product_id: '', tag: '' })
+  const { data, error, loading, reload } = useAsync<any>(() => get('/api/admin/dashboard' + qs(range)), [range.start, range.end, range.product_id, range.tag])
   const products = useAsync<Product[]>(() => get('/api/admin/products'))
   const [sel, setSel] = useState<string | null>(null)
+  const tags = collectTags(products.data)
   if (error) return <ErrorState message={error} onRetry={reload} />
   if (loading && !data) return <Spinner />
   const k = data.kpis
@@ -49,6 +51,9 @@ export default function AdminDashboard() {
           <select className="input w-48 py-1" aria-label="Product" value={range.product_id} onChange={(e) => setRange({ ...range, product_id: e.target.value })}>
             <option value="">All products</option>{products.data?.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
+          {tags.length > 0 && <select className="input w-40 py-1" aria-label="Tag" value={range.tag} onChange={(e) => setRange({ ...range, tag: e.target.value })}>
+            <option value="">All tags</option>{tags.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>}
           <label className="text-xs"><span className="sr-only">From</span><input type="date" className="input py-1" value={range.start} onChange={(e) => setRange({ ...range, start: e.target.value })} aria-label="Range start" /></label>
           <span className="text-slate-400">–</span>
           <label className="text-xs"><span className="sr-only">To</span><input type="date" className="input py-1" value={range.end} onChange={(e) => setRange({ ...range, end: e.target.value })} aria-label="Range end" /></label>

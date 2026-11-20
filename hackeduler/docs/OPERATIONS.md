@@ -239,3 +239,11 @@ request until the limit is raised (bookings created by an admin directly, e.g. M
 Manual Allocation shows the same balance (for the year of the chosen date) when a limited activity is selected; if the year is full it
 says so, but admins can still create the booking.
 Requires migration 0019 (`./deploy.sh` runs it; it only adds a nullable column, existing data is untouched).
+
+### Product and implementation tags
+
+**Admin → Products → Edit** (on a product or an implementation) has a **Tags** field: type a tag and press Enter or comma; up to 20 tags
+of 40 characters each. Tags are only for grouping, nothing else changes. The **Admin Dashboard** gets a **Tag** drop-down next to the
+Product filter (shown once any tag exists); choosing a tag limits every KPI and chart to bookings whose product **or** implementation has
+that tag (case-insensitive), and combines with the Product and date filters. The CSV/Excel download from the dashboard follows the tag too.
+Requires migration 0020 (adds an empty tag list to both tables; existing data is untouched).
