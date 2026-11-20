@@ -187,6 +187,7 @@ completes an approved booking that has no resource. The dashboard accepts `produ
 | GET | `/api/admin/resources/{id}/allocation` | Engineer's bookings and leave |
 | GET/POST | `/api/admin/activity-types[?include_deleted=true]` | List / add. Fields include `visible_to_requesters` (false = admin-only), `yearly_limit` (positive integer, null = unlimited), `initiation_email_enabled`, `initiation_days_before` (null = global setting) and `initiation_details` (null = built-in checklist, returned as `initiation_details_default`) |
 | POST | `/api/admin/activity-types/details-preview` | `{details}` -> `{html, plain}`: how the "Details to ask the POC for" text (rich HTML with tables, or older plain text) will look in the Activity initiation email; cleaned exactly as when sent |
+| GET | `/api/admin/activity-types/{id}/quota[?year=]` | `{quota}`: yearly balance `{year, limit, used, remaining}` (null = unlimited); shown on Manual Allocation |
 | PATCH | `/api/admin/activity-types/{id}` | Edit / (de)activate / hide. Durations must be positive integers |
 | DELETE | `/api/admin/activity-types/{id}` | Remove. Never-used types are deleted (`mode: removed`); types in booking history are archived (`mode: archived`: hidden everywhere, not bookable, existing bookings unchanged, name reusable) |
 | GET/POST | `/api/admin/holidays[?year]` | List / add. Response includes `flagged_bookings` |

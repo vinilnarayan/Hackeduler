@@ -247,6 +247,17 @@ def list_activities(include_deleted: bool = False, db: Session = Depends(get_db)
             for a in db.scalars(q).all()]
 
 
+@router.get("/activity-types/{activity_id}/quota")
+def activity_quota(activity_id: uuid.UUID, year: int | None = Query(default=None, ge=2000, le=2200), db: Session = Depends(get_db)):
+    """Yearly balance of an activity type (null quota = unlimited); year defaults to the current organisation year."""
+    from ..services import booking_service
+
+    a = db.get(ActivityType, activity_id)
+    if a is None or a.deleted_at is not None:
+        raise not_found("Activity type")
+    return {"quota": booking_service.quota_for(db, a, year or settings_service.org_today(db).year)}
+
+
 @router.post("/activity-types/details-preview")
 def preview_details(body: DetailsPreviewIn):
     """How the "Details to ask the POC for" text will look in the email (cleaned the same way as when it is sent)."""

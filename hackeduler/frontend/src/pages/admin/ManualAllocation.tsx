@@ -31,10 +31,19 @@ export default function ManualAllocation() {
   const [slice, setSlice] = useState<Record<string, { start_date: string; working_days: string }>>({})
   const [free, setFree] = useState<Record<string, AvailabilityResult>>({})
   const [busy, setBusy] = useState(false)
+  const [quota, setQuota] = useState<{ year: number; limit: number; used: number; remaining: number } | null>(null)
   const s = (k: keyof typeof f) => (e: React.ChangeEvent<any>) => setF({ ...f, [k]: e.target.type === 'number' ? parseInt(e.target.value || '0', 10) : e.target.value })
 
   const act = acts.data?.find((a) => a.id === f.activity_type_id)
   const needsRes = act?.requires_resource ?? true
+  const quotaYear = f.start_date ? Number(f.start_date.slice(0, 4)) : new Date().getFullYear()
+  useEffect(() => {
+    setQuota(null)
+    if (!act?.yearly_limit) return
+    let live = true
+    get<{ quota: typeof quota }>(`/api/admin/activity-types/${act.id}/quota?year=${quotaYear}`).then((r) => { if (live) setQuota(r.quota) }).catch(() => {})
+    return () => { live = false }
+  }, [act?.id, act?.yearly_limit, quotaYear])
   useEffect(() => {
     setCheck(null)
     if (!f.activity_type_id || !f.start_date || !needsRes) return
@@ -136,6 +145,13 @@ export default function ManualAllocation() {
               </div>
             )}
           </fieldset>
+        )}
+        {act && quota && (
+          <div data-testid="yearly-balance" className={`rounded-md border p-3 text-sm ${quota.remaining > 0 ? 'border-sky-200 bg-sky-50 text-sky-900' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+            {quota.remaining > 0
+              ? <>Balance for {quota.year}: <b className="tabular-nums">{quota.remaining}</b> of {quota.limit} {act.name} {quota.limit === 1 ? 'booking' : 'bookings'} remaining.</>
+              : <>No {act.name} bookings remain for {quota.year} (limit {quota.limit}). As an administrator you can still create this booking; it will count above the limit.</>}
+          </div>
         )}
         {check && (
           <div className={`rounded-md border p-3 text-sm ${check.available ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`} aria-live="polite">

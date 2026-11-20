@@ -236,4 +236,6 @@ the first requester sees "Balance for 2027: 10 of 10", and after one approval th
 
 When the year is full, requesters cannot submit that type for that year and the booking form says so; an admin cannot approve another pending
 request until the limit is raised (bookings created by an admin directly, e.g. Manual Allocation, still count but are never blocked).
+Manual Allocation shows the same balance (for the year of the chosen date) when a limited activity is selected; if the year is full it
+says so, but admins can still create the booking.
 Requires migration 0019 (`./deploy.sh` runs it; it only adds a nullable column, existing data is untouched).
