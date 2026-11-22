@@ -21,6 +21,7 @@ export interface User {
   extra_product_ids?: string[]
   resource_id?: string | null
   resource_name?: string | null
+  is_lead?: boolean                       // resource users only: may open the read-only Team Calendar
 }
 
 export type ReportType = 'V1' | 'Met'

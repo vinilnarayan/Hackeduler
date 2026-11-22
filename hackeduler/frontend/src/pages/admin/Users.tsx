@@ -15,7 +15,7 @@ const statusOf = (u: User) => (u.deleted_at ? 'Deleted' : u.is_active ? 'Active'
 const lastMethod = (u: User) => (u.last_login_method ? (u.last_login_method.startsWith('sso:') ? `via SSO (${u.last_login_method.slice(4)})` : 'via password') : '')
 /** Everything visible in a row, as one lowercase string, so the search box matches any column. */
 const searchText = (u: User) => [
-  u.full_name, u.email, u.role, u.resource_name, u.product_name, u.products?.map((p) => p.name).join(' '), u.implementation_name,
+  u.full_name, u.email, u.role, u.is_lead ? 'Lead' : '', u.resource_name, u.product_name, u.products?.map((p) => p.name).join(' '), u.implementation_name,
   u.sso_provider_id ? `SSO ${u.sso_provider_name ?? ''}` : '', u.has_password ? 'Password' : '', signInOf(u), statusOf(u),
   u.deleted_at ? fmtDateTime(u.deleted_at) : '', fmtDateTime(u.last_login_at), lastMethod(u),
 ].filter(Boolean).join(' ').toLowerCase()
@@ -43,12 +43,12 @@ export default function UsersPage() {
     try {
       if (edit.id) {
         await patch(`/api/admin/users/${edit.id}`, {
-          full_name: edit.full_name, role: edit.role, resource_id: edit.role === 'resource' ? edit.resource_id || null : null, ...(edit.password ? { password: edit.password } : {}),
+          full_name: edit.full_name, role: edit.role, resource_id: edit.role === 'resource' ? edit.resource_id || null : null, is_lead: edit.role === 'resource' && !!edit.is_lead, ...(edit.password ? { password: edit.password } : {}),
           product_id: edit.product_id || null, implementation_id: edit.implementation_id || null, extra_product_ids: extraIds,
           ...(edit.remove_password ? { remove_password: true } : {}), ...(edit.unlink_sso ? { unlink_sso: true } : {}),
         })
       } else {
-        await post('/api/admin/users', { email: edit.email, full_name: edit.full_name, role: edit.role, ...(edit.role === 'resource' ? { resource_id: edit.resource_id || null } : {}), ...(edit.sso_only ? {} : { password: edit.password }),
+        await post('/api/admin/users', { email: edit.email, full_name: edit.full_name, role: edit.role, ...(edit.role === 'resource' ? { resource_id: edit.resource_id || null, is_lead: !!edit.is_lead } : {}), ...(edit.sso_only ? {} : { password: edit.password }),
           product_id: edit.product_id || null, implementation_id: edit.implementation_id || null, extra_product_ids: extraIds })
       }
       toast('success', 'User saved'); setEdit(null); reload()
@@ -64,7 +64,7 @@ export default function UsersPage() {
         </>} />
       <div className="mb-3 flex flex-wrap gap-2 text-sm" aria-live="polite" data-testid="user-counts">
         <span className="card px-3 py-1.5"><b className="tabular-nums">{shown.length}</b> {shown.length === 1 ? 'user' : 'users'}{q.trim() && data ? <> of <span className="tabular-nums">{data.length}</span></> : null}</span>
-        <span className="card px-3 py-1.5">Role: {tally(shown, ['admin', 'requester', 'resource'], (u) => [u.role]).map(([k, n], i) => <span key={k}>{i > 0 && ' · '}{k[0].toUpperCase() + k.slice(1)} <b className="tabular-nums">{n}</b></span>)}</span>
+        <span className="card px-3 py-1.5">Role: {tally(shown, ['admin', 'requester', 'resource'], (u) => [u.role]).map(([k, n], i) => <span key={k}>{i > 0 && ' · '}{k[0].toUpperCase() + k.slice(1)} <b className="tabular-nums">{n}</b></span>)} · Leads <b className="tabular-nums">{shown.filter((u) => u.is_lead).length}</b></span>
         <span className="card px-3 py-1.5">Sign-in: {tally(shown, ['SSO', 'Password', 'SSO (not yet signed in)'], (u) => [signInOf(u), ...(u.sso_provider_id && u.has_password ? ['Password'] : [])]).map(([k, n], i) => <span key={k}>{i > 0 && ' · '}{k} <b className="tabular-nums">{n}</b></span>)}</span>
         <span className="card px-3 py-1.5">Status: {tally(shown, ['Active', 'Disabled', ...(showDeleted ? ['Deleted'] : [])], (u) => [statusOf(u)]).map(([k, n], i) => <span key={k}>{i > 0 && ' · '}{k} <b className="tabular-nums">{n}</b></span>)}</span>
       </div>
@@ -77,7 +77,7 @@ export default function UsersPage() {
             <thead className="bg-slate-50"><tr><SortTh label="Name" k="name" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Email" k="email" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Role" k="role" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Product / implementation" k="product" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Sign-in" k="signin" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Status" k="status" sort={tbl.sort} onToggle={tbl.toggle} /><SortTh label="Last login" k="last" sort={tbl.sort} onToggle={tbl.toggle} /><th className="th" /></tr></thead>
             <tbody className="divide-y divide-slate-100">{tbl.sorted.map((u) => (
               <tr key={u.id} className={u.deleted_at ? 'bg-slate-50 opacity-70' : ''}><td className="td font-medium">{u.full_name}</td><td className="td text-xs">{u.email}</td>
-                <td className="td"><Pill className={u.role === 'admin' ? 'bg-blue-100 text-blue-800' : u.role === 'resource' ? 'bg-teal-100 text-teal-800' : ''}>{u.role}</Pill>{u.resource_name && <div className="text-xs text-slate-500">{u.resource_name}</div>}</td>
+                <td className="td"><Pill className={u.role === 'admin' ? 'bg-blue-100 text-blue-800' : u.role === 'resource' ? 'bg-teal-100 text-teal-800' : ''}>{u.role}</Pill>{u.is_lead && <Pill className="ml-1 bg-violet-100 text-violet-800">Lead</Pill>}{u.resource_name && <div className="text-xs text-slate-500">{u.resource_name}</div>}</td>
                 <td className="td text-xs">{u.product_name ? <><div className="font-medium">{u.product_name}{(u.extra_product_ids?.length ?? 0) > 0 && <span className="ml-1 font-normal text-slate-600">+ {u.products?.filter((p) => p.id !== u.product_id).map((p) => p.name).join(', ')}</span>}</div><div className="text-slate-500">{u.implementation_name ?? '—'}</div></> : <span className="text-slate-400">—</span>}</td>
                 <td className="td"><div className="flex flex-wrap gap-1">
                   {u.sso_provider_id && <Pill className="bg-violet-100 text-violet-800">SSO · {u.sso_provider_name}</Pill>}
@@ -107,6 +107,7 @@ export default function UsersPage() {
               {resources.data?.map((r) => <option key={r.id} value={r.id}>{r.display_name} – {r.engineer_name}</option>)}
             </select>
           </Field>}
+          {edit.role === 'resource' && <label className="flex items-start gap-2 rounded-md border border-slate-200 p-2 text-sm"><input type="checkbox" className="mt-0.5" checked={!!edit.is_lead} onChange={(e) => setEdit({ ...edit, is_lead: e.target.checked })} /><span><b>Team lead</b><span className="block text-xs text-slate-500">A lead also gets a read-only <i>Team Calendar</i> in their menu, showing every engineer's activity, leave and holidays.</span></span></label>}
           <Field label="Product" htmlFor="u-prod" hint="Primary product. Requesters in the same product can see each other's bookings.">
             <select id="u-prod" className="input" value={edit.product_id ?? ''} onChange={(e) => setEdit({ ...edit, product_id: e.target.value, implementation_id: '', extra_product_ids: (edit.extra_product_ids ?? []).filter((id: string) => id !== e.target.value) })}>
               <option value="">— None —</option>

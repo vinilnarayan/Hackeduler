@@ -4,6 +4,7 @@ import { vi } from 'vitest'
 
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn() }))
 vi.mock('../lib/toast', () => ({ useToast: () => vi.fn() }))
+vi.mock('../lib/auth', () => ({ useAuth: () => ({ user: { id: 'u1', full_name: 'Asha Rao', role: 'resource' } }) }))
 vi.mock('../api/client', () => ({ ...api, validationMessage: (e: any) => String(e?.message ?? e) }))
 
 import { MyMonthCalendar, shiftMonth } from '../components/MyMonthCalendar'
@@ -74,5 +75,52 @@ describe('MyMonthCalendar', () => {
     fireEvent.click(await screen.findByLabelText(/2099-03-02: leave/))
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel this leave' }))
     await waitFor(() => expect(api.del).toHaveBeenCalledWith('/api/resource/leaves/l1'))
+  })
+
+  describe('week view and own timeline', () => {
+    const week = (u: string) => {
+      const mon = u.split('week=')[1]
+      const dd = (n: number) => { const d = new Date(`${mon}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
+      return {
+        month: '2099-03', week: mon, today: dd(0),
+        days: [
+          { ...day(dd(0), 'booked', { booking_ids: ['b1'] }) }, { ...day(dd(1), 'booked', { booking_ids: ['b1'] }) },
+          day(dd(2), 'leave', { leave: { id: 'l1', leave_type: 'Annual', reason: null } }), day(dd(3), 'leave', { leave: { id: 'l1', leave_type: 'Annual', reason: null } }),
+          day(dd(4), 'free'), day(dd(5), 'weekend'), day(dd(6), 'weekend'),
+        ],
+        bookings: { b1: { id: 'b1', application_name: 'PayApp', application_version: '2', activity_name: 'Web PT', start_date: dd(0), end_date: dd(1), report_shared: false, report_type: null } },
+        leave_types: [], personal_leave: { year: 2099, limit: 2, used: 0 }, summary: { working_days: 5, booked: 2, leave: 2, free: 1, tentative: 0, holidays: 0, conflicts: 0 },
+      }
+    }
+    beforeEach(() => { api.get.mockImplementation((u: string) => Promise.resolve(u.includes('week=') ? week(u) : cal(u.split('month=')[1] ?? '2027-03'))) })
+
+    it('switches to a week (asking the server for that week), moves by week, and back to month', async () => {
+      render(<MemoryRouter><MyMonthCalendar /></MemoryRouter>)
+      await screen.findByText('PayApp')
+      fireEvent.click(screen.getByRole('button', { name: 'Week' }))
+      await waitFor(() => expect(api.get.mock.calls.some((c) => /\/api\/resource\/calendar\?week=\d{4}-\d{2}-\d{2}$/.test(String(c[0])))).toBe(true))
+      expect(await screen.findByLabelText('Next week')).toBeInTheDocument()
+      expect(await screen.findAllByRole('gridcell')).toHaveLength(7)
+      fireEvent.click(screen.getByLabelText('Next week'))
+      await waitFor(() => expect(api.get.mock.calls.filter((c) => String(c[0]).includes('week=')).length).toBeGreaterThan(1))
+      fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+      expect(await screen.findByLabelText('Next month')).toBeInTheDocument()
+    })
+
+    it('By engineer shows only my own row, with one bar per booking and per leave', async () => {
+      render(<MemoryRouter><MyMonthCalendar /></MemoryRouter>)
+      await screen.findByText('PayApp')
+      fireEvent.click(screen.getByRole('button', { name: 'Week' }))
+      await screen.findByLabelText('Next week')
+      fireEvent.click(screen.getByRole('button', { name: 'By engineer' }))
+      expect(await screen.findByRole('rowheader', { name: 'Asha Rao' })).toBeInTheDocument()
+      expect(screen.getAllByRole('rowheader')).toHaveLength(1)
+      const bar = screen.getByRole('button', { name: /PayApp v2/ })
+      expect(bar.closest('td')).toHaveAttribute('colspan', '2')                     // two booked days, one bar
+      expect(screen.getByText(/Leave · Annual/).closest('td')).toHaveAttribute('colspan', '2')
+      expect(screen.getByText('Free', { selector: 'td span' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'By day' }))
+      expect(await screen.findAllByRole('gridcell')).toHaveLength(7)
+    })
   })
 })

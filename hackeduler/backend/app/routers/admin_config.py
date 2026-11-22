@@ -707,13 +707,16 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin: User = D
              password_hash=hash_password(body.password) if body.password else None,
              role_id=_ROLE_IDS[body.role])
     u.resource_id = _resource_for_role(db, body.role, body.resource_id, None)
+    if body.is_lead and body.role != "resource":
+        raise bad_request("Only a resource user can be marked as a lead.")
+    u.is_lead = bool(body.is_lead)
     u.product_id, u.implementation_id = _product_pair(db, body.product_id, body.implementation_id)
     u.extra_products = _extra_products(db, u.product_id, body.extra_product_ids)
     db.add(u)
     db.flush()
     db.refresh(u)
     audit.record(db, "user.created", admin, entity_type="user", entity_id=u.id,
-                 new={"email": u.email, "full_name": u.full_name, "role": body.role, "resource_id": u.resource_id, "sso_only": not body.password,
+                 new={"email": u.email, "full_name": u.full_name, "role": body.role, "resource_id": u.resource_id, "is_lead": u.is_lead, "sso_only": not body.password,
                       "product_id": u.product_id, "implementation_id": u.implementation_id,
                       "extra_product_ids": [p.id for p in u.extra_products]})
     if not body.password:
@@ -731,7 +734,7 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
     data = body.model_dump(exclude_unset=True)
     if u.id == admin.id and (data.get("is_active") is False or data.get("role") in ("requester", "resource")):
         raise bad_request("You cannot deactivate or demote your own account.")
-    prev = {"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
+    prev = {"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active, "is_lead": u.is_lead,
             "product_id": audit.jsonable(u.product_id), "implementation_id": audit.jsonable(u.implementation_id),
             "extra_product_ids": [audit.jsonable(p.id) for p in u.extra_products]}
     if "full_name" in data:
@@ -756,6 +759,12 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
             raise bad_request("Cannot demote the last active administrator.")
         revoke = revoke or new_role != u.role_id or new_res != u.resource_id
         u.role_id, u.resource_id = new_role, new_res
+    if u.role_name != "resource":
+        if data.get("is_lead"):
+            raise bad_request("Only a resource user can be marked as a lead.")
+        u.is_lead = False                       # leaving the resource role drops the lead flag
+    elif data.get("is_lead") is not None:
+        u.is_lead = data["is_lead"]
     if "is_active" in data:
         revoke = revoke or data["is_active"] != u.is_active
         u.is_active = data["is_active"]
@@ -782,7 +791,7 @@ def update_user(user_id: uuid.UUID, body: UserUpdate, db: Session = Depends(get_
     db.flush()
     db.refresh(u)
     audit.record(db, "user.updated", admin, entity_type="user", entity_id=u.id, previous=prev,
-                 new={"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active,
+                 new={"full_name": u.full_name, "role": u.role_name, "is_active": u.is_active, "is_lead": u.is_lead,
                       "product_id": u.product_id, "implementation_id": u.implementation_id,
                       "extra_product_ids": [p.id for p in u.extra_products],
                       "password_reset": bool(data.get("password")), "password_removed": bool(data.get("remove_password")),

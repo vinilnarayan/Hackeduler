@@ -35,7 +35,8 @@ def user_out(u: User, provider_name: str | None = None) -> UserOut:
                    extra_product_ids=[p.id for p in u.extra_products if p.id != u.product_id],
                    implementation_id=u.implementation_id,
                    implementation_name=u.implementation.name if u.implementation else None,
-                   resource_id=u.resource_id, resource_name=u.resource.display_name if u.resource else None)
+                   resource_id=u.resource_id, resource_name=u.resource.display_name if u.resource else None,
+                   is_lead=bool(u.is_lead and u.is_resource))
 
 
 def set_session_cookies(response: Response, user: User, sso_slug: str | None = None) -> str:
