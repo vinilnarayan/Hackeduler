@@ -13,22 +13,32 @@ interface LeaveE { leave_id: string; resource_id: string; resource_name: string;
 interface FreeE { resource_id: string; resource_name: string; engineer_name: string }
 interface Day { date: string; in_month: boolean; weekend: boolean; holiday: string | null; entries: Entry[]; leaves: LeaveE[]; free: FreeE[] }
 interface Res { id: string; display_name: string; engineer_name: string; is_active: boolean }
-interface Cal { month: string; today: string; days: Day[]; resources: Res[]; summary: { working_days: number; booked_days: number; leave_days: number; holidays: number } }
+interface Cal { month: string; week?: string | null; today: string; days: Day[]; resources: Res[]; summary: { working_days: number; booked_days: number; leave_days: number; holidays: number } }
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MAX_SHOWN = 4
 const monthLabel = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })
 const statusLabel = (s: string) => s.replace(/_/g, ' ')
+/** The engineer's name is what people recognise; the resource name is only a fallback. */
+const who = (x: { engineer_name?: string | null; resource_name: string }) => x.engineer_name || x.resource_name
+const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const shiftDays = (iso: string, n: number) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
+const weekTitle = (days: Day[]) => days.length ? `${fmt(days[0].date, 'd MMM')} – ${fmt(days[days.length - 1].date, 'd MMM yyyy')}` : 'Week'
 
 export default function TeamCalendar() {
+  const [view, setView] = useState<'month' | 'week'>('month')
+  const [layout, setLayout] = useState<'day' | 'resource'>('day')
   const [month, setMonth] = useState<string | undefined>(undefined)
+  const [anchor, setAnchor] = useState<string>(() => isoDay(new Date()))
   const [resource, setResource] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
+  const isWeek = view === 'week'
   const { data, error, loading, reload } = useAsync<Cal>(
-    () => get('/api/admin/team-calendar' + (month || resource ? '?' + [month && `month=${month}`, resource && `resource_id=${resource}`].filter(Boolean).join('&') : '')), [month, resource])
+    () => get('/api/admin/team-calendar' + (isWeek || month || resource ? '?' + [isWeek ? `week=${anchor}` : month && `month=${month}`, resource && `resource_id=${resource}`].filter(Boolean).join('&') : '')), [isWeek, month, anchor, resource])
   if (error) return <ErrorState message={error} onRetry={reload} />
   const cur = data?.month ?? month
-  // Every booking in the month gets its own colour (never repeated within the month), in start-date order.
+  const stale = !!data && (isWeek ? !data.week : !!data.week)    // the other view's data while the new one loads
+  // Every booking in the view gets its own colour (never repeated within it), in start-date order.
   const bookingColours = useMemo(() => {
     const seen = new Map<string, string>()
     for (const d of data?.days ?? []) for (const e of d.entries) { const st = e.start_date ?? ''; if (!seen.has(e.booking_id) || st < seen.get(e.booking_id)!) seen.set(e.booking_id, st) }
@@ -36,28 +46,46 @@ export default function TeamCalendar() {
   }, [data])
   const day = data?.days.find((d) => d.date === picked) ?? null
   const s = data?.summary
+  const step = (n: number) => (isWeek ? setAnchor((a) => shiftDays(a, 7 * n)) : cur && setMonth(shiftMonth(cur, n)))
+  const goToday = () => { setMonth(undefined); setAnchor(isoDay(new Date())) }
+  const title = isWeek ? weekTitle(stale ? [] : data?.days ?? []) : cur ? monthLabel(cur) : 'Calendar'
+  const unit = isWeek ? 'week' : 'month'
+  const dayLabel = (d: Day) => `${d.date}: ${d.entries.length} activities, ${d.leaves.length} on leave${d.holiday ? `, ${d.holiday}` : ''}`
+  const dayClass = (d: Day) => d.holiday ? 'bg-amber-50 ring-amber-300' : d.weekend ? 'bg-slate-100 ring-slate-200' : 'bg-white ring-slate-200'
+  const open = (date: string) => ({ onClick: () => setPicked(date), onKeyDown: (e: React.KeyboardEvent) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setPicked(date) } } })
+  const entryTitle = (e: Entry) => `${who(e)} (${e.resource_name}) - ${e.application_name} v${e.application_version} - ${e.activity_name} [${statusLabel(e.status)}]`
+  const leaveBox = (l: LeaveE, date: string) => <span key={l.leave_id + date} className="truncate rounded bg-sky-200 px-1 py-0.5 font-medium text-sky-900" title={`${who(l)} (${l.resource_name}) on leave`}><b>{initials(l.engineer_name, l.resource_name.replace(/^Resource /, 'R'))}</b> leave</span>
+  const seg = (on: boolean) => `rounded px-3 py-1 text-sm ${on ? 'bg-blue-700 text-white' : 'text-slate-600 hover:bg-slate-100'}`
   return (
     <div>
-      <PageHeader title="Team Calendar" subtitle="Every resource's activity, leave and the holidays, day by day. Click a day for the details." />
+      <PageHeader title="Team Calendar" subtitle="Every engineer's activity, leave and the holidays, by month or by week. Click a day for the details." />
       <section className="card p-4" aria-label="Team calendar">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <h2 className="mr-2 text-base font-semibold">{cur ? monthLabel(cur) : 'Calendar'}</h2>
-          <button className="btn-secondary" aria-label="Previous month" disabled={!cur} onClick={() => cur && setMonth(shiftMonth(cur, -1))}><ChevronLeft className="h-4 w-4" /></button>
-          <button className="btn-secondary" aria-label="Next month" disabled={!cur} onClick={() => cur && setMonth(shiftMonth(cur, 1))}><ChevronRight className="h-4 w-4" /></button>
-          <button className="btn-secondary" onClick={() => setMonth(undefined)}>Today</button>
-          <label className="ml-auto flex items-center gap-2 text-sm"><span>Resource</span>
-            <select className="input w-52" aria-label="Resource" value={resource} onChange={(e) => setResource(e.target.value)}>
-              <option value="">All resources</option>
-              {data?.resources.map((r) => <option key={r.id} value={r.id}>{r.display_name} – {r.engineer_name}</option>)}
+          <h2 className="mr-2 text-base font-semibold">{title}</h2>
+          <button className="btn-secondary" aria-label={`Previous ${unit}`} disabled={!data} onClick={() => step(-1)}><ChevronLeft className="h-4 w-4" /></button>
+          <button className="btn-secondary" aria-label={`Next ${unit}`} disabled={!data} onClick={() => step(1)}><ChevronRight className="h-4 w-4" /></button>
+          <button className="btn-secondary" onClick={goToday}>Today</button>
+          <div className="flex rounded-md border border-slate-300 bg-white p-0.5" role="group" aria-label="View">
+            <button aria-pressed={!isWeek} className={seg(!isWeek)} onClick={() => { if (isWeek) { setView('month'); setMonth(data?.days[0]?.date.slice(0, 7)) } }}>Month</button>
+            <button aria-pressed={isWeek} className={seg(isWeek)} onClick={() => { if (!isWeek) { setView('week'); setAnchor(month && month !== isoDay(new Date()).slice(0, 7) ? `${month}-01` : isoDay(new Date())) } }}>Week</button>
+          </div>
+          {isWeek && <div className="flex rounded-md border border-slate-300 bg-white p-0.5" role="group" aria-label="Week layout">
+            <button aria-pressed={layout === 'day'} className={seg(layout === 'day')} onClick={() => setLayout('day')}>By day</button>
+            <button aria-pressed={layout === 'resource'} className={seg(layout === 'resource')} onClick={() => setLayout('resource')}>By engineer</button>
+          </div>}
+          <label className="ml-auto flex items-center gap-2 text-sm"><span>Engineer</span>
+            <select className="input w-52" aria-label="Engineer" value={resource} onChange={(e) => setResource(e.target.value)}>
+              <option value="">All engineers</option>
+              {data?.resources.map((r) => <option key={r.id} value={r.id}>{r.engineer_name || r.display_name}</option>)}
             </select>
           </label>
         </div>
-        {s && <div className="mb-3 flex flex-wrap gap-1.5 text-xs">
+        {s && !stale && <div className="mb-3 flex flex-wrap gap-1.5 text-xs">
           <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-900">Activity days {s.booked_days}</span>
           <span className="rounded-full bg-sky-100 px-2 py-0.5 font-medium text-sky-900">Leave days {s.leave_days}</span>
           <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-900">Holidays {s.holidays}</span>
         </div>}
-        {loading && !data ? <Spinner /> : data && (
+        {(loading && !data) || stale ? <Spinner /> : data && !isWeek && (
           <div className="overflow-x-auto">
             <div role="grid" aria-label={monthLabel(data.month)} className="grid min-w-[860px] grid-cols-7 gap-1">
               {WEEKDAYS.map((w) => <div key={w} role="columnheader" className="px-1 pb-1 text-center text-xs font-medium text-slate-500">{w}</div>)}
@@ -66,23 +94,74 @@ export default function TeamCalendar() {
                 const more = d.entries.length - shown.length
                 const isToday = d.date === data.today
                 return (
-                  <div key={d.date} role="gridcell" tabIndex={0} data-date={d.date} aria-label={`${d.date}: ${d.entries.length} activities, ${d.leaves.length} on leave${d.holiday ? `, ${d.holiday}` : ''}`}
-                    onClick={() => setPicked(d.date)} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setPicked(d.date) } }}
-                    className={`flex min-h-28 cursor-pointer flex-col gap-0.5 rounded-md p-1.5 text-[11px] ring-1 hover:brightness-95 ${d.holiday ? 'bg-amber-50 ring-amber-300' : d.weekend ? 'bg-slate-100 ring-slate-200' : 'bg-white ring-slate-200'}${d.in_month ? '' : ' opacity-40'}${isToday ? ' outline outline-2 outline-offset-1 outline-blue-600' : ''}`}>
+                  <div key={d.date} role="gridcell" tabIndex={0} data-date={d.date} aria-label={dayLabel(d)} {...open(d.date)}
+                    className={`flex min-h-28 cursor-pointer flex-col gap-0.5 rounded-md p-1.5 text-[11px] ring-1 hover:brightness-95 ${dayClass(d)}${d.in_month ? '' : ' opacity-40'}${isToday ? ' outline outline-2 outline-offset-1 outline-blue-600' : ''}`}>
                     <div className={`text-xs font-semibold ${isToday ? 'text-blue-700' : ''}`}>{Number(d.date.slice(8))}</div>
                     {d.holiday && <span className="truncate font-medium text-amber-800" title={d.holiday}>{d.holiday}</span>}
                     {shown.map((e) => (
-                      <span key={e.booking_id + e.resource_id} title={`${e.engineer_name} (${e.resource_name}) - ${e.application_name} v${e.application_version} - ${e.activity_name} [${statusLabel(e.status)}]`}
+                      <span key={e.booking_id + e.resource_id} title={entryTitle(e)}
                         style={bookingColours.get(e.booking_id)} className={`truncate rounded px-1 py-0.5${e.tentative ? ' border border-dashed border-slate-500' : ''}`}>
                         <b>{initials(e.engineer_name, e.resource_name.replace(/^Resource /, 'R'))}</b> {e.application_name}{e.application_version ? ` v${e.application_version}` : ''}
                       </span>
                     ))}
                     {more > 0 && <span className="font-medium text-slate-600">+{more} more</span>}
-                    {d.leaves.map((l) => <span key={l.leave_id + d.date} className="truncate rounded bg-sky-200 px-1 py-0.5 font-medium text-sky-900" title={`${l.resource_name} (${l.engineer_name}) on leave`}><b>{initials(l.engineer_name, l.resource_name.replace(/^Resource /, 'R'))}</b> leave</span>)}
+                    {d.leaves.map((l) => leaveBox(l, d.date))}
                   </div>
                 )
               })}
             </div>
+          </div>
+        )}
+        {data && !stale && isWeek && layout === 'day' && (
+          <div className="overflow-x-auto">
+            <div role="grid" aria-label={weekTitle(data.days)} className="grid min-w-[860px] grid-cols-7 gap-1">
+              {data.days.map((d) => {
+                const isToday = d.date === data.today
+                return (
+                  <div key={d.date} role="gridcell" tabIndex={0} data-date={d.date} aria-label={dayLabel(d)} {...open(d.date)}
+                    className={`flex min-h-96 cursor-pointer flex-col gap-1.5 rounded-md p-2 text-xs ring-1 hover:brightness-95 ${dayClass(d)}${isToday ? ' outline outline-2 outline-offset-1 outline-blue-600' : ''}`}>
+                    <div className="flex items-baseline justify-between"><span className={`text-lg font-bold ${isToday ? 'text-blue-700' : ''}`}>{Number(d.date.slice(8))}</span><span className="text-[11px] font-semibold text-slate-500">{fmt(d.date, 'EEE MMM')}</span></div>
+                    {d.holiday && <span className="font-medium text-amber-800">{d.holiday}</span>}
+                    {d.entries.map((e) => (
+                      <div key={e.booking_id + e.resource_id} title={entryTitle(e)} style={bookingColours.get(e.booking_id)} className={`rounded px-2 py-1.5 leading-snug${e.tentative ? ' border border-dashed border-slate-500' : ''}`}>
+                        <b>{initials(e.engineer_name, e.resource_name.replace(/^Resource /, 'R'))}</b> {e.application_name}{e.application_version ? ` v${e.application_version}` : ''}
+                        <div className="text-[11px] opacity-80">{e.activity_name} · {who(e)}</div>
+                      </div>
+                    ))}
+                    {d.leaves.map((l) => <div key={l.leave_id + d.date} className="rounded bg-sky-200 px-2 py-1.5 font-medium text-sky-900"><b>{initials(l.engineer_name, l.resource_name.replace(/^Resource /, 'R'))}</b> {who(l)} on leave</div>)}
+                    {!d.entries.length && !d.leaves.length && !d.holiday && !d.weekend && <span className="text-[11px] text-slate-400 italic">Nothing booked</span>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+        {data && !stale && isWeek && layout === 'resource' && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] table-fixed border-separate border-spacing-1" aria-label={weekTitle(data.days)}>
+              <thead><tr><th className="w-40" />{data.days.map((d) => <th key={d.date} className={`text-xs font-semibold ${d.date === data.today ? 'text-blue-700' : 'text-slate-500'}`}>{fmt(d.date, 'EEE d')}</th>)}</tr></thead>
+              <tbody>
+                {data.resources.filter((r) => !resource || r.id === resource).map((r) => (
+                  <tr key={r.id}>
+                    <th scope="row" className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-semibold" title={r.display_name}>{r.engineer_name || r.display_name}</th>
+                    {data.days.map((d) => {
+                      const en = d.entries.filter((e) => e.resource_id === r.id)
+                      const lv = d.leaves.filter((l) => l.resource_id === r.id)
+                      const free = d.free.some((f) => f.resource_id === r.id)
+                      return (
+                        <td key={d.date} data-date={d.date} tabIndex={0} aria-label={`${r.engineer_name || r.display_name} ${d.date}`} {...open(d.date)}
+                          className={`h-14 cursor-pointer rounded-md p-1 align-top text-[11px] ring-1 hover:brightness-95 ${dayClass(d)}`}>
+                          {en.map((e) => <span key={e.booking_id} title={entryTitle(e)} style={bookingColours.get(e.booking_id)} className={`mb-0.5 block truncate rounded px-1 py-0.5${e.tentative ? ' border border-dashed border-slate-500' : ''}`}>{e.application_name}{e.application_version ? ` v${e.application_version}` : ''}</span>)}
+                          {lv.map((l) => <span key={l.leave_id} className="mb-0.5 block truncate rounded bg-sky-200 px-1 py-0.5 font-semibold text-sky-900">Leave</span>)}
+                          {free && <span className="text-slate-400 italic">Free</span>}
+                          {d.holiday && !en.length && <span className="text-amber-800">{d.holiday}</span>}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
         <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
@@ -103,8 +182,7 @@ export default function TeamCalendar() {
               <ul className="divide-y divide-slate-100 rounded border border-slate-200">
                 {day.entries.map((e) => (
                   <li key={e.booking_id + e.resource_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
-                    <span style={bookingColours.get(e.booking_id)} className="rounded px-1.5 py-0.5 text-xs font-semibold">{e.resource_name}</span>
-                    <span className="text-xs text-slate-500">{e.engineer_name}</span>
+                    <span style={bookingColours.get(e.booking_id)} className="rounded px-1.5 py-0.5 text-xs font-semibold">{who(e)}</span>
                     <Link to={`/admin/bookings?booking=${encodeURIComponent(e.booking_id)}`} title="Open booking details"
                       className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline focus-visible:underline">
                       {e.application_name} v{e.application_version}<ExternalLink size={12} aria-hidden="true" /></Link>
@@ -121,7 +199,7 @@ export default function TeamCalendar() {
             {day.weekend || day.holiday ? <p className="text-slate-500">Non-working day – nobody is scheduled.</p>
               : day.free.length === 0 ? <p className="text-slate-500">Nobody is free on this day.</p> : (
                 <ul className="divide-y divide-slate-100 rounded border border-slate-200">
-                  {day.free.map((f) => <li key={f.resource_id} className="flex flex-wrap items-center gap-x-3 px-3 py-2"><span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-300">{f.resource_name}</span><span className="text-xs text-slate-500">{f.engineer_name}</span><span className="text-emerald-700">Free</span></li>)}
+                  {day.free.map((f) => <li key={f.resource_id} className="flex flex-wrap items-center gap-x-3 px-3 py-2"><span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-300">{who(f)}</span><span className="text-emerald-700">Free</span></li>)}
                 </ul>
               )}
           </section>
@@ -129,7 +207,7 @@ export default function TeamCalendar() {
             <h3 className="mb-1 font-semibold">On leave</h3>
             {day.leaves.length === 0 ? <p className="text-slate-500">Nobody is on leave.</p> : (
               <ul className="divide-y divide-slate-100 rounded border border-slate-200">
-                {day.leaves.map((l) => <li key={l.leave_id} className="flex flex-wrap items-center gap-x-3 px-3 py-2"><span className="font-medium">{l.resource_name}</span><span className="text-xs text-slate-500">{l.engineer_name}</span><span>{l.leave_type ?? 'Leave'}</span></li>)}
+                {day.leaves.map((l) => <li key={l.leave_id} className="flex flex-wrap items-center gap-x-3 px-3 py-2"><span className="font-medium">{who(l)}</span><span>{l.leave_type ?? 'Leave'}</span></li>)}
               </ul>
             )}
           </section>

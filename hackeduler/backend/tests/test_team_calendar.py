@@ -82,3 +82,20 @@ def test_inactive_resources_are_not_free_from_their_inactive_date(admin, data):
     assert r.status_code == 200, r.text
     cal = admin.get("/api/admin/team-calendar?month=2027-03").json()
     assert "Resource 03" in _free(cal, "2027-03-09") and "Resource 03" not in _free(cal, "2027-03-10")
+
+
+def test_week_parameter_returns_just_that_week(admin, data):
+    admin.post("/api/admin/holidays", json={"name": "Spring Fest", "holiday_date": "2027-03-04"})
+    admin.post("/api/admin/bookings", json=booking_payload(data, 0, start=MON, duration_days=3))
+    admin.post("/api/admin/leaves", json={"resource_id": str(data["resources"][1].id), "start_date": "2027-03-03", "end_date": "2027-03-03"})
+    cal = admin.get("/api/admin/team-calendar?week=2027-03-03").json()          # a Wednesday: the week starts on Monday 1 March
+    assert [d["date"] for d in cal["days"]] == [f"2027-03-0{n}" for n in range(1, 8)]
+    assert cal["week"] == "2027-03-01" and all(d["in_month"] for d in cal["days"])
+    days = _days(cal)
+    assert len(days["2027-03-01"]["entries"]) == 1 and days["2027-03-04"]["holiday"] == "Spring Fest"
+    assert cal["summary"]["holidays"] == 1 and cal["summary"]["leave_days"] == 1 and cal["summary"]["booked_days"] == 3
+    one = admin.get(f"/api/admin/team-calendar?week=2027-03-03&resource_id={data['resources'][0].id}").json()
+    assert one["summary"]["leave_days"] == 0 and one["summary"]["booked_days"] == 3
+    assert admin.get("/api/admin/team-calendar?month=2027-03").json()["week"] is None
+    assert admin.get("/api/admin/team-calendar?week=1999-01-01").status_code == 422
+    assert admin.get("/api/admin/team-calendar?week=nope").status_code == 422
