@@ -77,6 +77,8 @@ class User(Base):
     implementation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("implementations.id"))
     # Only for the 'resource' (security engineer) role: the resource this person is
     resource_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("security_resources.id"))
+    # Resource-role users only: a team lead can also open the Team Calendar (read-only)
+    is_lead: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

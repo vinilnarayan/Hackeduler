@@ -47,6 +47,11 @@ def team_calendar(month: str | None = Query(None, description="YYYY-MM; default:
                   resource_id: uuid.UUID | None = Query(None, description="Show one resource only"),
                   week: date | None = Query(None, description="Any date: return just the Monday-first week containing it (instead of a month)"),
                   db: Session = Depends(get_db)):
+    return build_team_calendar(db, month, resource_id, week)
+
+
+def build_team_calendar(db: Session, month: str | None, resource_id: uuid.UUID | None, week: date | None) -> dict:
+    """Shared by the admin Team Calendar and the read-only copy that team leads get."""
     first, last, grid_start, grid_end = week_bounds(week) if week is not None else month_bounds(month)
     resources = db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None))
                            .order_by(SecurityResource.sequence_no)).all()

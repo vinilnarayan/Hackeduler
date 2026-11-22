@@ -25,7 +25,9 @@ const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSt
 const shiftDays = (iso: string, n: number) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10) }
 const weekTitle = (days: Day[]) => days.length ? `${fmt(days[0].date, 'd MMM')} – ${fmt(days[days.length - 1].date, 'd MMM yyyy')}` : 'Week'
 
-export default function TeamCalendar() {
+/** `mode="lead"`: the read-only copy for team leads (resource users): own API, and no links into the admin pages. */
+export default function TeamCalendar({ mode = 'admin' }: { mode?: 'admin' | 'lead' }) {
+  const api = mode === 'lead' ? '/api/resource/team-calendar' : '/api/admin/team-calendar'
   const [view, setView] = useState<'month' | 'week'>('month')
   const [layout, setLayout] = useState<'day' | 'resource'>('day')
   const [month, setMonth] = useState<string | undefined>(undefined)
@@ -34,7 +36,7 @@ export default function TeamCalendar() {
   const [picked, setPicked] = useState<string | null>(null)
   const isWeek = view === 'week'
   const { data, error, loading, reload } = useAsync<Cal>(
-    () => get('/api/admin/team-calendar' + (isWeek || month || resource ? '?' + [isWeek ? `week=${anchor}` : month && `month=${month}`, resource && `resource_id=${resource}`].filter(Boolean).join('&') : '')), [isWeek, month, anchor, resource])
+    () => get(api + (isWeek || month || resource ? '?' + [isWeek ? `week=${anchor}` : month && `month=${month}`, resource && `resource_id=${resource}`].filter(Boolean).join('&') : '')), [isWeek, month, anchor, resource])
   if (error) return <ErrorState message={error} onRetry={reload} />
   const cur = data?.month ?? month
   const stale = !!data && (isWeek ? !data.week : !!data.week)    // the other view's data while the new one loads
@@ -186,9 +188,10 @@ export default function TeamCalendar() {
                 {day.entries.map((e) => (
                   <li key={e.booking_id + e.resource_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
                     <span style={bookingColours.get(e.booking_id)} className="rounded px-1.5 py-0.5 text-xs font-semibold">{who(e)}</span>
-                    <Link to={`/admin/bookings?booking=${encodeURIComponent(e.booking_id)}`} title="Open booking details"
-                      className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline focus-visible:underline">
-                      {e.application_name} v{e.application_version}<ExternalLink size={12} aria-hidden="true" /></Link>
+                    {mode === 'lead' ? <span className="font-medium">{e.application_name} v{e.application_version}</span> : (
+                      <Link to={`/admin/bookings?booking=${encodeURIComponent(e.booking_id)}`} title="Open booking details"
+                        className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline focus-visible:underline">
+                        {e.application_name} v{e.application_version}<ExternalLink size={12} aria-hidden="true" /></Link>)}
                     <span>{e.activity_name}</span>
                     <span className="text-xs text-slate-500">{fmt(e.start_date)} – {fmt(e.end_date)}</span>
                     <Pill>{statusLabel(e.status)}</Pill>

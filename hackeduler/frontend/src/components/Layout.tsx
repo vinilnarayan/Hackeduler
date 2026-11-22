@@ -22,6 +22,9 @@ const RESOURCE_NAV: NavItem[] = [
   { to: '/leaves', label: 'My Leave', icon: <Plane className="h-4 w-4" /> },
 ]
 
+/** Resource users marked as team leads also get the read-only Team Calendar. */
+const LEAD_NAV: NavItem[] = [...RESOURCE_NAV, { to: '/team-calendar', label: 'Team Calendar', icon: <CalendarRange className="h-4 w-4" /> }]
+
 const ADMIN_NAV: { section: string; items: NavItem[] }[] = [
   { section: 'Overview', items: [
     { to: '/admin', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
@@ -76,7 +79,7 @@ export function Layout() {
           <div className="space-y-0.5">{s.items.map((i) => <Link key={i.to} item={i} onNav={() => setOpen(false)} />)}</div>
         </div>
       )) : (
-        <div className="space-y-0.5">{(user?.role === 'resource' ? RESOURCE_NAV : REQUESTER_NAV).map((i) => <Link key={i.to} item={i} onNav={() => setOpen(false)} />)}</div>
+        <div className="space-y-0.5">{(user?.role === 'resource' ? (user.is_lead ? LEAD_NAV : RESOURCE_NAV) : REQUESTER_NAV).map((i) => <Link key={i.to} item={i} onNav={() => setOpen(false)} />)}</div>
       )}
       {isAdmin && (
         <div>

@@ -16,7 +16,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_resource
+from ..deps import require_lead, require_resource
 from ..errors import bad_request, not_found
 from ..models import Booking, BookingResourceLock, BookingStatus, LockStatus, ResourceLeave, ResourceNote, User
 from ..schemas import ReportIn, Strict, booking_requester_out
@@ -126,23 +126,41 @@ def set_report(booking_id: uuid.UUID, body: ReportIn, db: Session = Depends(get_
 
 
 # ------------------------------------------------------------------ month calendar
+@router.get("/team-calendar")
+def lead_team_calendar(month: str | None = Query(None, description="YYYY-MM; default: the current month"),
+                       resource_id: uuid.UUID | None = Query(None, description="Show one resource only"),
+                       week: date | None = Query(None, description="Any date: just the Monday-first week containing it"),
+                       db: Session = Depends(get_db), _: User = Depends(require_lead)):
+    """The admin Team Calendar (every resource, read-only) for resource users who are team leads."""
+    from .admin_team_calendar import build_team_calendar
+
+    return build_team_calendar(db, month, resource_id, week)
+
+
 @router.get("/calendar")
 def calendar(month: str | None = Query(None, description="YYYY-MM; default: the current month"),
+             week: date | None = Query(None, description="Any date: just the Monday-first week containing it (instead of a month)"),
              db: Session = Depends(get_db), user: User = Depends(require_resource)):
     """One month, as whole weeks (Monday first), for the signed-in engineer's own resource: which days are
     booked, on leave, holidays, weekends, tentatively held, or free - with the bookings behind the booked days."""
     today = date.today()
-    if month is None:
-        first = today.replace(day=1)
+    if week is not None:                       # just one Monday-first week
+        if not (today.year - 5 <= week.year <= today.year + 5):
+            raise bad_request("week must be within five years of today.")
+        first = grid_start = week - timedelta(days=week.weekday())
+        last = grid_end = grid_start + timedelta(days=6)
     else:
-        m = re.fullmatch(r"(\d{4})-(\d{2})", month)
-        if not m or not (1 <= int(m.group(2)) <= 12) or not (today.year - 5 <= int(m.group(1)) <= today.year + 5):
-            raise bad_request("month must look like 2026-11 (within five years of today).")
-        first = date(int(m.group(1)), int(m.group(2)), 1)
-    next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
-    last = next_first - timedelta(days=1)
-    grid_start = first - timedelta(days=first.weekday())
-    grid_end = last + timedelta(days=6 - last.weekday())
+        if month is None:
+            first = today.replace(day=1)
+        else:
+            m = re.fullmatch(r"(\d{4})-(\d{2})", month)
+            if not m or not (1 <= int(m.group(2)) <= 12) or not (today.year - 5 <= int(m.group(1)) <= today.year + 5):
+                raise bad_request("month must look like 2026-11 (within five years of today).")
+            first = date(int(m.group(1)), int(m.group(2)), 1)
+        next_first = (first.replace(day=28) + timedelta(days=4)).replace(day=1)
+        last = next_first - timedelta(days=1)
+        grid_start = first - timedelta(days=first.weekday())
+        grid_end = last + timedelta(days=6 - last.weekday())
 
     rid = user.resource_id
     weekdays = availability.working_weekdays(db)
@@ -210,7 +228,7 @@ def calendar(month: str | None = Query(None, description="YYYY-MM; default: the 
                      "leave": ({"id": str(lv.id), "leave_type": lv.leave_type, "reason": lv.reason,
                                 "start_date": lv.start_date.isoformat(), "end_date": lv.end_date.isoformat()} if lv else None)})
         d += timedelta(days=1)
-    return {"month": first.strftime("%Y-%m"), "today": today.isoformat(), "first_day": first.isoformat(), "last_day": last.isoformat(),
+    return {"month": first.strftime("%Y-%m"), "week": first.isoformat() if week is not None else None, "today": today.isoformat(), "first_day": first.isoformat(), "last_day": last.isoformat(),
             "days": days, "bookings": bookings, "summary": counts,
             "leave_types": LEAVE_TYPES,
             "personal_leave": {"year": first.year, "limit": PERSONAL_LEAVE_LIMIT_DAYS,

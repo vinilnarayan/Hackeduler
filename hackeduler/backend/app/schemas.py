@@ -74,6 +74,7 @@ class UserOut(ORM):
     extra_product_ids: list[uuid.UUID] = Field(default_factory=list)
     resource_id: uuid.UUID | None = None
     resource_name: str | None = None
+    is_lead: bool = False
 
 
 class UserCreate(Strict):
@@ -86,12 +87,14 @@ class UserCreate(Strict):
     implementation_id: uuid.UUID | None = None
     extra_product_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50, description="Additional products (needs a primary product)")
     resource_id: uuid.UUID | None = Field(default=None, description="Required for the resource role: the security resource this person is")
+    is_lead: bool = Field(default=False, description="Resource role only: a team lead can also open the Team Calendar")
 
 
 class UserUpdate(Strict):
     full_name: str | None = Field(default=None, min_length=1, max_length=200)
     role: Literal["admin", "requester", "resource"] | None = None
     resource_id: uuid.UUID | None = Field(default=None, description="Resource this user represents (resource role)")
+    is_lead: bool | None = None
     is_active: bool | None = None
     password: str | None = Field(default=None, min_length=12, max_length=256)
     remove_password: bool | None = None

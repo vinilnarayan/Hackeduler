@@ -264,3 +264,13 @@ one row per engineer and one narrow column per day, each booking a single bar ac
 scroll sideways, the engineer column stays put). Month, By day is the original calendar. The arrows move by a month or a week, and Today jumps back.
 Engineer names are shown instead of "Resource 01…" (the resource name remains only as a fallback and in hover text); the filter is now
 **Engineer**. Clicking a day opens the usual details pop-up, whose application name links to the booking. No database change.
+
+### Team leads and the resource calendar
+
+**Admin → Users → Add / Edit** shows a **Team lead** checkbox for users with the Resource role (it is cleared automatically if the role changes).
+A lead gets an extra **Team Calendar** item in their menu: the same Month / Week and By day / By engineer calendar as the admin's, read-only
+(every engineer's activity, leave and holidays; no links into admin pages). Turning the checkbox off removes access immediately, and nothing
+else about the user changes. The Users page shows a "Lead" badge, a Leads count, and "lead" is searchable.
+
+The resource user's own **dashboard calendar** now also has Month | Week and By day | By engineer (their own row: one bar per booking and leave).
+Requires migration 0021 (adds `users.is_lead`, default false; existing users keep exactly the access they have).

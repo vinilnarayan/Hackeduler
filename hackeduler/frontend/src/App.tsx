@@ -53,6 +53,7 @@ export default function App() {
           <Route index element={<ResourceOnly><ResourceDashboard /></ResourceOnly>} />
           <Route path="assignments" element={<ResourceOnly><ResourceAssignments /></ResourceOnly>} />
           <Route path="leaves" element={<ResourceOnly><ResourceLeaves /></ResourceOnly>} />
+          <Route path="team-calendar" element={user.is_lead ? <ResourceOnly><TeamCalendar mode="lead" /></ResourceOnly> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

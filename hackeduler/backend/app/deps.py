@@ -49,6 +49,16 @@ def get_requester_user(request: Request, user: User = Depends(get_current_user))
     return user
 
 
+def require_lead(request: Request, user: User = Depends(get_current_user)) -> User:
+    """Resource-role users who were marked as a team lead (read-only access to the Team Calendar)."""
+    if not (user.is_resource and user.resource_id is not None and user.is_lead):
+        audit.record_detached("authorization.denied", user, entity_type="endpoint",
+                              entity_id=f"{request.method} {request.url.path}",
+                              reason="Non-lead user attempted a team-lead endpoint")
+        raise ServiceError(403, "forbidden", "Team lead access is required.")
+    return user
+
+
 def require_resource(request: Request, user: User = Depends(get_current_user)) -> User:
     """Resource-role users only (admins act through /api/admin)."""
     if not user.is_resource or user.resource_id is None:
