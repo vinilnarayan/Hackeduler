@@ -246,3 +246,10 @@ and a search box that matches every column in the table (application, booking id
 PCI, resource, dates, status, report, submitted). Several words must all match. Search runs in the browser on the loaded list, so it is
 instant; the status tabs and "My bookings / product bookings" switch still filter on the server. The full booking id is shown on this page
 and on the admin Bookings page. Frontend only.
+
+### Team Calendar: Month and Week views
+
+**Admin → Team Calendar** has a **Month | Week** switch. Week view has two layouts: **By day** (seven columns, every booking listed in full, no
+"+N more") and **By engineer** (one row per engineer, with Free / Leave per day). The arrows move by a month or a week, and Today jumps back.
+Engineer names are shown instead of "Resource 01…" (the resource name remains only as a fallback and in hover text); the filter is now
+**Engineer**. Clicking a day opens the usual details pop-up, whose application name links to the booking. No database change.

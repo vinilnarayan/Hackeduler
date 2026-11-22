@@ -33,11 +33,21 @@ def month_bounds(month: str | None) -> tuple[date, date, date, date]:
     return first, last, first - timedelta(days=first.weekday()), last + timedelta(days=6 - last.weekday())
 
 
+def week_bounds(week: date) -> tuple[date, date, date, date]:
+    """(first, last, grid_start, grid_end) of the Monday-first week that contains `week`."""
+    today = date.today()
+    if not (today.year - 5 <= week.year <= today.year + 5):
+        raise bad_request("week must be within five years of today.")
+    monday = week - timedelta(days=week.weekday())
+    return monday, monday + timedelta(days=6), monday, monday + timedelta(days=6)
+
+
 @router.get("/team-calendar")
 def team_calendar(month: str | None = Query(None, description="YYYY-MM; default: the current month"),
                   resource_id: uuid.UUID | None = Query(None, description="Show one resource only"),
+                  week: date | None = Query(None, description="Any date: return just the Monday-first week containing it (instead of a month)"),
                   db: Session = Depends(get_db)):
-    first, last, grid_start, grid_end = month_bounds(month)
+    first, last, grid_start, grid_end = week_bounds(week) if week is not None else month_bounds(month)
     resources = db.scalars(select(SecurityResource).where(SecurityResource.deleted_at.is_(None))
                            .order_by(SecurityResource.sequence_no)).all()
     if resource_id is not None and resource_id not in {r.id for r in resources}:
@@ -95,6 +105,6 @@ def team_calendar(month: str | None = Query(None, description="YYYY-MM; default:
         days.append({"date": d.isoformat(), "in_month": first <= d <= last, "weekend": not working, "holiday": hol,
                      "entries": day_entries, "leaves": day_leaves, "free": free})
         d += timedelta(days=1)
-    return {"month": first.strftime("%Y-%m"), "today": date.today().isoformat(), "days": days, "summary": counts,
+    return {"month": first.strftime("%Y-%m"), "week": first.isoformat() if week is not None else None, "today": date.today().isoformat(), "days": days, "summary": counts,
             "resources": [{"id": str(r.id), "display_name": r.display_name, "engineer_name": r.engineer_name,
                            "is_active": r.is_active} for r in resources]}
