@@ -116,4 +116,53 @@ describe('Team Calendar', () => {
       await waitFor(() => expect(screen.queryByRole('rowheader', { name: 'Eng 1' })).toBeNull())
     })
   })
+
+  describe('month by engineer', () => {
+    const e = (id: string, rid: string, n: number, extra = {}) => entry(n, { booking_id: id, resource_id: rid, resource_name: `Resource 0${n}`, engineer_name: `Eng ${n}`, ...extra })
+    const mk = (date: string, weekend: boolean, entries: any[] = [], leaves: any[] = [], holiday: string | null = null) => ({ date, in_month: true, weekend, holiday, entries, leaves, free: [] })
+    const month = {
+      ...cal, month: '2099-03', summary: { working_days: 5, booked_days: 5, leave_days: 1, holidays: 0 },
+      days: [
+        mk('2099-03-05', false, [e('bA', 'r1', 1, { application_name: 'Alpha' })]),                                   // Thu
+        mk('2099-03-06', false, [e('bA', 'r1', 1, { application_name: 'Alpha' })]),                                   // Fri
+        mk('2099-03-07', true), mk('2099-03-08', true),                                                               // weekend inside the booking
+        mk('2099-03-09', false, [e('bA', 'r1', 1, { application_name: 'Alpha' })], [{ leave_id: 'l1', resource_id: 'r2', resource_name: 'Resource 02', engineer_name: 'Eng 2', leave_type: 'Casual' }]),
+        mk('2099-03-10', false, [e('bB', 'r1', 1, { application_name: 'Beta', tentative: true, status: 'pending_approval' })], [{ leave_id: 'l1', resource_id: 'r2', resource_name: 'Resource 02', engineer_name: 'Eng 2', leave_type: 'Casual' }]),
+      ],
+    }
+    beforeEach(() => { api.get.mockReset(); api.get.mockResolvedValue(month) })
+
+    it('shows one bar per booking across its days (weekends inside stay in the bar) and leave as a bar', async () => {
+      render(<MemoryRouter><TeamCalendar /></MemoryRouter>)
+      fireEvent.click(await screen.findByRole('button', { name: 'By engineer' }))
+      expect(await screen.findByRole('rowheader', { name: 'Eng 1' })).toBeInTheDocument()
+      expect(screen.getByRole('rowheader', { name: 'Eng 2' })).toBeInTheDocument()
+      const alpha = screen.getAllByText('Alpha v1')
+      expect(alpha.length).toBe(1)                                         // one bar, not one per day
+      expect(alpha[0].closest('td')).toHaveAttribute('colspan', '5')      // 5th, 6th, weekend, weekend, 9th
+      expect(screen.getByText('Beta v1').closest('td')).toHaveAttribute('colspan', '1')
+      expect(screen.getByText('Leave', { selector: 'td span' }).closest('td')).toHaveAttribute('colspan', '2')
+      expect(screen.queryByText(/Resource 0\d/)).toBeNull()
+    })
+
+    it('opens the day that was clicked on a bar, and the Engineer filter narrows the rows', async () => {
+      render(<MemoryRouter><TeamCalendar /></MemoryRouter>)
+      fireEvent.click(await screen.findByRole('button', { name: 'By engineer' }))
+      const td = (await screen.findByText('Alpha v1')).closest('td')!
+      td.getBoundingClientRect = () => ({ left: 0, width: 500, right: 500, top: 0, bottom: 10, height: 10, x: 0, y: 0, toJSON: () => ({}) })
+      fireEvent.click(td, { clientX: 450 })                                // 450/500 of 5 days = the 5th day (9 Mar)
+      expect(await screen.findByRole('heading', { name: /Monday, 09 Mar 2099/ })).toBeInTheDocument()
+      fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0])
+      fireEvent.change(screen.getByLabelText('Engineer'), { target: { value: 'r2' } })
+      await waitFor(() => expect(screen.queryByRole('rowheader', { name: 'Eng 1' })).toBeNull())
+    })
+
+    it('goes back to the normal month grid with By day', async () => {
+      render(<MemoryRouter><TeamCalendar /></MemoryRouter>)
+      fireEvent.click(await screen.findByRole('button', { name: 'By engineer' }))
+      await screen.findByRole('rowheader', { name: 'Eng 1' })
+      fireEvent.click(screen.getByRole('button', { name: 'By day' }))
+      expect(await screen.findByLabelText(/2099-03-05: 1 activities/)).toBeInTheDocument()
+    })
+  })
 })

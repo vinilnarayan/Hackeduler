@@ -258,7 +258,9 @@ and on the admin Bookings page. Frontend only.
 
 ### Team Calendar: Month and Week views
 
-**Admin → Team Calendar** has a **Month | Week** switch. Week view has two layouts: **By day** (seven columns, every booking listed in full, no
-"+N more") and **By engineer** (one row per engineer, with Free / Leave per day). The arrows move by a month or a week, and Today jumps back.
+**Admin → Team Calendar** has a **Month | Week** switch and a **By day | By engineer** switch that works in both. Week, By day: seven
+columns, every booking listed in full, no "+N more". Week, By engineer: one row per engineer, with Free / Leave per day. Month, By engineer:
+one row per engineer and one narrow column per day, each booking a single bar across its days (weekends in between stay inside the bar;
+scroll sideways, the engineer column stays put). Month, By day is the original calendar. The arrows move by a month or a week, and Today jumps back.
 Engineer names are shown instead of "Resource 01…" (the resource name remains only as a fallback and in hover text); the filter is now
 **Engineer**. Clicking a day opens the usual details pop-up, whose application name links to the booking. No database change.

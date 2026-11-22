@@ -69,10 +69,10 @@ export default function TeamCalendar() {
             <button aria-pressed={!isWeek} className={seg(!isWeek)} onClick={() => { if (isWeek) { setView('month'); setMonth(data?.days[0]?.date.slice(0, 7)) } }}>Month</button>
             <button aria-pressed={isWeek} className={seg(isWeek)} onClick={() => { if (!isWeek) { setView('week'); setAnchor(month && month !== isoDay(new Date()).slice(0, 7) ? `${month}-01` : isoDay(new Date())) } }}>Week</button>
           </div>
-          {isWeek && <div className="flex rounded-md border border-slate-300 bg-white p-0.5" role="group" aria-label="Week layout">
+          <div className="flex rounded-md border border-slate-300 bg-white p-0.5" role="group" aria-label="Layout">
             <button aria-pressed={layout === 'day'} className={seg(layout === 'day')} onClick={() => setLayout('day')}>By day</button>
             <button aria-pressed={layout === 'resource'} className={seg(layout === 'resource')} onClick={() => setLayout('resource')}>By engineer</button>
-          </div>}
+          </div>
           <label className="ml-auto flex items-center gap-2 text-sm"><span>Engineer</span>
             <select className="input w-52" aria-label="Engineer" value={resource} onChange={(e) => setResource(e.target.value)}>
               <option value="">All engineers</option>
@@ -85,7 +85,7 @@ export default function TeamCalendar() {
           <span className="rounded-full bg-sky-100 px-2 py-0.5 font-medium text-sky-900">Leave days {s.leave_days}</span>
           <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-900">Holidays {s.holidays}</span>
         </div>}
-        {(loading && !data) || stale ? <Spinner /> : data && !isWeek && (
+        {(loading && !data) || stale ? <Spinner /> : data && !isWeek && layout === 'day' && (
           <div className="overflow-x-auto">
             <div role="grid" aria-label={monthLabel(data.month)} className="grid min-w-[860px] grid-cols-7 gap-1">
               {WEEKDAYS.map((w) => <div key={w} role="columnheader" className="px-1 pb-1 text-center text-xs font-medium text-slate-500">{w}</div>)}
@@ -111,6 +111,9 @@ export default function TeamCalendar() {
               })}
             </div>
           </div>
+        )}
+        {data && !stale && !isWeek && layout === 'resource' && (
+          <MonthByEngineer data={data} resourceId={resource} colours={bookingColours} entryTitle={entryTitle} onPick={setPicked} />
         )}
         {data && !stale && isWeek && layout === 'day' && (
           <div className="overflow-x-auto">
@@ -213,6 +216,86 @@ export default function TeamCalendar() {
           </section>
         </div>}
       </Modal>
+    </div>
+  )
+}
+
+/** Month, one row per engineer: each booking is one bar across its days (weekends in between stay inside the bar). */
+function MonthByEngineer({ data, resourceId, colours, entryTitle, onPick }: { data: Cal; resourceId: string; colours: Map<string, React.CSSProperties>; entryTitle: (e: Entry) => string; onPick: (date: string) => void }) {
+  const days = data.days.filter((d) => d.in_month)
+  const rows = data.resources.filter((r) => !resourceId || r.id === resourceId)
+  type Run = { from: number; to: number; kind: 'booking' | 'leave' | 'empty'; entry?: Entry }
+  const runsFor = (rid: string): Run[] => {
+    const book = days.map((d) => d.entries.find((e) => e.resource_id === rid))
+    const leave = days.map((d) => d.leaves.some((l) => l.resource_id === rid))
+    const out: Run[] = []
+    let i = 0
+    while (i < days.length) {
+      const e = book[i]
+      if (e) {
+        let j = i
+        for (;;) {
+          if (j + 1 >= days.length) break
+          if (book[j + 1]?.booking_id === e.booking_id) { j++; continue }
+          if (days[j + 1].weekend && !book[j + 1] && !leave[j + 1]) {     // weekend gap: stay in the bar if the same booking resumes after it
+            let k = j + 1
+            while (k < days.length && days[k].weekend && !book[k] && !leave[k]) k++
+            if (k < days.length && book[k]?.booking_id === e.booking_id) { j = k; continue }
+          }
+          break
+        }
+        out.push({ from: i, to: j, kind: 'booking', entry: e }); i = j + 1
+      } else if (leave[i]) {
+        let j = i
+        while (j + 1 < days.length && leave[j + 1] && !book[j + 1]) j++
+        out.push({ from: i, to: j, kind: 'leave' }); i = j + 1
+      } else { out.push({ from: i, to: i, kind: 'empty' }); i++ }
+    }
+    return out
+  }
+  const pick = (ev: React.MouseEvent<HTMLElement>, run: Run) => {   // a bar spans several days: open the day that was clicked
+    const r = ev.currentTarget.getBoundingClientRect()
+    const span = run.to - run.from + 1
+    const idx = r.width > 0 ? Math.min(span - 1, Math.max(0, Math.floor(((ev.clientX - r.left) / r.width) * span))) : 0
+    onPick(days[run.from + idx].date)
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-max border-separate border-spacing-0 text-[11px]" aria-label={monthLabel(data.month)}>
+        <thead>
+          <tr>
+            <th className="sticky left-0 z-10 w-32 min-w-32 border-r-2 border-slate-200 bg-white" />
+            {days.map((d) => (
+              <th key={d.date} className={`h-9 min-w-[34px] border-b border-l border-slate-200 pt-0.5 text-center text-[11px] leading-tight font-bold ${d.weekend ? 'bg-slate-100' : ''} ${d.date === data.today ? 'text-blue-700' : ''}`}>
+                {Number(d.date.slice(8))}<span className="block text-[9px] font-medium text-slate-500">{fmt(d.date, 'EEEEE')}</span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <th scope="row" className="sticky left-0 z-10 h-10 w-32 min-w-32 border-r-2 border-b border-slate-200 bg-white px-2 text-left text-xs font-semibold whitespace-nowrap" title={r.display_name}>{r.engineer_name || r.display_name}</th>
+              {runsFor(r.id).map((run) => {
+                const d = days[run.from]
+                const base = 'h-10 cursor-pointer border-b border-l border-slate-200 align-middle hover:brightness-95'
+                if (run.kind === 'empty') return <td key={d.date} data-date={d.date} tabIndex={0} aria-label={`${r.engineer_name || r.display_name} ${d.date}`} onClick={() => onPick(d.date)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(d.date) } }}
+                  className={`${base} ${d.holiday ? 'bg-amber-50' : d.weekend ? 'bg-slate-100' : d.date === data.today ? 'bg-blue-50' : ''}`} title={d.holiday ?? undefined} />
+                const e = run.entry
+                return (
+                  <td key={d.date} colSpan={run.to - run.from + 1} data-date={d.date} tabIndex={0} aria-label={`${r.engineer_name || r.display_name} ${d.date}`} onClick={(ev) => pick(ev, run)}
+                    onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onPick(d.date) } }} className={`${base} py-0.5`}>
+                    {e ? <span title={entryTitle(e)} style={colours.get(e.booking_id)} className={`mx-0.5 block truncate rounded px-1.5 py-1 font-semibold${e.tentative ? ' border border-dashed border-slate-500' : ''}`}>{e.application_name}{e.application_version ? ` v${e.application_version}` : ''}</span>
+                      : <span className="mx-0.5 block truncate rounded bg-sky-200 px-1.5 py-1 font-semibold text-sky-900">Leave</span>}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-2 text-xs text-slate-500">Scroll sideways to see the whole month. A booking is one bar across its days; click any cell for the day&apos;s details.</p>
     </div>
   )
 }
