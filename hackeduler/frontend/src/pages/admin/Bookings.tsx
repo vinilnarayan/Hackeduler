@@ -5,7 +5,7 @@ import { get, qs } from '../../api/client'
 import type { ActivityType, AdminBooking, Product, ResourceAdmin } from '../../api/types'
 import { AdminBookingModal } from '../../components/AdminBookingModal'
 import { SortTh, type SortState } from '../../components/SortTh'
-import { Empty, ErrorState, PageHeader, Pill, Spinner, StatusBadge, ReportBadge } from '../../components/ui'
+import { Empty, ErrorState, PageHeader, Pill, Spinner, StatusBadge, ReportLink } from '../../components/ui'
 import { fmt, fmtDateTime } from '../../lib/dates'
 import { STATUS_LABELS } from '../../lib/status'
 import { useAsync } from '../../lib/useAsync'
@@ -80,7 +80,7 @@ export default function AdminBookings() {
                     {b.needs_review && <Pill className="bg-amber-100 text-amber-800"><AlertTriangle className="h-3 w-3" />Review</Pill>}
                     {b.pending_change_request && <Pill className="bg-violet-100 text-violet-800">Change req.</Pill>}
                   </div></td>
-                  <td className="td"><ReportBadge shared={b.report_shared} type={b.report_type} />{b.report_comments && <div className="mt-1 max-w-48 truncate text-xs text-slate-500" title={b.report_comments}>{b.report_comments}</div>}</td>
+                  <td className="td"><ReportLink shared={b.report_shared} type={b.report_type} url={b.report_url} />{b.report_comments && <div className="mt-1 max-w-48 truncate text-xs text-slate-500" title={b.report_comments}>{b.report_comments}</div>}</td>
                 </tr>
               ))}
             </tbody>

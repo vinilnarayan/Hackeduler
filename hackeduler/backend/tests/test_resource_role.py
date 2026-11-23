@@ -50,7 +50,7 @@ def test_resource_sees_only_own_bookings(admin, data):
     assert ids == {mine["id"]}
     assert eng.get(f"/api/resource/bookings/{mine['id']}").status_code == 200
     assert eng.get(f"/api/resource/bookings/{other['id']}").status_code == 404
-    assert eng.put(f"/api/resource/bookings/{other['id']}/report", json={"report_shared": True, "report_type": "V1"}).status_code == 404
+    assert eng.put(f"/api/resource/bookings/{other['id']}/report", json={"report_shared": True, "report_type": "V1", "report_url": "https://contoso.sharepoint.com/r.pdf"}).status_code == 404
 
 
 def test_resource_sees_bookings_where_it_is_an_extra_resource(admin, data):
@@ -76,7 +76,7 @@ def test_report_sharing_and_visibility_to_everyone(admin, req1, data):
     assert eng.put(f"/api/resource/bookings/{bid}/report", json={"report_shared": True}).status_code == 422
     assert eng.put(f"/api/resource/bookings/{bid}/report", json={"report_shared": True, "report_type": "Other"}).status_code == 422
 
-    r = eng.put(f"/api/resource/bookings/{bid}/report", json={"report_shared": True, "report_type": "V1", "report_comments": "Sent to POC\nall good"})
+    r = eng.put(f"/api/resource/bookings/{bid}/report", json={"report_shared": True, "report_type": "V1", "report_url": "https://contoso.sharepoint.com/r.pdf", "report_comments": "Sent to POC\nall good"})
     assert r.status_code == 200
     j = r.json()
     assert j["report_shared"] is True and j["report_type"] == "V1" and j["report_comments"] == "Sent to POC\nall good"
@@ -92,7 +92,7 @@ def test_report_sharing_and_visibility_to_everyone(admin, req1, data):
     assert req1.put(f"/api/resource/bookings/{bid}/report", json={"report_shared": False}).status_code == 403
 
     # admin can change it too (Met), and un-share
-    r = admin.put(f"/api/admin/bookings/{bid}/report", json={"report_shared": True, "report_type": "Met"})
+    r = admin.put(f"/api/admin/bookings/{bid}/report", json={"report_shared": True, "report_type": "Met", "report_url": "https://contoso.sharepoint.com/r.pdf"})
     assert r.status_code == 200 and r.json()["report_type"] == "Met"
     r = eng.put(f"/api/resource/bookings/{bid}/report", json={"report_shared": False, "report_comments": "recalled"})
     assert r.status_code == 200 and r.json()["report_shared"] is False and r.json()["report_shared_at"] is None
@@ -110,7 +110,7 @@ def test_report_sharing_and_visibility_to_everyone(admin, req1, data):
 
 def test_report_not_allowed_on_pending_or_cancelled(admin, req1, data):
     bid = req1.post("/api/bookings", json=booking_payload(data)).json()["id"]
-    r = admin.put(f"/api/admin/bookings/{bid}/report", json={"report_shared": True, "report_type": "V1"})
+    r = admin.put(f"/api/admin/bookings/{bid}/report", json={"report_shared": True, "report_type": "V1", "report_url": "https://contoso.sharepoint.com/r.pdf"})
     assert r.status_code == 422
 
 

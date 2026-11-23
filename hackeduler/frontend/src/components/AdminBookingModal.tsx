@@ -96,7 +96,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
             ...(b.additional_comments ? [['Comments', b.additional_comments] as [string, string]] : []),
           ]} />
           {(b.status === 'approved' || b.status === 'completed')
-            ? <ReportEditor key={`${b.id}-${b.report_shared}-${b.report_type}-${b.report_comments}`} booking={b} url={`/api/admin/bookings/${b.id}/report`} onSaved={changed} />
+            ? <ReportEditor key={`${b.id}-${b.report_shared}-${b.report_type}-${b.report_comments}-${b.report_url}`} booking={b} url={`/api/admin/bookings/${b.id}/report`} onSaved={changed} />
             : null}
           {b.pending_change_request && <div className="rounded border border-amber-300 bg-amber-50 p-2 text-sm">Pending requester {b.pending_change_request.request_type} request: “{b.pending_change_request.reason}”{b.pending_change_request.proposed_start_date ? ` → start ${fmt(b.pending_change_request.proposed_start_date)}` : ''}. Review it under Change Requests.</div>}
           <div>
@@ -110,7 +110,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
         </div>
       )}
       {tab === 'edit' && (b.status === 'approved' || b.status === 'completed') && (
-        <div className="mb-4"><ReportEditor key={`edit-${b.id}-${b.report_shared}-${b.report_type}-${b.report_comments}`} booking={b} url={`/api/admin/bookings/${b.id}/report`} onSaved={changed} /></div>
+        <div className="mb-4"><ReportEditor key={`edit-${b.id}-${b.report_shared}-${b.report_type}-${b.report_comments}-${b.report_url}`} booking={b} url={`/api/admin/bookings/${b.id}/report`} onSaved={changed} /></div>
       )}
       {tab === 'edit' && (active ? <EditBooking b={b} run={force.run} onSaved={() => { toast('success', 'Booking updated'); setTab('overview'); changed() }} /> : <p className="text-sm text-slate-500">Only pending or approved bookings can be modified.</p>)}
       {tab === 'audit' && (

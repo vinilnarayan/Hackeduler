@@ -119,7 +119,7 @@ def set_report(booking_id: uuid.UUID, body: ReportIn, db: Session = Depends(get_
                user: User = Depends(require_resource)):
     b = _get_mine(db, user, booking_id)
     reports.set_report(db, b, user, shared=body.report_shared, report_type=body.report_type,
-                       comments=body.report_comments)
+                       comments=body.report_comments, url=body.report_url)
     commit(db)
     db.refresh(b)
     return _out(b)

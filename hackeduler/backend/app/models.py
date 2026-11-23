@@ -318,6 +318,7 @@ class Booking(Base):
     report_shared: Mapped[bool] = mapped_column(Boolean, default=False)
     report_type: Mapped[str | None] = mapped_column(Text)            # 'V1' | 'Met'
     report_comments: Mapped[str | None] = mapped_column(Text)
+    report_url: Mapped[str | None] = mapped_column(Text)             # link to the report (e.g. SharePoint)
     report_shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     report_updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     initiation_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

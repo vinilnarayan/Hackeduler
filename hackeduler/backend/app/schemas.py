@@ -260,6 +260,7 @@ class ReportIn(Strict):
     report_shared: bool
     report_type: Literal["V1", "Met"] | None = None
     report_comments: str | None = Field(default=None, max_length=5000)
+    report_url: str | None = Field(default=None, max_length=2000)
 
 
 # ---------------------------------------------------------------- bookings
@@ -429,6 +430,7 @@ class BookingRequesterOut(BaseModel):
     report_shared: bool = False
     report_type: str | None = None
     report_comments: str | None = None
+    report_url: str | None = None
     report_shared_at: datetime | None = None
     pending_change_request: dict | None = None
 
@@ -473,7 +475,7 @@ def booking_requester_out(b, pending_cr=None, viewer_id=None) -> BookingRequeste
         status_label=BookingStatus.LABELS[b.status], submitted_at=b.submitted_at, expires_at=b.expires_at,
         rejection_reason=b.rejection_reason, cancellation_reason=b.cancellation_reason,
         pending_change_request=pending_cr, report_shared=b.report_shared, report_type=b.report_type,
-        report_comments=b.report_comments, report_shared_at=b.report_shared_at,
+        report_comments=b.report_comments, report_url=b.report_url, report_shared_at=b.report_shared_at,
     )
 
 

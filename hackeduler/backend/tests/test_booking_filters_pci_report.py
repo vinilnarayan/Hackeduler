@@ -8,8 +8,8 @@ def _setup(admin, data):
         r = admin.post("/api/admin/bookings", json=booking_payload(data, idx, pci_dss_scope=pci, application_name=f"App {key}"))
         assert r.status_code == 201, r.text
         ids[key] = r.json()["id"]
-    assert admin.put(f"/api/admin/bookings/{ids['a']}/report", json={"report_shared": True, "report_type": "V1"}).status_code == 200
-    assert admin.put(f"/api/admin/bookings/{ids['b']}/report", json={"report_shared": True, "report_type": "Met"}).status_code == 200
+    assert admin.put(f"/api/admin/bookings/{ids['a']}/report", json={"report_shared": True, "report_type": "V1", "report_url": "https://contoso.sharepoint.com/r.pdf"}).status_code == 200
+    assert admin.put(f"/api/admin/bookings/{ids['b']}/report", json={"report_shared": True, "report_type": "Met", "report_url": "https://contoso.sharepoint.com/r.pdf"}).status_code == 200
     return ids
 
 

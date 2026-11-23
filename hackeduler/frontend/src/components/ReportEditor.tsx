@@ -10,13 +10,14 @@ export function ReportEditor({ booking, url, onSaved }: { booking: Booking; url:
   const toast = useToast()
   const [shared, setShared] = useState(booking.report_shared)
   const [type, setType] = useState<ReportType | ''>(booking.report_type ?? '')
+  const [link, setLink] = useState(booking.report_url ?? '')
   const [comments, setComments] = useState(booking.report_comments ?? '')
   const [busy, setBusy] = useState(false)
-  const dirty = shared !== booking.report_shared || type !== (booking.report_type ?? '') || comments !== (booking.report_comments ?? '')
+  const dirty = shared !== booking.report_shared || type !== (booking.report_type ?? '') || comments !== (booking.report_comments ?? '') || link.trim() !== (booking.report_url ?? '')
   const save = async () => {
     setBusy(true)
     try {
-      const b = await put<Booking>(url, { report_shared: shared, report_type: type || null, report_comments: comments || null })
+      const b = await put<Booking>(url, { report_shared: shared, report_type: type || null, report_comments: comments || null, report_url: link.trim() || null })
       toast('success', 'Report details saved'); onSaved(b)
     } catch (e) { toast('error', validationMessage(e)) } finally { setBusy(false) }
   }
@@ -29,9 +30,12 @@ export function ReportEditor({ booking, url, onSaved }: { booking: Booking; url:
           <option value="">— Select —</option><option value="V1">V1 report</option><option value="Met">Met report</option>
         </select>
       </Field>
+      <Field label={shared ? 'Report link (SharePoint URL) *' : 'Report link (SharePoint URL)'} htmlFor="rp-url" hint="Must start with https://. Requesters, resource users and admins open the report from this link.">
+        <input id="rp-url" type="url" className="input" maxLength={2000} placeholder="https://contoso.sharepoint.com/sites/…" value={link} onChange={(e) => setLink(e.target.value)} />
+      </Field>
       <Field label="Comments" htmlFor="rp-c"><textarea id="rp-c" className="input min-h-24" maxLength={5000} value={comments} onChange={(e) => setComments(e.target.value)} /></Field>
       {booking.report_shared_at && booking.report_shared && <div className="text-xs text-slate-500">Shared on {fmtDateTime(booking.report_shared_at)}</div>}
-      <div className="flex justify-end"><button className="btn-primary" disabled={busy || !dirty || (shared && !type)} onClick={save}>{busy ? 'Saving…' : 'Save report details'}</button></div>
+      <div className="flex justify-end"><button className="btn-primary" disabled={busy || !dirty || (shared && (!type || !link.trim()))} onClick={save}>{busy ? 'Saving…' : 'Save report details'}</button></div>
     </div>
   )
 }

@@ -161,6 +161,7 @@ export interface Booking {
   report_shared: boolean
   report_type: ReportType | null
   report_comments: string | null
+  report_url: string | null
   report_shared_at: string | null
 }
 

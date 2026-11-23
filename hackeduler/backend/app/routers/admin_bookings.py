@@ -264,7 +264,7 @@ def set_booking_report(booking_id: uuid.UUID, body: ReportIn, db: Session = Depe
     if b is None:
         raise not_found("Booking")
     reports.set_report(db, b, admin, shared=body.report_shared, report_type=body.report_type,
-                       comments=body.report_comments)
+                       comments=body.report_comments, url=body.report_url)
     commit(db)
     db.refresh(b)
     return _out(db, b)

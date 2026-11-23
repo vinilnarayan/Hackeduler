@@ -4,7 +4,7 @@ import { Search } from 'lucide-react'
 import { get, qs } from '../../api/client'
 import type { Booking } from '../../api/types'
 import { ReportEditor } from '../../components/ReportEditor'
-import { Empty, ErrorState, KV, Modal, PageHeader, ReportBadge, Spinner, StatusBadge } from '../../components/ui'
+import { Empty, ErrorState, KV, Modal, PageHeader, ReportLink, Spinner, StatusBadge } from '../../components/ui'
 import { fmt, fmtDateTime } from '../../lib/dates'
 import { useAsync } from '../../lib/useAsync'
 import { SortTh, useSort } from '../../components/SortTh'
@@ -38,7 +38,7 @@ export default function Assignments() {
                 <td className="td font-medium">{b.application_name}</td><td className="td whitespace-nowrap">{b.application_version}</td><td className="td">{b.activity_name}</td>
                 <td className="td whitespace-nowrap">{fmt(b.start_date)} – {fmt(b.end_date)}</td><td className="td text-xs">{b.poc_name}<div className="text-slate-500">{b.poc_email}</div></td>
                 <td className="td"><StatusBadge status={b.status} /></td>
-                <td className="td"><ReportBadge shared={b.report_shared} type={b.report_type} />{b.report_comments && <div className="mt-1 max-w-48 truncate text-xs text-slate-500" title={b.report_comments}>{b.report_comments}</div>}</td>
+                <td className="td"><ReportLink shared={b.report_shared} type={b.report_type} url={b.report_url} />{b.report_comments && <div className="mt-1 max-w-48 truncate text-xs text-slate-500" title={b.report_comments}>{b.report_comments}</div>}</td>
               </tr>
             ))}</tbody>
           </table>
@@ -56,7 +56,7 @@ export default function Assignments() {
               ...((current.additional_comments ? [['Requester comments', current.additional_comments]] : []) as [string, string][]),
               ['Submitted', fmtDateTime(current.submitted_at)],
             ]} />
-            <ReportEditor key={`${current.id}-${current.report_shared}-${current.report_type}-${current.report_comments}`} booking={current} url={`/api/resource/bookings/${current.id}/report`} onSaved={() => reload()} />
+            <ReportEditor key={`${current.id}-${current.report_shared}-${current.report_type}-${current.report_comments}-${current.report_url}`} booking={current} url={`/api/resource/bookings/${current.id}/report`} onSaved={() => reload()} />
           </div>
         </Modal>
       )}
