@@ -109,14 +109,14 @@ resources answer 404.
 | GET | `/api/resource/calendar?month=YYYY-MM&week=YYYY-MM-DD` (`week` = just that Monday-first week) | Month grid (Monday-first weeks) for the signed-in resource: per day `state` (booked, conflict, leave, holiday, weekend, tentative, free), booking ids, holiday and leave; plus booking details and a summary (working days, booked, leave, free, on hold, holidays, clashes). Defaults to the current month; bad month -> 422 |
 | GET | `/api/resource/bookings?status&report=shared\|pending&q` | Approved / completed bookings that use their resource (as primary or additional) |
 | GET | `/api/resource/bookings/{id}` | One assigned booking |
-| PUT | `/api/resource/bookings/{id}/report` | `{report_shared, report_type: V1\|Met, report_comments?}` - the only thing a resource user can modify on a booking |
+| PUT | `/api/resource/bookings/{id}/report` | `{report_shared, report_type: V1\|Met, report_url, report_comments?}` - the only thing a resource user can modify on a booking |
 | POST | `/api/resource/notes` | `{note_date, note}` - private note on a calendar day (any date, up to 2000 characters). Notes come back inside `/calendar` (`days[].notes`) |
 | PUT / DELETE | `/api/resource/notes/{id}` | Edit `{note}` / delete one of your own notes (404 for anyone else's) |
 | GET / POST | `/api/resource/leaves` | Own upcoming leave; `{start_date, end_date, leave_type?, reason?}` (upcoming dates only). The leave is just recorded: overlapping bookings are NOT changed, flagged or emailed (response `overlapping_bookings` is a count for information; admin-entered leave still flags bookings). Leave types offered: Annual, Casual, Personal, Sick leave, Training, Public duty, Other. **Personal leave is limited to 2 working days per calendar year** (weekends and holidays don't count; cancelling frees the quota); over the limit -> 422. `/calendar` also returns `leave_types` and `personal_leave {year, limit, used}` |
 | DELETE | `/api/resource/leaves/{id}` | Cancel own leave |
 
-Every booking payload (requester, admin and resource views) carries `report_shared`, `report_type`, `report_comments`
-and `report_shared_at`, so the report state is visible to all roles; requesters can only read it.
+Every booking payload (requester, admin and resource views) carries `report_shared`, `report_type`, `report_comments`,
+`report_url` and `report_shared_at`, so the report state is visible to all roles; requesters can only read it.
 
 ## Admin
 
@@ -130,7 +130,7 @@ and `report_shared_at`, so the report state is visible to all roles; requesters 
 | POST | `/api/admin/availability/check` | Like the requester check plus `exclude_booking_id`, booking ids and inactive resources |
 | POST | `/api/admin/availability/range` | Actual working days of a typed start–end range (weekends, holidays and the resource's leave excluded); `resource_id` optional (no leave check without one) |
 | POST | `/api/admin/bookings` | Manual allocation (`poc_email` may list several addresses separated by commas, max 10; every one is notified): `BookingCreate` + `duration_days?`, `end_date?`, `reason?`, `force?`, `additional_resource_ids?` / `additional_resources?` (`[{resource_id, start_date?, working_days? | end_date?}]`; up to 10 more resources in the **same** booking. With no dates an extra resource is blocked for the same dates; with its own start date and working days it takes a separate slice, e.g. main resource 5 days + second resource 3 days the following week - the booking then covers the sum of the slices; all-or-nothing, 409 `resource_unavailable` naming the busy one; no Force Allocate). Admin bookings are always created **Approved** (`initial_status` is accepted but ignored) |
-| PUT | `/api/admin/bookings/{id}/report` | Record report sharing: `{report_shared, report_type: V1\|Met, report_comments?}`. Type is required when shared; only approved or completed bookings. Audited (`booking.report_updated`) |
+| PUT | `/api/admin/bookings/{id}/report` | Record report sharing: `{report_shared, report_type: V1\|Met, report_url, report_comments?}`. Type and `report_url` (absolute https link, e.g. SharePoint) are required when shared; only approved or completed bookings. Audited (`booking.report_updated`) |
 | POST | `/api/admin/bookings/{id}/send-initiation-email` | Send (or re-send) the Activity initiation email now. 409 unless the booking is approved and has a start date. The booking detail carries `initiation_email` `{state: sent\|scheduled\|disabled\|not_applicable, sent_at, scheduled_for, days_before, can_send}` |
 | PATCH | `/api/admin/bookings/{id}` | Modify / reassign / reschedule: any of `resource_id, start_date, activity_type_id, additional_days, duration_days, end_date, recalculate, application_*, pci_dss_scope, poc_*, additional_comments`, plus **required** `reason` and optional `force` |
 | POST | `/api/admin/bookings/{id}/approve` | `{force?}`. Revalidates. 409 `override_required` on conflict |

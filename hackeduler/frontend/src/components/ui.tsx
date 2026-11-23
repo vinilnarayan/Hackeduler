@@ -17,6 +17,18 @@ export function ReportBadge({ shared, type }: { shared?: boolean; type?: string 
   return <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-emerald-800 ring-1 ring-emerald-600/20 ring-inset">Shared · {type === 'Met' ? 'Met report' : 'V1 report'}</span>
 }
 
+/** Report cell: the report type as a link to the shared report (opens in a new tab) when a link exists, else the plain badge. */
+export function ReportLink({ shared, type, url, label }: { shared?: boolean; type?: string | null; url?: string | null; label?: string }) {
+  if (!shared || !url) return <ReportBadge shared={shared} type={type} />
+  const name = type === 'Met' ? 'Met report' : 'V1 report'
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" title="Open the report in SharePoint (new tab)" aria-label={`${label ?? 'Open'} ${name}`}
+       className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-blue-700 hover:bg-blue-100">
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" /></svg>{name}
+    </a>
+  )
+}
+
 export function Pill({ children, className = 'bg-slate-100 text-slate-700' }: { children: ReactNode; className?: string }) {
   return <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ${className}`}>{children}</span>
 }

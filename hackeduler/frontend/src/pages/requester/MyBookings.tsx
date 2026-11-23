@@ -3,7 +3,7 @@ import { Search } from 'lucide-react'
 import { get, post, qs, validationMessage } from '../../api/client'
 import type { Booking, BookingStatus } from '../../api/types'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { Empty, ErrorState, Field, KV, Modal, PageHeader, Pill, Spinner, StatusBadge, ReportBadge } from '../../components/ui'
+import { Empty, ErrorState, Field, KV, Modal, PageHeader, Pill, Spinner, StatusBadge, ReportBadge, ReportLink } from '../../components/ui'
 import { fmt, fmtDateTime } from '../../lib/dates'
 import { STATUS_LABELS } from '../../lib/status'
 import { useAuth } from '../../lib/auth'
@@ -71,7 +71,7 @@ export default function MyBookings() {
                   <td className="td">{b.requires_resource ? b.resource_display_name : <span className="text-xs text-slate-500">Not required</span>}</td>
                   <td className="td whitespace-nowrap">{b.start_date ? <>{fmt(b.start_date)} – {fmt(b.end_date)}</> : <span className="text-xs text-slate-500">Date flexible</span>}</td>
                   <td className="td"><StatusBadge status={b.status} />{b.pending_change_request && <div className="mt-1 text-xs text-amber-700">Change requested</div>}</td>
-                  <td className="td"><ReportBadge shared={b.report_shared} type={b.report_type} /></td>
+                  <td className="td"><ReportLink shared={b.report_shared} type={b.report_type} url={b.report_url} /></td>
                   <td className="td text-xs text-slate-500">{fmtDateTime(b.submitted_at)}</td>
                 </tr>
               ))}
@@ -127,6 +127,7 @@ function BookingDetail({ booking: b, onClose, onChanged }: { booking: Booking; o
           ...(b.rejection_reason ? [['Rejection reason', b.rejection_reason] as [string, string]] : []),
           ...(b.cancellation_reason ? [['Cancellation reason', b.cancellation_reason] as [string, string]] : []),
           ['Report', <ReportBadge shared={b.report_shared} type={b.report_type} />],
+          ...(b.report_shared && b.report_url ? [['Report link', <span><ReportLink shared type={b.report_type} url={b.report_url} label="Open" /><div className="mt-1 text-xs text-slate-500">Opens in a new tab. You may be asked to sign in to your company account.</div></span>] as [string, React.ReactNode]] : []),
           ...(b.report_comments ? [['Report comments', <span className="whitespace-pre-wrap">{b.report_comments}</span>] as [string, React.ReactNode]] : []),
           ...(b.additional_comments ? [['Comments', b.additional_comments] as [string, string]] : []),
         ]} />

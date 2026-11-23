@@ -3,7 +3,7 @@ import { CalendarClock, CheckCircle2, ClipboardList, FileCheck2, FileWarning, Pl
 import { get } from '../../api/client'
 import type { Booking } from '../../api/types'
 import { MyMonthCalendar } from '../../components/MyMonthCalendar'
-import { Empty, ErrorState, PageHeader, ReportBadge, Spinner, StatCard } from '../../components/ui'
+import { Empty, ErrorState, PageHeader, ReportLink, Spinner, StatCard } from '../../components/ui'
 import { fmt } from '../../lib/dates'
 import { useAsync } from '../../lib/useAsync'
 
@@ -16,7 +16,7 @@ function BookingList({ title, items, empty }: { title: string; items: Booking[];
           <li key={b.id} className="flex flex-wrap items-center gap-3 px-4 py-2 text-sm">
             <div className="min-w-0 flex-1"><div className="font-medium">{b.application_name} <span className="text-slate-500">v{b.application_version}</span></div><div className="text-xs text-slate-500">{b.activity_name}</div></div>
             <div className="text-xs whitespace-nowrap">{fmt(b.start_date)} – {fmt(b.end_date)}</div>
-            <ReportBadge shared={b.report_shared} type={b.report_type} />
+            <ReportLink shared={b.report_shared} type={b.report_type} url={b.report_url} />
           </li>
         ))}</ul>
       )}
