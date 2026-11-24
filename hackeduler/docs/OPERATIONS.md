@@ -265,6 +265,10 @@ scroll sideways, the engineer column stays put). Month, By day is the original c
 Engineer names are shown instead of "Resource 01…" (the resource name remains only as a fallback and in hover text); the filter is now
 **Engineer**. Clicking a day opens the usual details pop-up, whose application name links to the booking. No database change.
 
+### Act as (admin on behalf of a user)
+
+**Admin → Users → Act as** opens the app as that user (requester or resource) so an admin can do things on their behalf. An amber banner shows who you are acting as; **Exit act as** (or Sign out) returns to the admin session. Rules: other admins and disabled users cannot be acted as, passwords cannot be changed while acting, and the session ends after `HACKEDULER_ACT_AS_MINUTES` (default 60) or if the admin loses admin rights. Every action is stored as done by the user and carries the real admin in the audit log ("via admin …"). Emails still go to the real user.
+
 ### Team leads and the resource calendar
 
 **Admin → Users → Add / Edit** shows a **Team lead** checkbox for users with the Resource role (it is cleared automatically if the role changes).

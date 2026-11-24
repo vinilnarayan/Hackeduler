@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     secret_key: str = Field(default="dev-insecure-change-me", min_length=16)
     session_hours: int = 8
+    act_as_minutes: int = 60          # an admin 'Act as' session ends automatically after this long
     cookie_secure: bool = False  # MUST be true in production (HTTPS)
     session_cookie_name: str = "hackeduler_session"
     csrf_cookie_name: str = "hackeduler_csrf"

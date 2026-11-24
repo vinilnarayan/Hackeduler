@@ -12,7 +12,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from .config import get_settings
-from .context import client_ip_var, request_id_var
+from .security import decode_session_token
+from .context import acting_admin_var, client_ip_var, request_id_var
 from .errors import ServiceError
 from .routers import admin_bookings, admin_config, admin_products, admin_reports, admin_team_calendar, auth, requester, resource, sso
 from .security import limiter
@@ -46,6 +47,8 @@ async def request_context(request: Request, call_next):
     ip = request.client.host if request.client else "unknown"
     request_id_var.set(rid)
     client_ip_var.set(ip)
+    claims = decode_session_token(request.cookies.get(settings.session_cookie_name, "")) if request.url.path.startswith("/api/") else None
+    acting_admin_var.set((claims["act"], claims.get("ae", "")) if claims and claims.get("act") else None)
     if request.url.path.startswith("/api/") and not limiter.allow(f"ip:{ip}", settings.rate_limit_per_minute):
         resp = JSONResponse({"error": {"code": "rate_limited", "message": "Too many requests. Please slow down."}}, 429)
     else:

@@ -37,7 +37,7 @@ export default function AuditLog() {
                 <tr className="cursor-pointer hover:bg-slate-50" tabIndex={0} onClick={() => setOpen(open === a.id ? null : a.id)} onKeyDown={(e) => e.key === 'Enter' && setOpen(open === a.id ? null : a.id)}>
                   <td className="td text-xs whitespace-nowrap">{fmtDateTime(a.created_at)}</td>
                   <td className="td"><Pill className={a.action.includes('force') || a.action.includes('denied') ? 'bg-red-100 text-red-800' : a.action.includes('failed') ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}>{a.action}</Pill></td>
-                  <td className="td text-xs">{a.actor_email}<div className="text-slate-500">{a.actor_role}{a.ip_address ? ` · ${a.ip_address}` : ''}</div></td>
+                  <td className="td text-xs">{a.actor_email}{a.acted_by_email && <div className="text-amber-700">via admin {a.acted_by_email}</div>}<div className="text-slate-500">{a.actor_role}{a.ip_address ? ` · ${a.ip_address}` : ''}</div></td>
                   <td className="td text-xs">{a.entity_type}{a.booking_id && <div className="font-mono text-slate-500">{a.booking_id}</div>}</td>
                   <td className="td max-w-xs text-xs">{a.reason}</td>
                   <td className="td font-mono text-[11px] text-slate-500">{a.request_id?.slice(0, 13)}</td>

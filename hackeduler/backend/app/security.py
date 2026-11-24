@@ -50,12 +50,18 @@ def validate_password_strength(pw: str) -> str | None:
     return None
 
 
-def create_session_token(user_id: uuid.UUID, token_version: int, sso: str | None = None) -> tuple[str, str]:
+def create_session_token(user_id: uuid.UUID, token_version: int, sso: str | None = None,
+                         act: tuple[uuid.UUID, int, str] | None = None) -> tuple[str, str]:
+    """``act`` = (admin id, admin token_version, admin email) for an admin 'Act as' session: the token then
+    identifies the *target* user (``sub``) but remembers the real admin, and expires after ``act_as_minutes``."""
     s = get_settings()
     csrf = secrets.token_urlsafe(32)
     now = int(time.time())
-    claims = {"sub": str(user_id), "tv": token_version, "csrf": csrf, "iat": now, "exp": now + s.session_hours * 3600,
+    lifetime = s.act_as_minutes * 60 if act else s.session_hours * 3600
+    claims = {"sub": str(user_id), "tv": token_version, "csrf": csrf, "iat": now, "exp": now + lifetime,
               "iss": "hackeduler", "amr": "sso" if sso else "pwd"}
+    if act:
+        claims["act"], claims["atv"], claims["ae"] = str(act[0]), act[1], act[2]
     if sso:
         claims["sso"] = sso
     return jwt.encode(claims, s.secret_key, algorithm="HS256"), csrf

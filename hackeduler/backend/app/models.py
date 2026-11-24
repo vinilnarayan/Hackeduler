@@ -401,6 +401,8 @@ class AuditLog(Base):
     actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     actor_email: Mapped[str | None] = mapped_column(Text)
     actor_role: Mapped[str | None] = mapped_column(Text)
+    acted_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))   # real admin when "Act as" was used
+    acted_by_email: Mapped[str | None] = mapped_column(Text)
     reason: Mapped[str | None] = mapped_column(Text)
     request_id: Mapped[str | None] = mapped_column(Text)
     ip_address: Mapped[str | None] = mapped_column(Text)

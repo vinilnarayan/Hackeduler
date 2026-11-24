@@ -510,6 +510,7 @@ class AuditOut(ORM):
     actor_id: uuid.UUID | None
     actor_email: str | None
     actor_role: str | None
+    acted_by_email: str | None = None
     reason: str | None
     request_id: str | None
     ip_address: str | None
