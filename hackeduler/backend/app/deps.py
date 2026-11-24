@@ -32,6 +32,16 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
         user = None
     if user is None or not user.is_active or user.deleted_at is not None or user.token_version != claims["tv"]:
         raise ServiceError(401, "not_authenticated", "Session is no longer valid. Please sign in again.")
+    if claims.get("act"):
+        # Admin "Act as" session: the real admin must still be a valid, active administrator
+        try:
+            admin = db.get(User, uuid.UUID(claims["act"]))
+        except ValueError:
+            admin = None
+        if (admin is None or not admin.is_active or admin.deleted_at is not None or not admin.is_admin
+                or admin.token_version != claims.get("atv")):
+            raise ServiceError(401, "not_authenticated", "Session is no longer valid. Please sign in again.")
+        request.state.acting_admin = admin
     if request.method in UNSAFE_METHODS:
         if not csrf_valid(request.headers.get("X-CSRF-Token"), request.cookies.get(s.csrf_cookie_name), claims["csrf"]):
             raise ServiceError(403, "csrf_failed", "CSRF validation failed. Refresh the page and try again.")

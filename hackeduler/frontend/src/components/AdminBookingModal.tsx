@@ -116,7 +116,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
       {tab === 'audit' && (
         <ol className="space-y-3">{data.audit.slice().reverse().map((a: AuditEntry) => (
           <li key={a.id} className="rounded border border-slate-200 p-2 text-sm">
-            <div className="flex flex-wrap items-center gap-2"><Pill className={a.action.includes('force') ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-700'}>{a.action}</Pill><span className="text-xs text-slate-500">{fmtDateTime(a.created_at)} · {a.actor_email} ({a.actor_role})</span></div>
+            <div className="flex flex-wrap items-center gap-2"><Pill className={a.action.includes('force') ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-700'}>{a.action}</Pill><span className="text-xs text-slate-500">{fmtDateTime(a.created_at)} · {a.actor_email} ({a.actor_role}){a.acted_by_email ? ` · via admin ${a.acted_by_email}` : ''}</span></div>
             {a.reason && <div className="mt-1 text-xs"><b>Reason:</b> {a.reason}</div>}
             <AuditChanges a={a} />
           </li>

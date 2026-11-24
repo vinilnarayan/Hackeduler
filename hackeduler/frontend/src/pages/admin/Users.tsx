@@ -23,7 +23,7 @@ const tally = (users: User[], keys: string[], of: (u: User) => string[]) => keys
 
 export default function UsersPage() {
   const toast = useToast()
-  const { user: me } = useAuth()
+  const { user: me, actAs: startActAs } = useAuth()
   const [showDeleted, setShowDeleted] = useState(false)
   const { data, error, loading, reload } = useAsync<User[]>(() => get(`/api/admin/users${showDeleted ? '?include_deleted=true' : ''}`), [showDeleted])
   const [q, setQ] = useState('')
@@ -38,6 +38,7 @@ export default function UsersPage() {
   const prodOf = (id?: string | null) => products.data?.find((p) => p.id === id)
   const restore = async (u: User) => { try { await post(`/api/admin/users/${u.id}/restore`); toast('success', `${u.full_name} restored (disabled). Enable the account when ready.`); reload() } catch (e) { toast('error', validationMessage(e)) } }
   const [edit, setEdit] = useState<any>(null)
+  const actAs = async (u: User) => { try { await startActAs(u.id) } catch (e) { toast('error', validationMessage(e)) } }
   const save = async () => {
     const extraIds: string[] = edit.product_id ? (edit.extra_product_ids ?? []).filter((id: string) => id !== edit.product_id) : []
     try {
@@ -86,7 +87,7 @@ export default function UsersPage() {
                 </div></td>
                 <td className="td">{u.deleted_at ? <Pill className="bg-red-100 text-red-800">Deleted {fmtDateTime(u.deleted_at)}</Pill> : u.is_active ? <Pill className="bg-emerald-100 text-emerald-800">Active</Pill> : <Pill>Disabled</Pill>}</td>
                 <td className="td text-xs">{fmtDateTime(u.last_login_at)}{u.last_login_method && <div className="text-slate-500">{lastMethod(u)}</div>}</td>
-                <td className="td whitespace-nowrap">{u.deleted_at ? <button className="btn-secondary" onClick={() => restore(u)}>Restore</button> : <div className="flex gap-1"><button className="btn-secondary" onClick={() => setEdit({ ...u, password: '' })}>Edit</button>{u.id !== me?.id && <><button className="btn-secondary" onClick={() => toggle(u)}>{u.is_active ? 'Disable' : 'Enable'}</button><button className="btn-ghost px-2 text-red-700" onClick={() => setRemove(u)}>Delete</button></>}</div>}</td></tr>
+                <td className="td whitespace-nowrap">{u.deleted_at ? <button className="btn-secondary" onClick={() => restore(u)}>Restore</button> : <div className="flex gap-1"><button className="btn-secondary" onClick={() => setEdit({ ...u, password: '' })}>Edit</button>{u.id !== me?.id && <>{u.is_active && u.role !== 'admin' && <button className="btn-secondary" title="Open the app as this user (recorded in the audit log)" onClick={() => actAs(u)}>Act as</button>}<button className="btn-secondary" onClick={() => toggle(u)}>{u.is_active ? 'Disable' : 'Enable'}</button><button className="btn-ghost px-2 text-red-700" onClick={() => setRemove(u)}>Delete</button></>}</div>}</td></tr>
             ))}</tbody>
           </table>
         )}

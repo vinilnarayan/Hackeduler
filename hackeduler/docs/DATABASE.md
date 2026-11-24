@@ -34,7 +34,7 @@ holidays            audit_logs (append-only)     email_templates     application
 | `booking_status_history` | Every status transition (append-only) | trigger blocks UPDATE/DELETE/TRUNCATE |
 | `booking_resource_locks` | One row per reserved working date: `pending`/`confirmed`/`released`, `is_forced`, `expires_at` | **partial UNIQUE `(resource_id, work_date)` WHERE active AND NOT forced**; partial lookup index; index by booking |
 | `booking_change_requests` | Requester cancel/reschedule requests | partial unique: one pending request per booking |
-| `audit_logs` | Immutable audit trail (JSONB previous/new values) | trigger blocks UPDATE/DELETE/TRUNCATE; indexes on booking, actor, action, created_at |
+| `audit_logs` | Immutable audit trail (JSONB previous/new values); `acted_by_id` / `acted_by_email` hold the real admin when "Act as" was used (migration 0023) | trigger blocks UPDATE/DELETE/TRUNCATE; indexes on booking, actor, action, created_at |
 | `booking_conflicts` | Conflict register: type ∈ overlapping_booking, leave, holiday, inactive_resource, manual_override; open/resolved; resolver and timestamp | indexes on (status, created_at), booking |
 | `email_templates` | Editable subject/body templates, `body_format` (text / html), `layout` (classic / minimal / banner) and `accent` colour | unique `key` |
 | `email_notification_logs` | Outbox and delivery log: recipient (To), `cc` (extra Cc, e.g. the assigned engineer), `body` (plain text) and `body_html` (the complete HTML email, nullable; older rows hold only the body), status, attempts, next_attempt_at, last_error, `provider` (smtp / ses - the service that delivered it), sent_at | index `(status, next_attempt_at)` |

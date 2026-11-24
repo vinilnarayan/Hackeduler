@@ -305,6 +305,7 @@ export interface AuditEntry {
   new_value: any
   actor_email: string | null
   actor_role: string | null
+  acted_by_email?: string | null          // the real administrator when "Act as" was used
   reason: string | null
   request_id: string | null
   ip_address: string | null

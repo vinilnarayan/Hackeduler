@@ -30,7 +30,9 @@ schema is at `/api/openapi.json`.
 | POST | `/api/auth/login` | `{email, password}` → `{user, csrf_token}` + cookies. Rate limited |
 | POST | `/api/auth/logout` | Revokes all sessions of the user |
 | GET | `/api/auth/me` | Current user + CSRF token |
-| POST | `/api/auth/change-password` | `{current_password, new_password}` |
+| POST | `/api/auth/change-password` | `{current_password, new_password}` (refused while an admin is acting as the user) |
+| POST | `/api/auth/act-as/{user_id}` | Admin only. Start acting as an active non-admin user. Time-limited (`HACKEDULER_ACT_AS_MINUTES`, default 60); `/api/auth/me` then returns `acting_as`. Audited (`admin.act_as_started`) |
+| POST | `/api/auth/act-as/exit` | End acting and return to the admin's own session (`admin.act_as_ended`). Sign-out while acting does the same and never revokes the user's own sessions |
 
 ## Single sign-on (public)
 

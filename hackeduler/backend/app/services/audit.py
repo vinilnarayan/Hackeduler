@@ -16,7 +16,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ..context import client_ip_var, request_id_var
+from ..context import acting_admin_var, client_ip_var, request_id_var
 from ..models import AuditLog, Booking, User
 
 log = logging.getLogger(__name__)
@@ -65,8 +65,11 @@ def record(
     new: Any = None,
     reason: str | None = None,
 ) -> AuditLog:
+    acting = acting_admin_var.get()
     entry = AuditLog(
         id=uuid.uuid4(),
+        acted_by_id=uuid.UUID(acting[0]) if acting else None,
+        acted_by_email=acting[1] if acting else None,
         booking_id=booking_id,
         entity_type=entity_type,
         entity_id=str(entity_id) if entity_id is not None else None,
