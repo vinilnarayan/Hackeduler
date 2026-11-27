@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Check, Pencil, Trash2, X } from 'lucide-react'
 import { get, patch, post, validationMessage } from '../api/client'
-import type { ActivityType, AdminBooking, AuditEntry, ForcePayload, Product, RangeResult, ResourceAdmin } from '../api/types'
+import type { ActivityType, AdminBooking, AuditEntry, AvailabilityResult, ForcePayload, Product, RangeResult, ResourceAdmin } from '../api/types'
 import { fmt, fmtDateTime } from '../lib/dates'
 import { CONFLICT_TYPE_LABELS, STATUS_LABELS } from '../lib/status'
 import { useToast } from '../lib/toast'
@@ -160,15 +160,44 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
     poc_email: b.poc_email, additional_comments: b.additional_comments ?? '', reason: '',
   })
   const [busy, setBusy] = useState(false)
+  // Additional resources ("Also block other resources"): pre-filled from the booking, edited as one full list.
+  const initialExtras = b.extra_resources ?? []
+  const initialSlice: Record<string, { start_date: string; working_days: string }> = {}
+  for (const x of initialExtras) {
+    const own = !!x.start_date && !(x.start_date === b.start_date && x.end_date === b.end_date)
+    initialSlice[x.id] = own ? { start_date: x.start_date ?? '', working_days: String(x.working_days ?? '') } : { start_date: '', working_days: '' }
+  }
+  const [extras, setExtras] = useState<string[]>(initialExtras.map((x) => x.id))
+  const [slice, setSlice] = useState(initialSlice)
+  const [free, setFree] = useState<Record<string, AvailabilityResult>>({})
+  const extrasPayload = () => extras.map((id) => ({
+    resource_id: id, ...(slice[id]?.start_date ? { start_date: slice[id].start_date } : {}),
+    ...(Number(slice[id]?.working_days) > 0 ? { working_days: Number(slice[id].working_days) } : {}) }))
+  const extrasChanged = JSON.stringify(extrasPayload()) !== JSON.stringify(initialExtras.map((x) => ({
+    resource_id: x.id, ...(initialSlice[x.id].start_date ? { start_date: initialSlice[x.id].start_date } : {}),
+    ...(Number(initialSlice[x.id].working_days) > 0 ? { working_days: Number(initialSlice[x.id].working_days) } : {}) })))
   const [range, setRange] = useState<RangeResult | null>(null)
   const rid = f.resource_id || b.resource_id || ''
   // Preview of the typed end date: working days actually reserved (this booking's own days are not counted as conflicts).
   useEffect(() => {
     setRange(null)
-    if (f.duration_mode !== 'end_date' || !f.start_date || !f.end_date || f.end_date < f.start_date || b.extra_resources?.length) return
+    if (f.duration_mode !== 'end_date' || !f.start_date || !f.end_date || f.end_date < f.start_date || extras.length) return
     const t = setTimeout(() => post<RangeResult>('/api/admin/availability/range', { resource_id: rid || null, start_date: f.start_date, end_date: f.end_date, exclude_booking_id: b.id }).then(setRange).catch(() => setRange(null)), 250)
     return () => clearTimeout(t)
   }, [rid, f.start_date, f.end_date, f.duration_mode])
+  // Free / busy status of the other resources for these dates (this booking's own days are not conflicts).
+  useEffect(() => {
+    setFree({})
+    setExtras((x) => x.filter((id) => id !== rid))
+    if (!rid || !f.activity_type_id || !f.start_date) return
+    let live = true
+    const t = setTimeout(() => {
+      (resources.data ?? []).filter((r) => r.is_active && r.id !== rid).forEach((r) =>
+        post<AvailabilityResult>('/api/admin/availability/check', { resource_id: r.id, activity_type_id: f.activity_type_id, start_date: f.start_date, additional_days: f.additional_days, exclude_booking_id: b.id })
+          .then((res) => { if (live) setFree((cur) => ({ ...cur, [r.id]: res })) }).catch(() => undefined))
+    }, 300)
+    return () => { live = false; clearTimeout(t) }
+  }, [rid, f.activity_type_id, f.start_date, f.additional_days, resources.data])
   useEffect(() => { if (f.activity_type_id !== b.activity_type_id && f.duration_mode === 'keep') setF((x) => ({ ...x, duration_mode: 'recalculate' })) }, [f.activity_type_id])
   const s = (k: keyof typeof f) => (e: React.ChangeEvent<any>) => setF({ ...f, [k]: e.target.type === 'number' ? parseInt(e.target.value || '0', 10) : e.target.value })
 
@@ -187,6 +216,8 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
       if ((f as any)[k] !== (b as any)[bk]) out[k] = (f as any)[k]
     if (f.pci !== b.pci_dss_scope) out.pci_dss_scope = f.pci
     if ((f.additional_comments || null) !== (b.additional_comments || null)) out.additional_comments = f.additional_comments || null
+    const scheduleChange = ['resource_id', 'start_date', 'activity_type_id', 'additional_days', 'duration_days', 'end_date', 'recalculate'].some((k) => k in out)
+    if (extrasChanged || (scheduleChange && extras.length)) out.additional_resources = extrasPayload()
     if (force) out.force = force
     return out
   }
@@ -197,7 +228,6 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
     <form className="space-y-4" onSubmit={async (e) => { e.preventDefault(); setBusy(true); await run((force) => patch(`/api/admin/bookings/${b.id}`, body(force)), onSaved); setBusy(false) }}>
       <p className="text-xs text-slate-500">All changes are revalidated on the server, audited with previous values, and notify the POC if the booking is approved. The old reservation is only released when the new allocation commits.</p>
       <div className="grid gap-3 md:grid-cols-3">
-        {b.extra_resources?.length > 0 && <div className="col-span-full rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">This booking holds {b.extra_resources.length + 1} resources, so its dates, activity and resources can’t be changed here – only the details. To change them, cancel it and create a new multi-resource booking.</div>}
         <Field label="Activity type" htmlFor="e-act"><select id="e-act" className="input" value={f.activity_type_id} onChange={s('activity_type_id')}>{acts.data?.filter((a) => !a.deleted_at || a.id === b.activity_type_id).map((a) => <option key={a.id} value={a.id} disabled={(!a.is_active || !!a.deleted_at) && a.id !== b.activity_type_id}>{a.name}{a.base_duration_days ? ` (${a.base_duration_days}d)` : ''}{a.requires_resource ? '' : ' – no resource'}{a.deleted_at ? ' – removed' : a.is_active ? '' : ' – inactive'}</option>)}</select></Field>
         {needsRes ? (
           <Field label="Resource (reassign)" htmlFor="e-res" hint={!b.resource_id ? 'Leave on auto to pick the best available engineer.' : undefined}><select id="e-res" className="input" value={f.resource_id} onChange={s('resource_id')}>
@@ -229,6 +259,44 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
           {range.working_days === 0 && <div className="text-xs font-medium text-amber-800">No working days fall in this range.</div>}
           {range.issues.map((i, n) => <div key={n} className="text-xs text-slate-700">• {i.message}</div>)}
         </div>
+      )}
+      {needsRes && rid && f.activity_type_id && f.start_date && (
+        <fieldset className="rounded-md border border-slate-200 p-3">
+          <legend className="px-1 text-sm font-medium">Also block other resources for this booking (optional)</legend>
+          <p className="mb-2 text-xs text-slate-500">Tick to add a resource to this booking, untick to release one. Resources already on the booking are pre-ticked. All selected resources stay in one confirmed booking, and only resources that are free for the whole period can be added.</p>
+          <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+            {(resources.data ?? []).filter((r) => (r.is_active || initialExtras.some((x) => x.id === r.id)) && r.id !== rid).map((r) => {
+              const st = free[r.id]
+              const onBooking = initialExtras.some((x) => x.id === r.id)
+              const busy = !onBooking && !!st && !st.available
+              return (
+                <label key={r.id} className={`flex items-start gap-2 rounded border border-slate-200 p-2 text-sm ${busy ? 'opacity-60' : ''}`} title={busy ? st.message : undefined}>
+                  <input type="checkbox" className="mt-0.5" checked={extras.includes(r.id)}
+                    onChange={(e) => setExtras(e.target.checked ? [...extras, r.id] : extras.filter((x) => x !== r.id))} />
+                  <span className="flex-1">{r.display_name} – {r.engineer_name}</span>
+                  <span className={`text-xs font-medium ${onBooking ? 'text-blue-700' : !st ? 'text-slate-400' : busy ? 'text-amber-700' : 'text-emerald-700'}`}>{onBooking ? 'On this booking' : !st ? '…' : busy ? 'Busy in these dates' : 'Free'}</span>
+                </label>
+              )
+            })}
+          </div>
+          {extras.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs text-slate-600">By default every resource is blocked for the same dates. To split the activity, give a resource its own <b>start date</b> and number of <b>working days</b>.</p>
+              {extras.map((id) => {
+                const r = (resources.data ?? []).find((x) => x.id === id)
+                const v = slice[id] ?? { start_date: '', working_days: '' }
+                return (
+                  <div key={id} className="grid items-end gap-2 rounded border border-slate-200 p-2 sm:grid-cols-3">
+                    <div className="text-sm font-medium">{r?.display_name} – {r?.engineer_name}</div>
+                    <Field label="Start date (optional)" htmlFor={`ex-sd-${id}`}><input id={`ex-sd-${id}`} type="date" className="input" min={f.start_date || undefined} value={v.start_date} onChange={(e) => setSlice({ ...slice, [id]: { ...v, start_date: e.target.value } })} /></Field>
+                    <Field label="Working days (optional)" htmlFor={`ex-wd-${id}`}><input id={`ex-wd-${id}`} type="number" min={1} max={250} className="input" placeholder="same as main" value={v.working_days} onChange={(e) => setSlice({ ...slice, [id]: { ...v, working_days: e.target.value } })} /></Field>
+                  </div>
+                )
+              })}
+              <p className="text-xs text-slate-600">{extras.length + 1} resources will be blocked in one confirmed booking. Force Allocate is not available for multi-resource bookings. The POC, the engineers on the booking and any engineer taken off it are emailed.</p>
+            </div>
+          )}
+        </fieldset>
       )}
       <div className="grid gap-3 md:grid-cols-3">
         <Field label="Application name" htmlFor="e-an"><input id="e-an" className="input" value={f.application_name} onChange={s('application_name')} /></Field>

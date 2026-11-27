@@ -715,6 +715,38 @@ def _place_multi(db: Session, admin: User, activity, inp: BookingInput, extras: 
     return b, primary
 
 
+def _clean_extras(items) -> list[ExtraAllocation]:
+    out: list[ExtraAllocation] = []
+    for it in items or []:
+        e = ExtraAllocation(it["resource_id"], it.get("start_date"), it.get("working_days"), it.get("end_date"))
+        if any(x.resource_id == e.resource_id for x in out):
+            raise bad_request("A resource can only be added once.", "duplicate_resource")
+        out.append(e)
+    return out
+
+
+def _plan_extras(db: Session, resources: dict, extras: list[ExtraAllocation], *, start: date, duration: int,
+                 end_override: date | None, exclude_booking_id: uuid.UUID) -> list[SchedulePlan]:
+    """One plan per additional resource. Anything left empty follows the main allocation (same rule as a new
+    multi-resource booking); this booking's own current days are not counted as conflicts."""
+    plans: list[SchedulePlan] = []
+    for e in extras:
+        r = resources[e.resource_id]
+        inherited_end = end_override if not e.custom else None
+        try:
+            plan = plan_schedule(db, r, e.start_date or start, e.working_days or duration,
+                                 exclude_booking_id=exclude_booking_id, explicit_end_date=e.end_date or inherited_end)
+        except SchedulingError as err:
+            raise bad_request(f"{r.display_name}: {err.message}", err.code)
+        if plan.issues:
+            raise conflict(f"{r.display_name} is not free for the selected dates: {plan.issues[0].message} "
+                           "Nothing was changed. Remove it from the selection or change the dates.",
+                           "resource_unavailable",
+                           {"resource_id": str(r.id), "issues": _issues_json(plan.issues, include_booking_ids=True)})
+        plans.append(plan)
+    return plans
+
+
 def submit_booking(db: Session, actor: User, inp: BookingInput) -> Booking:
     _validate_input(inp)
     activity = _get_activity(db, inp.activity_type_id, for_requester=not actor.is_admin)
@@ -947,6 +979,7 @@ def mark_completed(db: Session, admin: User, booking_id: uuid.UUID, note: str | 
 SCHEDULE_FIELDS = {"resource_id", "start_date", "activity_type_id", "additional_days", "duration_days", "end_date", "recalculate"}
 DETAIL_FIELDS = {"application_name", "application_version", "pci_dss_scope", "poc_name", "poc_email", "additional_comments"}
 PRODUCT_FIELDS = {"product_id", "implementation_id"}
+MULTI_FIELDS = {"additional_resources"}   # the full desired list of additional resources (admin only)
 
 
 def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, Any], reason: str,
@@ -955,16 +988,23 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
         raise forbidden()
     reason = _clean_text(reason, "Reason for change", max_len=2000)
     ensure_force_allowed(admin, force, booking_id=booking_id)
-    unknown = set(changes) - SCHEDULE_FIELDS - DETAIL_FIELDS - PRODUCT_FIELDS
+    changes = dict(changes)
+    unknown = set(changes) - SCHEDULE_FIELDS - DETAIL_FIELDS - PRODUCT_FIELDS - MULTI_FIELDS
     if unknown:
         raise bad_request(f"Unsupported field(s): {', '.join(sorted(unknown))}")
     b = lock_booking(db, booking_id)
     if b.status not in BookingStatus.ACTIVE:
         raise conflict("Only pending or approved bookings can be modified.", "invalid_state")
-    if b.extra_resources and (set(changes) & SCHEDULE_FIELDS):
-        raise conflict("This booking holds several resources, so its dates, activity and resources can't be edited "
-                       "in place. Cancel it and create a new multi-resource booking, or edit the booking details only.",
-                       "multi_resource_locked")
+    # Additional resources: the request carries the FULL desired list (resource + optional own slice each).
+    extras_req: list[ExtraAllocation] | None = None
+    if "additional_resources" in changes:
+        extras_req = _clean_extras(changes.pop("additional_resources"))
+    if b.extra_resources and extras_req is None and (set(changes) & SCHEDULE_FIELDS):
+        raise conflict("This booking holds several resources, so send the full list of additional resources together "
+                       "with a change of dates, activity or resources.", "multi_resource_locked")
+    current_extra_ids = {r.id for r in b.extra_resources}
+    extras_changed = extras_req is not None and (
+        {e.resource_id for e in extras_req} != current_extra_ids or any(e.custom for e in extras_req))
     before = audit.booking_snapshot(b)
     old_engineers = notifications.engineer_emails(b)     # told about the change too, if the resource is replaced
     old_alloc = {"resource_id": str(b.resource_id) if b.resource_id else None,
@@ -974,6 +1014,8 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                  "work_dates": [d.isoformat() for d in _active_lock_dates(db, b.id)]}
     forced = False
     plan = None
+    extras: list[ExtraAllocation] = []
+    extra_plans: list[SchedulePlan] = []
     activity = b.activity_type
     activity_changed = "activity_type_id" in changes and changes["activity_type_id"] != b.activity_type_id
     if activity_changed:
@@ -989,6 +1031,10 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
         # no security resource: release any reservation, dates/duration optional
         if changes.get("resource_id"):
             raise bad_request("This activity type does not use a security resource.", "no_resource_required")
+        if extras_req:
+            raise bad_request("This activity type does not use a security resource, so no additional resources can be blocked.",
+                              "no_resource_required")
+        b.extra_resources = []
         additional = changes.get("additional_days", 0 if activity_changed else b.additional_days)
         if changes.get("duration_days") is not None:
             duration, overridden = changes["duration_days"], True
@@ -1012,7 +1058,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
         b.base_duration_snapshot, b.additional_days = activity.base_duration_days, additional
         b.duration_days, b.duration_overridden, b.start_date, b.end_date = duration, overridden, start, end
 
-    elif activity.requires_resource and (SCHEDULE_FIELDS & set(changes) or not b.requires_resource):
+    elif activity.requires_resource and (SCHEDULE_FIELDS & set(changes) or not b.requires_resource or extras_changed):
         start = changes.get("start_date") or b.start_date
         if start is None:
             raise bad_request("A start date is required for an activity that uses a security resource.", "start_required")
@@ -1028,9 +1074,15 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                 raise conflict("No security resource is available for these dates. Choose a resource to force allocate.",
                                "no_resource_available")
             new_rid = cands[0].resource.id
-        resources = lock_resources(db, [x for x in (b.resource_id, new_rid) if x])
+        extras = extras_req or []
+        if any(e.resource_id == new_rid for e in extras):
+            raise bad_request("The main resource cannot also be listed as an additional resource.", "duplicate_resource")
+        resources = lock_resources(db, [x for x in (b.resource_id, new_rid, *[e.resource_id for e in extras], *current_extra_ids) if x])
         for rid in resources:
             expire_stale_pending(db, rid)
+        for e in extras:
+            if not resources[e.resource_id].is_active and e.resource_id not in current_extra_ids:
+                raise bad_request(f"{resources[e.resource_id].display_name} is inactive and cannot be added.", "resource_inactive")
         resource = resources[new_rid]
         end_override = changes.get("end_date")
         if changes.get("duration_days") is not None:
@@ -1055,13 +1107,28 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
             plan = plan_schedule(db, resource, start, duration, exclude_booking_id=b.id, explicit_end_date=end_override)
         except SchedulingError as e:
             raise bad_request(e.message, e.code)
-        forced = _evaluate(db, plan, admin, force)
+        extra_plans: list[SchedulePlan] = []
+        if extras:
+            if force is not None:
+                raise bad_request("Force Allocate is not available for bookings with several resources.", "force_not_allowed")
+            extra_plans = _plan_extras(db, resources, extras, start=start, duration=duration, end_override=end_override,
+                                       exclude_booking_id=b.id)
+            if plan.issues:
+                raise conflict(f"{resource.display_name} is not free for the selected dates: {plan.issues[0].message} "
+                               "Nothing was changed.", "resource_unavailable",
+                               {"resource_id": str(resource.id), "issues": _issues_json(plan.issues, include_booking_ids=True)})
+            forced = False
+        else:
+            forced = _evaluate(db, plan, admin, force)
 
         # release the old reservation and create the new one in ONE transaction
         _release_locks(db, b.id)
         db.flush()
         lock_status = LockStatus.CONFIRMED if b.status == BookingStatus.APPROVED else LockStatus.PENDING
         _write_locks(db, b, plan, lock_status, forced, b.expires_at if lock_status == LockStatus.PENDING else None)
+        for xp in extra_plans:
+            _write_locks(db, b, xp, lock_status, False, b.expires_at if lock_status == LockStatus.PENDING else None)
+        b.extra_resources = [resources[e.resource_id] for e in extras]
         b.resource_id = resource.id
         b.requires_resource = True
         b.activity_type_id = activity.id
@@ -1072,6 +1139,12 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
         b.duration_overridden = overridden
         b.start_date = plan.start_date
         b.end_date = plan.end_date
+        if extra_plans:
+            all_plans = [plan, *extra_plans]
+            b.start_date = min(p_.start_date for p_ in all_plans)
+            b.end_date = max(p_.end_date for p_ in all_plans if p_.end_date)
+            if any(e.custom for e in extras):     # split between resources: the booking covers the days of every slice
+                b.duration_days = sum(len(p_.work_dates) for p_ in all_plans)
 
     for f in DETAIL_FIELDS & set(changes):
         v = changes[f]
@@ -1087,7 +1160,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
     db.flush()
     db.refresh(b)
     after = audit.booking_snapshot(b)
-    changed = {k for k in after if before.get(k) != after.get(k)} - {"version", "needs_review", "is_force_allocated", "resource_code"}
+    changed = {k for k in set(after) | set(before) if before.get(k) != after.get(k)} - {"version", "needs_review", "is_force_allocated", "resource_code"}
     if not changed and not forced:
         raise bad_request("No changes were supplied.", "no_changes")
     b.version += 1
@@ -1098,6 +1171,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
         "booking.activity_changed": {"activity_type_id", "activity_name_snapshot", "base_duration_snapshot",
                                      "additional_days", "duration_days", "duration_overridden"},
         "booking.details_changed": DETAIL_FIELDS | PRODUCT_FIELDS,
+        "booking.resources_changed": {"additional_resource_ids", "additional_resource_codes"},
     }
     for action, fields in categories.items():
         touched = changed & fields
@@ -1105,8 +1179,8 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
             extra_prev = {"resource_code": before.get("resource_code")} if action == "booking.reassigned" else {}
             extra_new = {"resource_code": after.get("resource_code")} if action == "booking.reassigned" else {}
             audit.record(db, action, admin, entity_type="booking", entity_id=b.id, booking_id=b.id,
-                         previous={**{k: before[k] for k in touched}, **extra_prev},
-                         new={**{k: after[k] for k in touched}, **extra_new}, reason=reason)
+                         previous={**{k: before.get(k) for k in touched}, **extra_prev},
+                         new={**{k: after.get(k) for k in touched}, **extra_new}, reason=reason)
     audit.record(db, "booking.modified", admin, entity_type="booking", entity_id=b.id, booking_id=b.id,
                  previous=before, new=audit.booking_snapshot(b), reason=reason)
     if forced and plan is not None:
@@ -1117,12 +1191,26 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                   "activity_name_snapshot": "Activity type", "duration_days": "Duration (working days)",
                   "application_name": "Application name", "application_version": "Application version",
                   "pci_dss_scope": "PCI DSS scope", "poc_name": "POC name", "poc_email": "POC email",
-                  "additional_comments": "Comments", "requires_resource": "Security resource required"}
+                  "additional_comments": "Comments", "requires_resource": "Security resource required",
+                  "additional_resource_ids": "Additional resources", "additional_resource_codes": "Additional resources"}
         lines = []
         for k in sorted(changed):
             if k not in labels:
                 continue
-            if k == "resource_id":
+            if k == "additional_resource_codes":
+                continue
+            if k == "additional_resource_ids":
+                def _names(ids):
+                    rs = [db.get(SecurityResource, uuid.UUID(i)) for i in (ids or [])]
+                    return ", ".join(f"{r.display_name} ({r.engineer_name})" for r in rs if r) or "None"
+                lines.append(f"- Additional resources: {_names(before.get('additional_resource_ids'))} -> {_names(after.get('additional_resource_ids'))}")
+                old_ids = set(before.get("additional_resource_ids") or [])
+                custom_ids = {e.resource_id for e in extras if e.custom}
+                for xp in extra_plans:
+                    if xp.work_dates and (xp.resource.id in custom_ids or str(xp.resource.id) not in old_ids):
+                        lines.append(f"- {xp.resource.display_name} ({xp.resource.engineer_name}): {xp.start_date.isoformat()} - "
+                                     f"{xp.end_date.isoformat()} ({len(xp.work_dates)} working days)")
+            elif k == "resource_id":
                 old_r = db.get(SecurityResource, uuid.UUID(before["resource_id"])) if before.get("resource_id") else None
                 lines.append(f"- Resource: {old_r.display_name if old_r else 'Not required'} -> "
                              f"{b.resource.display_name if b.resource else 'Not required'}")

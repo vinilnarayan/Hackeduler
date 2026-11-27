@@ -357,6 +357,9 @@ class BookingModify(Strict):
     additional_comments: str | None = Field(default=None, max_length=4000)
     product_id: uuid.UUID | None = None
     implementation_id: uuid.UUID | None = None
+    # The FULL list of additional resources wanted on the booking (admin "Also block other resources"); omit to keep
+    # the current ones, [] to release them all.
+    additional_resources: list[ExtraResourceIn] | None = Field(default=None, max_length=10)
     reason: str = Field(min_length=1, max_length=2000)
     force: ForceIn | None = None
 
