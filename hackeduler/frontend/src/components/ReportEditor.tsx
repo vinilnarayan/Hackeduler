@@ -29,7 +29,7 @@ export function ReportEditor({ booking, url, onSaved }: { booking: Booking; url:
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />Report shared</label>
       <Field label={shared ? 'Report type *' : 'Report type'} htmlFor="rp-type">
         <select id="rp-type" className="input" value={type} onChange={(e) => setType(e.target.value as ReportType | '')}>
-          <option value="">— Select —</option><option value="V1">V1 report</option><option value="Met">Met report</option>
+          <option value="">— Select —</option><option value="V1">Not Met Report</option><option value="Met">Met Report</option>
         </select>
       </Field>
       <Field label={shared ? 'Report link (SharePoint URL) *' : 'Report link (SharePoint URL)'} htmlFor="rp-url" hint="Must start with https://. Requesters, resource users and admins open the report from this link.">
@@ -40,7 +40,7 @@ export function ReportEditor({ booking, url, onSaved }: { booking: Booking; url:
       <div className="flex justify-end"><button className="btn-primary" disabled={busy || !dirty || (shared && (!type || !link.trim()))} onClick={() => (shared ? setAsking(true) : save(false))}>{busy ? 'Saving…' : 'Save report details'}</button></div>
       <Modal open={asking} onClose={() => setAsking(false)} title="Inform the POC?" size="sm"
         footer={<><button className="btn-secondary" onClick={() => save(false)}>No</button><button className="btn-primary" onClick={() => save(true)}>Yes, send email</button></>}>
-        <p className="text-sm">The report details will be saved. Do you want to email the POC that the <b>{type === 'Met' ? 'Met' : 'V1'} report</b> for <b>{booking.application_name} {booking.application_version}</b> has been shared?</p>
+        <p className="text-sm">The report details will be saved. Do you want to email the POC that the <b>{type === 'Met' ? 'Met Report' : 'Not Met Report'}</b> for <b>{booking.application_name} {booking.application_version}</b> has been shared?</p>
         <p className="mt-2 text-xs text-slate-500">To: the POC and the requester. Cc: the Admin notification recipients and the engineers on this booking.</p>
       </Modal>
     </div>

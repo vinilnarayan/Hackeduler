@@ -55,7 +55,7 @@ export default function AdminBookings() {
         <input type="date" className="input" aria-label="To" value={f.end} onChange={(e) => set('end', e.target.value)} />
         <select className="input" aria-label="Review flag" value={f.needs_review} onChange={(e) => set('needs_review', e.target.value)}><option value="">Any review state</option><option value="true">Needs review</option><option value="false">No review flag</option></select>
         <select className="input" aria-label="PCI DSS scope" value={f.pci} onChange={(e) => set('pci', e.target.value)}><option value="">Any PCI scope</option><option value="true">PCI in scope</option><option value="false">Not PCI</option></select>
-        <select className="input" aria-label="Report" value={f.report} onChange={(e) => set('report', e.target.value)}><option value="">Any report state</option><option value="shared">Report shared</option><option value="not_shared">Report not shared</option><option value="V1">Shared – V1</option><option value="Met">Shared – Met</option></select>
+        <select className="input" aria-label="Report" value={f.report} onChange={(e) => set('report', e.target.value)}><option value="">Any report state</option><option value="shared">Report shared</option><option value="not_shared">Report not shared</option><option value="V1">Shared – Not Met Report</option><option value="Met">Shared – Met Report</option></select>
       </div>
       <div className="card overflow-x-auto">
         {error ? <ErrorState message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : !data?.items.length ? <Empty title="No bookings match the filters" /> : (

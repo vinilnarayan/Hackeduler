@@ -41,7 +41,7 @@ def test_yes_sends_one_email_with_recipients_subject_and_link(admin, data):
     assert m.subject == f"[Hackeduler] Penetration Test Report – {b['application_name']} | {b['id']}"
     assert "offsec-admins@example.com" in m.cc and "eng1@offsec.local" in m.cc   # Admin notification recipients + engineer
     assert URL in m.body and URL in m.body_html and "3 high findings" in m.body and "Eng One" in m.body
-    assert "<table" in m.body_html
+    assert "<table" in m.body_html and "The Not Met Report for your security assessment" in m.body
 
 
 def test_no_saves_but_sends_nothing(admin, data):

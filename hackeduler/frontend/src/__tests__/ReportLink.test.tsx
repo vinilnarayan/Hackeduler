@@ -16,7 +16,7 @@ const URL = 'https://contoso.sharepoint.com/sites/offsec/Reports/a.pdf'
 describe('ReportLink', () => {
   it('is a new-tab link to the report when shared with a url', () => {
     render(<ReportLink shared type="Met" url={URL} />)
-    const a = screen.getByRole('link', { name: /Met report/ })
+    const a = screen.getByRole('link', { name: /Met Report/ })
     expect(a.getAttribute('href')).toBe(URL)
     expect(a.getAttribute('target')).toBe('_blank')
     expect(a.getAttribute('rel')).toContain('noopener')
@@ -24,7 +24,7 @@ describe('ReportLink', () => {
   it('falls back to the plain badge without a url or when not shared', () => {
     const { rerender } = render(<ReportLink shared type="V1" url={null} />)
     expect(screen.queryByRole('link')).toBeNull()
-    expect(screen.getByText('Shared · V1 report')).toBeTruthy()
+    expect(screen.getByText('Shared · Not Met Report')).toBeTruthy()
     rerender(<ReportLink shared={false} type={null} url={URL} />)
     expect(screen.queryByRole('link')).toBeNull()
     expect(screen.getByText('Not shared')).toBeTruthy()
@@ -74,7 +74,7 @@ describe('Requester My Bookings', () => {
     api.get.mockResolvedValue([{ ...b, report_shared: true, report_type: 'V1', report_url: URL, submitted_at: '2026-11-20T06:41:00Z', is_mine: true, requester_name: 'Me', start_date: '2027-09-01', end_date: '2027-09-10', resource_display_name: 'R', pci_dss_scope: false, pending_change_request: null }])
     render(<MemoryRouter><MyBookings /></MemoryRouter>)
     await screen.findByText('Alpha App')
-    const links = screen.getAllByRole('link', { name: /V1 report/ })
+    const links = screen.getAllByRole('link', { name: /Not Met Report/ })
     expect(links[0].getAttribute('href')).toBe(URL)
   })
 })

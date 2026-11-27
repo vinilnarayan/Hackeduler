@@ -38,7 +38,7 @@ export default function ResourceDashboard() {
         <StatCard label="In progress now" value={c.in_progress} icon={<PlayCircle className="h-5 w-5" />} tone="green" />
         <StatCard label="Upcoming" value={c.upcoming} icon={<CalendarClock className="h-5 w-5" />} tone="violet" />
         <StatCard label="Completed" value={c.completed} icon={<CheckCircle2 className="h-5 w-5" />} tone="slate" />
-        <StatCard label="Reports shared" value={c.reports_shared} icon={<FileCheck2 className="h-5 w-5" />} tone="green" hint={`${c.reports_v1} V1 · ${c.reports_met} Met`} />
+        <StatCard label="Reports shared" value={c.reports_shared} icon={<FileCheck2 className="h-5 w-5" />} tone="green" hint={`${c.reports_v1} Not Met · ${c.reports_met} Met`} />
         <StatCard label="Reports to share" value={c.reports_pending} icon={<FileWarning className="h-5 w-5" />} tone="amber" hint="Finished work, report not yet shared" />
         <StatCard label="Upcoming leaves" value={c.upcoming_leaves} icon={<Plane className="h-5 w-5" />} tone="blue" />
       </div>
