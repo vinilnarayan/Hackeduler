@@ -875,7 +875,8 @@ def _ensure_templates(db: Session) -> None:
     existing = set(db.scalars(select(EmailTemplate.key)))
     for key, t in notifications.DEFAULT_TEMPLATES.items():
         if key not in existing:
-            db.add(EmailTemplate(id=uuid.uuid4(), key=key, name=t["name"], subject_template=t["subject"], body_template=t["body"]))
+            db.add(EmailTemplate(id=uuid.uuid4(), key=key, name=t["name"], subject_template=t["subject"], body_template=t["body"],
+                                 body_format=t.get("format", "text")))
     db.flush()
 
 

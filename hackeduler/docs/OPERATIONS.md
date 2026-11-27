@@ -284,3 +284,6 @@ else about the user changes. The Users page shows a "Lead" badge, a Leads count,
 
 The resource user's own **dashboard calendar** now also has Month | Week and By day | By engineer (their own row: one bar per booking and leave).
 Requires migration 0021 (adds `users.is_lead`, default false; existing users keep exactly the access they have).
+
+### Informing the POC when a report is shared
+Saving report details with **Report shared** ticked asks "Inform the POC?". **Yes** saves and sends ONE email (template "Penetration test report shared", subject `[Hackeduler] Penetration Test Report – {{Application Name}} | {{Booking ID}}`): To the POC(s) and the requester, Cc the *Admin notification recipients* (Admin → Settings) and the booking's engineers. **No** saves only; nothing is sent. The template is edited in Email & Templates like the others (variables `{{Report Link}}`, `{{Report Type}}`, `{{Report Comments}}`, `{{Modified By}}`); it appears automatically, no migration needed. The audit record notes whether the POC was notified.

@@ -3,7 +3,7 @@ import { put, validationMessage } from '../api/client'
 import type { Booking, ReportType } from '../api/types'
 import { fmtDateTime } from '../lib/dates'
 import { useToast } from '../lib/toast'
-import { Field, ReportBadge } from './ui'
+import { Field, Modal, ReportBadge } from './ui'
 
 /** Report-sharing form: shared yes/no, V1 or Met, and comments. Used by the assigned engineer and by admins. */
 export function ReportEditor({ booking, url, onSaved }: { booking: Booking; url: string; onSaved: (b: Booking) => void }) {
@@ -14,11 +14,13 @@ export function ReportEditor({ booking, url, onSaved }: { booking: Booking; url:
   const [comments, setComments] = useState(booking.report_comments ?? '')
   const [busy, setBusy] = useState(false)
   const dirty = shared !== booking.report_shared || type !== (booking.report_type ?? '') || comments !== (booking.report_comments ?? '') || link.trim() !== (booking.report_url ?? '')
-  const save = async () => {
+  const [asking, setAsking] = useState(false)
+  const save = async (notify: boolean) => {
+    setAsking(false)
     setBusy(true)
     try {
-      const b = await put<Booking>(url, { report_shared: shared, report_type: type || null, report_comments: comments || null, report_url: link.trim() || null })
-      toast('success', 'Report details saved'); onSaved(b)
+      const b = await put<Booking>(url, { report_shared: shared, report_type: type || null, report_comments: comments || null, report_url: link.trim() || null, notify_poc: notify })
+      toast('success', notify ? 'Report details saved; the POC has been emailed' : 'Report details saved'); onSaved(b)
     } catch (e) { toast('error', validationMessage(e)) } finally { setBusy(false) }
   }
   return (
@@ -35,7 +37,12 @@ export function ReportEditor({ booking, url, onSaved }: { booking: Booking; url:
       </Field>
       <Field label="Comments" htmlFor="rp-c"><textarea id="rp-c" className="input min-h-24" maxLength={5000} value={comments} onChange={(e) => setComments(e.target.value)} /></Field>
       {booking.report_shared_at && booking.report_shared && <div className="text-xs text-slate-500">Shared on {fmtDateTime(booking.report_shared_at)}</div>}
-      <div className="flex justify-end"><button className="btn-primary" disabled={busy || !dirty || (shared && (!type || !link.trim()))} onClick={save}>{busy ? 'Saving…' : 'Save report details'}</button></div>
+      <div className="flex justify-end"><button className="btn-primary" disabled={busy || !dirty || (shared && (!type || !link.trim()))} onClick={() => (shared ? setAsking(true) : save(false))}>{busy ? 'Saving…' : 'Save report details'}</button></div>
+      <Modal open={asking} onClose={() => setAsking(false)} title="Inform the POC?" size="sm"
+        footer={<><button className="btn-secondary" onClick={() => save(false)}>No</button><button className="btn-primary" onClick={() => save(true)}>Yes, send email</button></>}>
+        <p className="text-sm">The report details will be saved. Do you want to email the POC that the <b>{type === 'Met' ? 'Met' : 'V1'} report</b> for <b>{booking.application_name} {booking.application_version}</b> has been shared?</p>
+        <p className="mt-2 text-xs text-slate-500">To: the POC and the requester. Cc: the Admin notification recipients and the engineers on this booking.</p>
+      </Modal>
     </div>
   )
 }

@@ -261,6 +261,7 @@ class ReportIn(Strict):
     report_type: Literal["V1", "Met"] | None = None
     report_comments: str | None = Field(default=None, max_length=5000)
     report_url: str | None = Field(default=None, max_length=2000)
+    notify_poc: bool = False   # tell the POC, requester (Cc admins + engineers) that the report is shared
 
 
 # ---------------------------------------------------------------- bookings
