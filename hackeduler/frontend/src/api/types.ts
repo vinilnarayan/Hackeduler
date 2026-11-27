@@ -170,7 +170,7 @@ export interface AdminBooking extends Booking {
   engineer_name: string | null
   initiation_email_sent_at?: string | null
   initiation_email?: { state: 'sent' | 'scheduled' | 'disabled' | 'not_applicable'; sent_at: string | null; scheduled_for: string | null; days_before: number | null; can_send: boolean; note?: string } | null
-  extra_resources: { id: string; code: string; display_name: string; engineer_name: string }[]
+  extra_resources: { id: string; code: string; display_name: string; engineer_name: string; start_date?: string | null; end_date?: string | null; working_days?: number | null }[]
   requester_id: string
   requester_email: string
   source: string

@@ -87,7 +87,20 @@ def _cr_out(cr: BookingChangeRequest) -> dict:
 
 def _out(db: Session, b: Booking):
     out = booking_admin_out(b, _pending_cr(db, b.id), _open_conflicts(db, b.id))
-    return out.model_copy(update={"initiation_email": initiation.status(db, b)})
+    upd: dict = {"initiation_email": initiation.status(db, b)}
+    if b.extra_resources:   # each additional resource's own days, so the Modify form can show / keep a split
+        from ..models import BookingResourceLock
+        from sqlalchemy import func
+        rows = {r.resource_id: r for r in db.execute(
+            select(BookingResourceLock.resource_id, func.min(BookingResourceLock.work_date).label("s"),
+                   func.max(BookingResourceLock.work_date).label("e"), func.count().label("n"))
+            .where(BookingResourceLock.booking_id == b.id, BookingResourceLock.lock_status.in_(("pending", "confirmed")))
+            .group_by(BookingResourceLock.resource_id))}
+        upd["extra_resources"] = [{**x, "start_date": rows[uuid.UUID(x["id"])].s.isoformat() if uuid.UUID(x["id"]) in rows else None,
+                                   "end_date": rows[uuid.UUID(x["id"])].e.isoformat() if uuid.UUID(x["id"]) in rows else None,
+                                   "working_days": rows[uuid.UUID(x["id"])].n if uuid.UUID(x["id"]) in rows else None}
+                                  for x in out.extra_resources]
+    return out.model_copy(update=upd)
 
 
 # =============================================================== calendar
