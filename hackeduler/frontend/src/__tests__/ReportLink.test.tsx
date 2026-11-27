@@ -44,8 +44,28 @@ describe('ReportEditor link field', () => {
     fireEvent.change(screen.getByLabelText(/Report link/), { target: { value: `  ${URL} ` } })
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
+    expect(api.put).not.toHaveBeenCalled()                // the "Inform the POC?" question comes first
+    fireEvent.click(await screen.findByText('No'))
     await waitFor(() => expect(api.put).toHaveBeenCalled())
-    expect(api.put).toHaveBeenCalledWith('/x/report', { report_shared: true, report_type: 'V1', report_comments: null, report_url: URL })
+    expect(api.put).toHaveBeenCalledWith('/x/report', { report_shared: true, report_type: 'V1', report_comments: null, report_url: URL, notify_poc: false })
+  })
+  it('Yes asks the server to email the POC; un-sharing saves without asking', async () => {
+    const { unmount } = render(<ReportEditor booking={b} url="/x/report" onSaved={() => {}} />)
+    fireEvent.click(screen.getByLabelText('Report shared'))
+    fireEvent.change(screen.getByLabelText(/Report type/), { target: { value: 'V1' } })
+    fireEvent.change(screen.getByLabelText(/Report link/), { target: { value: URL } })
+    fireEvent.click(screen.getByText('Save report details'))
+    expect(await screen.findByText('Inform the POC?')).toBeTruthy()
+    fireEvent.click(screen.getByText('Yes, send email'))
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/x/report', expect.objectContaining({ notify_poc: true })))
+    unmount()
+    api.put.mockClear()
+    const shared = { ...b, report_shared: true, report_type: 'V1', report_url: URL }
+    render(<ReportEditor booking={shared} url="/x/report" onSaved={() => {}} />)
+    fireEvent.click(screen.getByLabelText('Report shared'))      // un-share
+    fireEvent.click(screen.getByText('Save report details'))
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/x/report', expect.objectContaining({ report_shared: false, notify_poc: false })))
+    expect(screen.queryByText('Inform the POC?')).toBeNull()
   })
 })
 

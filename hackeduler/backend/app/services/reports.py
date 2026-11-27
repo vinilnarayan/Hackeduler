@@ -29,7 +29,7 @@ def clean_url(value: str | None) -> str | None:
 
 
 def set_report(db: Session, b: Booking, actor: User, *, shared: bool, report_type: str | None,
-               comments: str | None, url: str | None = None) -> Booking:
+               comments: str | None, url: str | None = None, notify_poc: bool = False) -> Booking:
     if b.status not in REPORTABLE:
         raise bad_request("Report details can only be recorded on approved or completed bookings.")
     if report_type is not None and report_type not in REPORT_TYPES:
@@ -50,5 +50,10 @@ def set_report(db: Session, b: Booking, actor: User, *, shared: bool, report_typ
     b.report_updated_by = actor.id
     db.flush()
     audit.record(db, "booking.report_updated", actor, entity_type="booking", entity_id=b.id, booking_id=b.id,
-                 previous=prev, new={"report_shared": shared, "report_type": report_type, "report_comments": comments, "report_url": url})
+                 previous=prev, new={"report_shared": shared, "report_type": report_type, "report_comments": comments, "report_url": url,
+                          "poc_notified": bool(shared and notify_poc)})
+    if shared and notify_poc:
+        from . import notifications
+
+        notifications.notify_report_shared(db, b, actor.full_name)
     return b

@@ -29,6 +29,7 @@ ALLOWED_VARIABLES = {
     "Resource ID", "Resource Name", "Start Date", "End Date", "Duration", "POC Name", "POC Email", "Rejection Reason",
     "Booking Status", "Change Summary", "Reason", "Requester", "App URL", "Product", "Implementation",
     "User Name", "User Email", "Role", "Engineer Name", "Engineer Names", "Additional Comments", "Required Details", "Days Until Start", "Modified By",
+    "Report Link", "Report Type", "Report Comments",
 }
 
 SIGNATURE = "\n\nRegards,\nOffensive Security Team\n"
@@ -144,6 +145,17 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
             "plain email; we will agree a secure way to share them." + SIGNATURE
         ),
     },
+    "report_shared_poc": {
+        "name": "Penetration test report shared (to POC and requester)",
+        "subject": "[Hackeduler] Penetration Test Report – {{Application Name}} | {{Booking ID}}",
+        "format": "html",
+        "body": (
+            "<p>Hello {{POC Name}},</p><p>The {{Report Type}} report for your security assessment has been shared by {{Modified By}}.</p>"
+            "<table><tbody><tr><th>Booking ID</th><th>{{Booking ID}}</th></tr><tr><td>Application Name</td><td>{{Application Name}}</td></tr><tr><td>Application Version</td><td>{{Application Version}}</td></tr><tr><td>Activity Type</td><td>{{Activity Type}}</td></tr><tr><td>Report Type</td><td>{{Report Type}}</td></tr><tr><td>Report Link</td><td>{{Report Link}}</td></tr><tr><td>Report Comments</td><td>{{Report Comments}}</td></tr></tbody></table>"
+            "<p>Please coordinate with the Offensive Security team if you have any questions.</p>"
+            "<p>Regards,<br>Offensive Security Team</p>"
+        ),
+    },
     "user_welcome": {
         "name": "Welcome / account created (to new user)",
         "subject": "[Hackeduler] Your account is ready",
@@ -219,6 +231,9 @@ def booking_context(b: Booking, **extra: Any) -> dict[str, Any]:
         "Change Summary": "",
         "Reason": "",
         "Modified By": "",
+        "Report Link": b.report_url or "",
+        "Report Type": b.report_type or "",
+        "Report Comments": b.report_comments or "None",
     }
     ctx.update(extra)
     return ctx
@@ -239,7 +254,7 @@ def _get_template(db: Session, key: str) -> Tpl | None:
             return None
         return Tpl(t.subject_template, t.body_template, t.body_format or "text", t.layout or "classic", t.accent or "#0f2744")
     d = DEFAULT_TEMPLATES[key]
-    return Tpl(d["subject"], d["body"])
+    return Tpl(d["subject"], d["body"], d.get("format", "text"))
 
 
 def _bodies(tpl: Tpl, ctx: dict[str, Any], subject: str) -> tuple[str, str]:
@@ -372,6 +387,14 @@ def notify_modified(db: Session, b: Booking, summary: str, reason: str, previous
     cc = engineer_emails(b) + list(previous_engineers or []) + requester
     enqueue_poc(db, "booking_modified_poc", poc_recipients(db, b),
                 booking_context(b, **{"Change Summary": summary, "Reason": reason, "Modified By": modified_by}), b.id, cc=cc)
+
+
+def notify_report_shared(db: Session, b: Booking, modified_by: str = "") -> None:
+    """ONE email: To the POC(s) and the requester, Cc the Admin notification recipients and the assigned engineer(s)."""
+    requester = [b.requester.email] if b.requester and b.requester.email and b.source == "requester" else []
+    to = poc_recipients(db, b) + requester
+    cc = admin_recipients(db) + engineer_emails(b)
+    enqueue_combined(db, "report_shared_poc", to, cc, booking_context(b, **{"Modified By": modified_by}), b.id)
 
 
 def notify_cancelled(db: Session, b: Booking, reason: str) -> None:
