@@ -19,8 +19,8 @@ from ..db import get_db
 from ..deps import require_lead, require_resource
 from ..errors import bad_request, not_found
 from ..models import Booking, BookingResourceLock, BookingStatus, LockStatus, ResourceLeave, ResourceNote, User
-from ..schemas import ReportIn, Strict, booking_requester_out
-from ..services import audit, conflicts, reports
+from ..schemas import ReportIn, ResourceBookingEdit, Strict, booking_requester_out
+from ..services import audit, booking_service, conflicts, reports
 from ..services import availability
 from ..services.availability import now_utc
 from ..services.calendar_engine import expand_ranges
@@ -112,6 +112,20 @@ def list_bookings(status: str | None = None, report: str | None = Query(None, pa
 @router.get("/bookings/{booking_id}")
 def booking_detail(booking_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(require_resource)):
     return _out(_get_mine(db, user, booking_id))
+
+
+@router.patch("/bookings/{booking_id}")
+def edit_details(booking_id: uuid.UUID, body: ResourceBookingEdit, db: Session = Depends(get_db),
+                 user: User = Depends(require_resource)):
+    """The assigned engineer edits the details of their own approved booking (not dates, activity, resource or product).
+    Audited under their name; the POC, the engineers and the requester get the 'Booking Updated' email naming them."""
+    changes = body.model_dump(exclude_unset=True, exclude={"reason"})
+    changes = {k: v for k, v in changes.items() if v is not None or k == "additional_comments"}
+    _get_mine(db, user, booking_id)          # same 404 as everywhere else for a booking that is not theirs
+    b = booking_service.modify(db, user, booking_id, changes, body.reason, as_resource=True)
+    commit(db)
+    db.refresh(b)
+    return _out(b)
 
 
 @router.put("/bookings/{booking_id}/report")

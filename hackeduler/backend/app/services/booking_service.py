@@ -983,8 +983,15 @@ MULTI_FIELDS = {"additional_resources"}   # the full desired list of additional 
 
 
 def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, Any], reason: str,
-           force: ForceOptions | None = None) -> Booking:
-    if not admin.is_admin:
+           force: ForceOptions | None = None, *, as_resource: bool = False) -> Booking:
+    """Admin modification. ``as_resource=True`` is the assigned security engineer editing the booking DETAILS of their
+    own approved booking (application, PCI scope, POC, comments) - never dates, activity, resource or product."""
+    if as_resource:
+        if not admin.is_resource or admin.resource_id is None:
+            raise forbidden()
+        if set(changes) - DETAIL_FIELDS:
+            raise forbidden("Engineers can only change the booking details.")
+    elif not admin.is_admin:
         raise forbidden()
     reason = _clean_text(reason, "Reason for change", max_len=2000)
     ensure_force_allowed(admin, force, booking_id=booking_id)
@@ -995,6 +1002,9 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
     b = lock_booking(db, booking_id)
     if b.status not in BookingStatus.ACTIVE:
         raise conflict("Only pending or approved bookings can be modified.", "invalid_state")
+    if as_resource:
+        if b.status != BookingStatus.APPROVED or admin.resource_id not in {b.resource_id, *[r.id for r in b.extra_resources]}:
+            raise not_found("Booking")      # not theirs / not approved: same answer as everywhere else for engineers
     # Additional resources: the request carries the FULL desired list (resource + optional own slice each).
     extras_req: list[ExtraAllocation] | None = None
     if "additional_resources" in changes:
@@ -1216,14 +1226,16 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
                              f"{b.resource.display_name if b.resource else 'Not required'}")
             else:
                 lines.append(f"- {labels[k]}: {before.get(k)} -> {after.get(k)}")
-        notifications.notify_modified(db, b, "\n".join(lines) or "Booking details updated.", reason, previous_engineers=old_engineers)
+        notifications.notify_modified(db, b, "\n".join(lines) or "Booking details updated.", reason, previous_engineers=old_engineers,
+                                      modified_by=admin.full_name)
         if "poc_email" in changed and before.get("poc_email"):
             # People taken off the POC list still get told - but only them: everyone still on the list already got the email above.
             still_notified = {a.lower() for a in notifications.poc_recipients(db, b)}
             removed = [a for a in split_emails(before["poc_email"]) if a.lower() not in still_notified]
             if removed:
                 notifications.enqueue_poc(db, "booking_modified_poc", removed,
-                                          notifications.booking_context(b, **{"Change Summary": "\n".join(lines), "Reason": reason}), b.id)
+                                          notifications.booking_context(b, **{"Change Summary": "\n".join(lines), "Reason": reason,
+                                                                              "Modified By": admin.full_name}), b.id)
     if b.status == BookingStatus.APPROVED:
         initiation.send_if_due(db, b)  # rescheduled (new start date) and already inside the window => send again now
     return b

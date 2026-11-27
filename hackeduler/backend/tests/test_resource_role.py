@@ -120,7 +120,8 @@ def test_resource_cannot_change_anything_else(admin, data):
     eng = Api("eng1@test.local")
     for method in ("patch", "post", "delete"):
         r = getattr(eng, method)(f"/api/resource/bookings/{b['id']}", **({"json": {}} if method != "delete" else {}))
-        assert r.status_code in (404, 405), (method, r.status_code)
+        # PATCH is the engineer's details edit now: an empty body is refused (reason required), nothing else is allowed
+        assert r.status_code in ((422,) if method == "patch" else (404, 405)), (method, r.status_code)
     assert eng.get(f"/api/admin/bookings/{b['id']}").status_code == 403
 
 

@@ -364,6 +364,17 @@ class BookingModify(Strict):
     force: ForceIn | None = None
 
 
+class ResourceBookingEdit(Strict):
+    """What the assigned security engineer may change on their own booking: details only, with a required reason."""
+    application_name: str | None = Field(default=None, min_length=1, max_length=255)
+    application_version: str | None = Field(default=None, min_length=1, max_length=100)
+    pci_dss_scope: bool | None = None
+    poc_name: str | None = Field(default=None, min_length=1, max_length=255)
+    poc_email: Annotated[str, Field(max_length=2000), AfterValidator(normalize_poc_emails)] | None = None
+    additional_comments: str | None = Field(default=None, max_length=4000)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 class CompleteIn(Strict):
     note: str | None = Field(default=None, max_length=2000)
 

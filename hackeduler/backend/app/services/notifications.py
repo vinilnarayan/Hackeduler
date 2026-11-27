@@ -28,7 +28,7 @@ ALLOWED_VARIABLES = {
     "Booking ID", "Application Name", "Application Version", "Activity Type", "PCI DSS Scope", "Yes/No",
     "Resource ID", "Resource Name", "Start Date", "End Date", "Duration", "POC Name", "POC Email", "Rejection Reason",
     "Booking Status", "Change Summary", "Reason", "Requester", "App URL", "Product", "Implementation",
-    "User Name", "User Email", "Role", "Engineer Name", "Engineer Names", "Additional Comments", "Required Details", "Days Until Start",
+    "User Name", "User Email", "Role", "Engineer Name", "Engineer Names", "Additional Comments", "Required Details", "Days Until Start", "Modified By",
 }
 
 SIGNATURE = "\n\nRegards,\nOffensive Security Team\n"
@@ -73,7 +73,7 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
         "name": "Booking modified (to POC)",
         "subject": "[Hackeduler] Booking Updated – {{Booking ID}}",
         "body": (
-            "Hello {{POC Name}},\n\nYour approved security assessment booking has been updated.\n\n"
+            "Hello {{POC Name}},\n\nYour approved security assessment booking has been updated by {{Modified By}}.\n\n"
             "- Booking ID: {{Booking ID}}\n- Application Name: {{Application Name}}\n"
             "- Application Version: {{Application Version}}\n- Activity Type: {{Activity Type}}\n"
             "- Resource: {{Resource ID}}\n- Security engineer(s): {{Engineer Names}}\n- Start Date: {{Start Date}}\n- Expected End Date: {{End Date}}\n"
@@ -218,6 +218,7 @@ def booking_context(b: Booking, **extra: Any) -> dict[str, Any]:
         "App URL": get_settings().app_base_url,
         "Change Summary": "",
         "Reason": "",
+        "Modified By": "",
     }
     ctx.update(extra)
     return ctx
@@ -361,10 +362,16 @@ def notify_rejected(db: Session, b: Booking) -> None:
     enqueue_poc(db, "booking_rejected_poc", poc_recipients(db, b), booking_context(b), b.id)
 
 
-def notify_modified(db: Session, b: Booking, summary: str, reason: str, previous_engineers: list[str] | None = None) -> None:
-    """ONE email: To the POCs, with the assigned engineer(s) in Cc - and the previous engineer(s) too when the resource changed."""
-    cc = engineer_emails(b) + list(previous_engineers or [])
-    enqueue_poc(db, "booking_modified_poc", poc_recipients(db, b), booking_context(b, **{"Change Summary": summary, "Reason": reason}), b.id, cc=cc)
+def notify_modified(db: Session, b: Booking, summary: str, reason: str, previous_engineers: list[str] | None = None,
+                    modified_by: str = "") -> None:
+    """ONE email: To the POCs, with the assigned engineer(s) in Cc - and the previous engineer(s) too when the resource changed -
+    and the requester, who gets a copy. ``modified_by`` is the name of the person who made the change."""
+    # The requester gets a copy too (when they are not already in To through the "requester copy" setting). Bookings an
+    # admin created themselves have no separate requester: that account is the admin, so nobody extra is copied.
+    requester = [b.requester.email] if b.requester and b.requester.email and b.source == "requester" else []
+    cc = engineer_emails(b) + list(previous_engineers or []) + requester
+    enqueue_poc(db, "booking_modified_poc", poc_recipients(db, b),
+                booking_context(b, **{"Change Summary": summary, "Reason": reason, "Modified By": modified_by}), b.id, cc=cc)
 
 
 def notify_cancelled(db: Session, b: Booking, reason: str) -> None:

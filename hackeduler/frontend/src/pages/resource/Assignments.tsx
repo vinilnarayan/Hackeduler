@@ -4,6 +4,7 @@ import { Search } from 'lucide-react'
 import { get, qs } from '../../api/client'
 import type { Booking } from '../../api/types'
 import { ReportEditor } from '../../components/ReportEditor'
+import { ResourceDetailsEditor } from '../../components/ResourceDetailsEditor'
 import { Empty, ErrorState, KV, Modal, PageHeader, ReportLink, Spinner, StatusBadge } from '../../components/ui'
 import { fmt, fmtDateTime } from '../../lib/dates'
 import { useAsync } from '../../lib/useAsync'
@@ -15,15 +16,16 @@ export default function Assignments() {
   const [q, setQ] = useState('')
   const [report, setReport] = useState('')
   const [status, setStatus] = useState('')
+  const [editing, setEditing] = useState(false)
   const [params, setParams] = useSearchParams()
   const [sel, setSelState] = useState<string | null>(params.get('booking'))   // opened from the dashboard calendar
-  const setSel = (id: string | null) => { setSelState(id); if (!id && params.has('booking')) setParams({}, { replace: true }) }
+  const setSel = (id: string | null) => { setSelState(id); setEditing(false); if (!id && params.has('booking')) setParams({}, { replace: true }) }
   const { data, error, loading, reload } = useAsync<{ total: number; items: Row[] }>(() => get('/api/resource/bookings' + qs({ q, report, status })), [q, report, status])
   const tbl = useSort(data?.items, { app: (b) => b.application_name, version: (b) => b.application_version, activity: (b) => b.activity_name, dates: (b) => b.start_date, poc: (b) => b.poc_name, status: (b) => b.status, report: (b) => (b.report_shared ? (b.report_type ?? 'Shared') : '') })
   const current = data?.items.find((b) => b.id === sel) ?? null
   return (
     <div>
-      <PageHeader title="My assignments" subtitle="Bookings assigned to you. Open one to record whether the report has been shared." />
+      <PageHeader title="My assignments" subtitle="Bookings assigned to you. Open one to edit its details or record whether the report has been shared." />
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <div className="relative"><Search className="absolute top-2.5 left-2.5 h-4 w-4 text-slate-400" /><input className="input w-64 pl-8" placeholder="Search application, version, POC" aria-label="Search" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <select className="input w-44" aria-label="Report filter" value={report} onChange={(e) => setReport(e.target.value)}><option value="">All reports</option><option value="shared">Report shared</option><option value="pending">Not shared</option></select>
@@ -47,6 +49,8 @@ export default function Assignments() {
       {current && (
         <Modal open onClose={() => setSel(null)} size="lg" title={<span>{current.application_name} <span className="ml-1 align-middle"><StatusBadge status={current.status} /></span></span>}>
           <div className="space-y-4">
+            {current.status === 'approved' && !editing && <div className="flex justify-end"><button className="btn-secondary" onClick={() => setEditing(true)}>Edit details</button></div>}
+            {editing && <ResourceDetailsEditor booking={current} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); reload() }} />}
             <KV items={[
               ['Application', `${current.application_name} v${current.application_version}`], ['Activity', current.duration_days ? `${current.activity_name} (${current.duration_days} working days)` : current.activity_name],
               ['Dates', `${fmt(current.start_date)} – ${fmt(current.end_date)}`], ['PCI DSS scope', current.pci_dss_scope ? 'Yes' : 'No'],
