@@ -204,6 +204,8 @@ New schema changes go in new Alembic revisions under `backend/alembic/versions/`
 
 ### Who is copied on "Booking modified"
 
+The email says "Your approved security assessment booking has been updated by **<name of the person who made the change>**" (template variable `{{Modified By}}`). Assigned engineers can edit the details of their own approved bookings (Resource → My assignments → Edit details, reason required); administrators edit from Admin → Bookings. A real requester always gets a copy: in To through the "requester copy" setting, otherwise in Cc. A template you edited keeps its text; migration 0024 only replaces the original sentence where it is still present, so add `{{Modified By}}` yourself in Email & Templates if you removed it.
+
 The Booking modified email is ONE message: To the POC(s) (and the requester copy, if enabled), with the assigned security engineer(s)
 in Cc. When the resource is changed, the previous engineer is copied as well, so the person who loses the booking is told too.
 The default template now includes `{{Engineer Names}}`; templates you already edited keep their text, so add the line in
