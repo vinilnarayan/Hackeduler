@@ -265,6 +265,10 @@ scroll sideways, the engineer column stays put). Month, By day is the original c
 Engineer names are shown instead of "Resource 01…" (the resource name remains only as a fallback and in hover text); the filter is now
 **Engineer**. Clicking a day opens the usual details pop-up, whose application name links to the booking. No database change.
 
+### Several resources on one booking
+
+**Manual Allocation** and **Modify booking** both have "Also block other resources for this booking". In Modify, current resources are pre-ticked, you can add or release resources and give an added resource its own start date and working days; busy resources are marked and nothing is saved if any is not free. The "Booking modified" email lists the resource changes, copies every engineer now on the booking and any engineer who was taken off it.
+
 ### Act as (admin on behalf of a user)
 
 **Admin → Users → Act as** opens the app as that user (requester or resource) so an admin can do things on their behalf. An amber banner shows who you are acting as; **Exit act as** (or Sign out) returns to the admin session. Rules: other admins and disabled users cannot be acted as, passwords cannot be changed while acting, and the session ends after `HACKEDULER_ACT_AS_MINUTES` (default 60) or if the admin loses admin rights. Every action is stored as done by the user and carries the real admin in the audit log ("via admin …"). Emails still go to the real user.
