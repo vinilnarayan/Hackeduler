@@ -9,8 +9,8 @@ describe('ReportBadge', () => {
   })
   it('shows the report type when shared', () => {
     const { rerender } = render(<ReportBadge shared type="V1" />)
-    expect(screen.getByText('Shared · V1 report')).toBeTruthy()
+    expect(screen.getByText('Shared · Not Met Report')).toBeTruthy()
     rerender(<ReportBadge shared type="Met" />)
-    expect(screen.getByText('Shared · Met report')).toBeTruthy()
+    expect(screen.getByText('Shared · Met Report')).toBeTruthy()
   })
 })

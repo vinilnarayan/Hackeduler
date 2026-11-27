@@ -150,7 +150,7 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
         "subject": "[Hackeduler] Penetration Test Report – {{Application Name}} | {{Booking ID}}",
         "format": "html",
         "body": (
-            "<p>Hello {{POC Name}},</p><p>The {{Report Type}} report for your security assessment has been shared by {{Modified By}}.</p>"
+            "<p>Hello {{POC Name}},</p><p>The {{Report Type}} for your security assessment has been shared by {{Modified By}}.</p>"
             "<table><tbody><tr><th>Booking ID</th><th>{{Booking ID}}</th></tr><tr><td>Application Name</td><td>{{Application Name}}</td></tr><tr><td>Application Version</td><td>{{Application Version}}</td></tr><tr><td>Activity Type</td><td>{{Activity Type}}</td></tr><tr><td>Report Type</td><td>{{Report Type}}</td></tr><tr><td>Report Link</td><td>{{Report Link}}</td></tr><tr><td>Report Comments</td><td>{{Report Comments}}</td></tr></tbody></table>"
             "<p>Please coordinate with the Offensive Security team if you have any questions.</p>"
             "<p>Regards,<br>Offensive Security Team</p>"
@@ -232,7 +232,7 @@ def booking_context(b: Booking, **extra: Any) -> dict[str, Any]:
         "Reason": "",
         "Modified By": "",
         "Report Link": b.report_url or "",
-        "Report Type": b.report_type or "",
+        "Report Type": {"V1": "Not Met Report", "Met": "Met Report"}.get(b.report_type or "", b.report_type or ""),
         "Report Comments": b.report_comments or "None",
     }
     ctx.update(extra)

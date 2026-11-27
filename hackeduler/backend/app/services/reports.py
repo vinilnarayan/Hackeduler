@@ -14,6 +14,8 @@ from . import audit
 from .availability import now_utc
 
 REPORT_TYPES = ("V1", "Met")
+# Stored values stay V1 / Met (no data change); people see these names.
+REPORT_LABELS = {"V1": "Not Met Report", "Met": "Met Report"}
 REPORTABLE = (BookingStatus.APPROVED, BookingStatus.COMPLETED)
 
 
@@ -33,9 +35,9 @@ def set_report(db: Session, b: Booking, actor: User, *, shared: bool, report_typ
     if b.status not in REPORTABLE:
         raise bad_request("Report details can only be recorded on approved or completed bookings.")
     if report_type is not None and report_type not in REPORT_TYPES:
-        raise bad_request("Report type must be V1 or Met.")
+        raise bad_request("Report type must be Not Met Report or Met Report.")
     if shared and not report_type:
-        raise bad_request("Choose the report type (V1 or Met) when marking the report as shared.")
+        raise bad_request("Choose the report type (Not Met Report or Met Report) when marking the report as shared.")
     comments = (comments or "").strip() or None
     url = clean_url(url)
     if shared and not url:

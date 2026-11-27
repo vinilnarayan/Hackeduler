@@ -23,7 +23,7 @@ const searchText = (b: Booking) => [
   b.requires_resource ? b.resource_display_name : 'Not required',
   b.start_date ? `${fmt(b.start_date)} – ${fmt(b.end_date)} ${b.start_date} ${b.end_date ?? ''}` : 'Date flexible',
   STATUS_LABELS[b.status], b.pending_change_request ? 'Change requested' : '',
-  b.report_shared ? `Shared ${b.report_type === 'Met' ? 'Met report' : 'V1 report'}` : 'Not shared', fmtDateTime(b.submitted_at),
+  b.report_shared ? `Shared ${b.report_type === 'Met' ? 'Met Report' : 'Not Met Report'}` : 'Not shared', fmtDateTime(b.submitted_at),
 ].filter(Boolean).join(' ').toLowerCase()
 
 export default function MyBookings() {
