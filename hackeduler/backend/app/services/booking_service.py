@@ -1203,7 +1203,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
     if forced and plan is not None:
         _record_force(db, admin, b, plan, force, plan.issues, previous_allocation=old_alloc)
 
-    if b.status == BookingStatus.APPROVED and changed:
+    if b.status in (BookingStatus.APPROVED, BookingStatus.COMPLETED) and changed:
         labels = {"resource_id": "Resource", "start_date": "Start date", "end_date": "End date",
                   "activity_name_snapshot": "Activity type", "duration_days": "Duration (working days)",
                   "application_name": "Application name", "application_version": "Application version",
