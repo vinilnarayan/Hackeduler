@@ -54,7 +54,8 @@ def test_inactive_booking_details_editable_schedule_is_not(admin, data, status):
     r = _patch(admin, b["id"], application_version="9.9", poc_email="fixed@poc.example")
     assert r.status_code == 200, r.text
     assert r.json()["application_version"] == "9.9" and r.json()["status"] == status
-    assert [m for m in _mails(b["id"]) if m.template_key == "booking_modified_poc"] == []                              # nothing is emailed for a booking that holds no reservation
+    sent = [m for m in _mails(b["id"]) if m.template_key == "booking_modified_poc"]
+    assert len(sent) == 2 and "9.9" in sent[0].body and "Your security assessment booking has been updated by" in sent[0].body
     r = _patch(admin, b["id"], start_date="2027-03-22")
     assert r.status_code == 409
     assert _patch(admin, b["id"], additional_resources=[{"resource_id": str(data["resources"][1].id)}]).status_code == 409
