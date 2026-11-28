@@ -74,7 +74,7 @@ DEFAULT_TEMPLATES: dict[str, dict[str, str]] = {
         "name": "Booking modified (to POC)",
         "subject": "[Hackeduler] Booking Updated – {{Booking ID}}",
         "body": (
-            "Hello {{POC Name}},\n\nYour approved security assessment booking has been updated by {{Modified By}}.\n\n"
+            "Hello {{POC Name}},\n\nYour security assessment booking has been updated by {{Modified By}}.\n\n"
             "- Booking ID: {{Booking ID}}\n- Application Name: {{Application Name}}\n"
             "- Application Version: {{Application Version}}\n- Activity Type: {{Activity Type}}\n"
             "- Resource: {{Resource ID}}\n- Security engineer(s): {{Engineer Names}}\n- Start Date: {{Start Date}}\n- Expected End Date: {{End Date}}\n"

@@ -1203,7 +1203,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
     if forced and plan is not None:
         _record_force(db, admin, b, plan, force, plan.issues, previous_allocation=old_alloc)
 
-    if b.status in (BookingStatus.APPROVED, BookingStatus.COMPLETED) and changed:
+    if changed:      # every change to a booking, in any status, is emailed to the POC / requester (engineers in Cc)
         labels = {"resource_id": "Resource", "start_date": "Start date", "end_date": "End date",
                   "activity_name_snapshot": "Activity type", "duration_days": "Duration (working days)",
                   "application_name": "Application name", "application_version": "Application version",
