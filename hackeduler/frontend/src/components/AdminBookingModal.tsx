@@ -71,7 +71,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
         {b.status === 'pending_approval' && <><button className="btn-success" onClick={() => setDlg('approve')}><Check className="h-4 w-4" />Approve</button><button className="btn-danger" onClick={() => setDlg('reject')}><X className="h-4 w-4" />Reject</button></>}
         {b.status === 'approved' && !b.requires_resource && <button className="btn-success" onClick={() => setDlg('complete')}><Check className="h-4 w-4" />Mark completed</button>}
         {active && <button className="btn-secondary" onClick={() => setDlg('cancel')}><Trash2 className="h-4 w-4" />Cancel booking</button>}
-        {active && <button className="btn-secondary" onClick={() => setTab('edit')}><Pencil className="h-4 w-4" />Modify</button>}
+        <button className="btn-secondary" onClick={() => setTab('edit')}><Pencil className="h-4 w-4" />Modify</button>
       </>}>
       <div className="mb-3 flex flex-wrap gap-1 border-b border-slate-200" role="tablist">
         {tabs.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`-mb-px border-b-2 px-3 py-1.5 text-sm ${tab === k ? 'border-blue-700 font-medium text-blue-800' : 'border-transparent text-slate-600 hover:text-slate-900'}`}>{l}</button>)}
@@ -112,7 +112,7 @@ export function AdminBookingModal({ bookingId, onClose, onChanged }: { bookingId
       {tab === 'edit' && (b.status === 'approved' || b.status === 'completed') && (
         <div className="mb-4"><ReportEditor key={`edit-${b.id}-${b.report_shared}-${b.report_type}-${b.report_comments}-${b.report_url}`} booking={b} url={`/api/admin/bookings/${b.id}/report`} onSaved={changed} /></div>
       )}
-      {tab === 'edit' && (active ? <EditBooking b={b} run={force.run} onSaved={() => { toast('success', 'Booking updated'); setTab('overview'); changed() }} /> : <p className="text-sm text-slate-500">Only pending or approved bookings can be modified.</p>)}
+      {tab === 'edit' && <EditBooking b={b} run={force.run} onSaved={() => { toast('success', 'Booking updated'); setTab('overview'); changed() }} />}
       {tab === 'audit' && (
         <ol className="space-y-3">{data.audit.slice().reverse().map((a: AuditEntry) => (
           <li key={a.id} className="rounded border border-slate-200 p-2 text-sm">
@@ -160,6 +160,7 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
     poc_email: b.poc_email, additional_comments: b.additional_comments ?? '', reason: '',
   })
   const [busy, setBusy] = useState(false)
+  const noSchedule = !['pending_approval', 'approved', 'completed'].includes(b.status)   // rejected / cancelled / expired: no reservation
   // Additional resources ("Also block other resources"): pre-filled from the booking, edited as one full list.
   const initialExtras = b.extra_resources ?? []
   const initialSlice: Record<string, { start_date: string; working_days: string }> = {}
@@ -227,6 +228,8 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
   return (
     <form className="space-y-4" onSubmit={async (e) => { e.preventDefault(); setBusy(true); await run((force) => patch(`/api/admin/bookings/${b.id}`, body(force)), onSaved); setBusy(false) }}>
       <p className="text-xs text-slate-500">All changes are revalidated on the server, audited with previous values, and notify the POC if the booking is approved. The old reservation is only released when the new allocation commits.</p>
+      {noSchedule && <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm" role="note">This booking is {STATUS_LABELS[b.status].toLowerCase()}, so it holds no reservation: its details and product can be edited, but not its dates, activity or resources.</p>}
+      <fieldset disabled={noSchedule} className="m-0 min-w-0 space-y-4 border-0 p-0">
       <div className="grid gap-3 md:grid-cols-3">
         <Field label="Activity type" htmlFor="e-act"><select id="e-act" className="input" value={f.activity_type_id} onChange={s('activity_type_id')}>{acts.data?.filter((a) => !a.deleted_at || a.id === b.activity_type_id).map((a) => <option key={a.id} value={a.id} disabled={(!a.is_active || !!a.deleted_at) && a.id !== b.activity_type_id}>{a.name}{a.base_duration_days ? ` (${a.base_duration_days}d)` : ''}{a.requires_resource ? '' : ' – no resource'}{a.deleted_at ? ' – removed' : a.is_active ? '' : ' – inactive'}</option>)}</select></Field>
         {needsRes ? (
@@ -298,6 +301,7 @@ function EditBooking({ b, run, onSaved }: { b: AdminBooking; run: ReturnType<typ
           )}
         </fieldset>
       )}
+      </fieldset>
       <div className="grid gap-3 md:grid-cols-3">
         <Field label="Application name" htmlFor="e-an"><input id="e-an" className="input" value={f.application_name} onChange={s('application_name')} /></Field>
         <Field label="Version" htmlFor="e-av"><input id="e-av" className="input" value={f.application_version} onChange={s('application_version')} /></Field>

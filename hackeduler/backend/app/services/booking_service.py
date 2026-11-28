@@ -1000,8 +1000,15 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
     if unknown:
         raise bad_request(f"Unsupported field(s): {', '.join(sorted(unknown))}")
     b = lock_booking(db, booking_id)
-    if b.status not in BookingStatus.ACTIVE:
+    if as_resource and b.status not in BookingStatus.ACTIVE:
         raise conflict("Only pending or approved bookings can be modified.", "invalid_state")
+    # An administrator can edit a booking in ANY status. Pending / approved / completed bookings hold (or held) a
+    # reservation, so dates, activity, resources and product can be changed too; a rejected, cancelled or expired
+    # booking holds nothing, so only its details and product can be edited (there is no reservation to move).
+    if not as_resource and b.status not in (*BookingStatus.ACTIVE, BookingStatus.COMPLETED) \
+            and ((SCHEDULE_FIELDS | MULTI_FIELDS) & set(changes)):
+        raise conflict(f"A {BookingStatus.LABELS.get(b.status, b.status).lower()} booking holds no reservation, so its dates, activity "
+                       "and resources cannot be changed; you can edit its details and product.", "invalid_state")
     if as_resource:
         if b.status != BookingStatus.APPROVED or admin.resource_id not in {b.resource_id, *[r.id for r in b.extra_resources]}:
             raise not_found("Booking")      # not theirs / not approved: same answer as everywhere else for engineers
@@ -1134,7 +1141,7 @@ def modify(db: Session, admin: User, booking_id: uuid.UUID, changes: dict[str, A
         # release the old reservation and create the new one in ONE transaction
         _release_locks(db, b.id)
         db.flush()
-        lock_status = LockStatus.CONFIRMED if b.status == BookingStatus.APPROVED else LockStatus.PENDING
+        lock_status = LockStatus.CONFIRMED if b.status in (BookingStatus.APPROVED, BookingStatus.COMPLETED) else LockStatus.PENDING
         _write_locks(db, b, plan, lock_status, forced, b.expires_at if lock_status == LockStatus.PENDING else None)
         for xp in extra_plans:
             _write_locks(db, b, xp, lock_status, False, b.expires_at if lock_status == LockStatus.PENDING else None)
