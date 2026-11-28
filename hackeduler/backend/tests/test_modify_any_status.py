@@ -33,7 +33,6 @@ def _mails(bid):
 
 def test_completed_booking_details_and_schedule_can_be_edited(admin, data):
     b = _make(admin, data, "completed")
-    sent_before = len(_mails(b["id"]))
     r = _patch(admin, b["id"], application_name="Renamed App", poc_name="New Poc")
     assert r.status_code == 200, r.text
     assert r.json()["application_name"] == "Renamed App" and r.json()["status"] == "completed"
@@ -45,7 +44,8 @@ def test_completed_booking_details_and_schedule_can_be_edited(admin, data):
                                                          BookingResourceLock.lock_status.in_(("pending", "confirmed")))).all()
     db.close()
     assert locks and {l.lock_status for l in locks} == {"confirmed"}
-    assert len(_mails(b["id"])) == sent_before                 # editing history does not email the POC
+    sent = [m for m in _mails(b["id"]) if m.template_key == "booking_modified_poc"]
+    assert len(sent) == 2 and "Renamed App" in sent[0].body + sent[1].body   # a correction is emailed like any other edit
 
 
 @pytest.mark.parametrize("status", ["rejected", "cancelled", "expired"])
@@ -54,6 +54,7 @@ def test_inactive_booking_details_editable_schedule_is_not(admin, data, status):
     r = _patch(admin, b["id"], application_version="9.9", poc_email="fixed@poc.example")
     assert r.status_code == 200, r.text
     assert r.json()["application_version"] == "9.9" and r.json()["status"] == status
+    assert [m for m in _mails(b["id"]) if m.template_key == "booking_modified_poc"] == []                              # nothing is emailed for a booking that holds no reservation
     r = _patch(admin, b["id"], start_date="2027-03-22")
     assert r.status_code == 409
     assert _patch(admin, b["id"], additional_resources=[{"resource_id": str(data["resources"][1].id)}]).status_code == 409
